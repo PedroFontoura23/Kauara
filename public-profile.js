@@ -1,4 +1,4 @@
-// Initialize Firebase
+// Firebase Initialization
 const firebaseConfig = {
     apiKey: "AIzaSyBcBmuXY9ulETrbn2PmzjsDZ7JKRcehqGo",
     authDomain: "kauara1.firebaseapp.com",
@@ -8,49 +8,51 @@ const firebaseConfig = {
     appId: "1:651139031771:web:8c73a3e1fff2d5cf2ae2fe",
     measurementId: "G-KL18R1CJ6S"
 };
+
 firebase.initializeApp(firebaseConfig);
 
+// Firebase Firestore
 const db = firebase.firestore();
 
-// Get the query parameter from the URL
+// Get the email from the URL parameters
 const urlParams = new URLSearchParams(window.location.search);
-const query = urlParams.get("query");
+const emailFromUrl = urlParams.get("email");
 
-// Elements to display user data
+console.log("Email from URL:", emailFromUrl);
+
+// Get reference to elements where we display user info
 const userNameElement = document.getElementById("userName");
-const profilePictureElement = document.getElementById("profilePicture");
 const userEmailElement = document.getElementById("userEmail");
 const userBioElement = document.getElementById("userBio");
+const profilePictureElement = document.getElementById("profilePicture");
 
-// Fetch user data based on query
-if (query) {
+// Fetch the user data from Firestore based on email
+if (emailFromUrl) {
     db.collection("users")
-        .where("fullName", "==", query) // Search by email; change this to "fullName" if needed
+        .where("email", "==", emailFromUrl)  // Query by email
         .get()
-        .then((snapshot) => {
+        .then(snapshot => {
             if (!snapshot.empty) {
-                // If a user is found, retrieve their data
                 const userData = snapshot.docs[0].data();
                 userNameElement.textContent = userData.fullName || "No Name Available";
-                profilePictureElement.src = userData.profilePicture || "default-profile.png";
                 userEmailElement.textContent = userData.email || "No Email Available";
-                userBioElement.textContent = userData.message || "No Bio Available";
+                userBioElement.textContent = userData.bio || "No bio available";
+
+                // Display the profile picture, checking for Base64 or default
+                const profilePic = userData.profilePicture;
+                if (profilePic) {
+                    profilePictureElement.src = `data:image/jpeg;base64,${profilePic}`;
+                } else {
+                    profilePictureElement.src = "default-profile.png";
+                }
             } else {
-                // If no user is found, display a message
-                userNameElement.textContent = "User Not Found";
-                userEmailElement.textContent = "N/A";
-                userBioElement.textContent = "N/A";
+                userNameElement.textContent = "User not found";
+                userEmailElement.textContent = "";
+                userBioElement.textContent = "";
+                profilePictureElement.src = "default-profile.png";
             }
         })
-        .catch((error) => {
+        .catch(error => {
             console.error("Error fetching user data:", error);
-            userNameElement.textContent = "Error Loading Profile";
-            userEmailElement.textContent = "N/A";
-            userBioElement.textContent = "N/A";
         });
-} else {
-    // If no query parameter is provided
-    userNameElement.textContent = "No Query Provided";
-    userEmailElement.textContent = "N/A";
-    userBioElement.textContent = "N/A";
 }

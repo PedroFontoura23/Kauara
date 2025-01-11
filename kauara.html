@@ -36,7 +36,7 @@
                 <input id="searchInput" class="form-control me-2" type="search" placeholder="Search by username or email..." aria-label="Search" autocomplete="off">
                 <button class="btn btn-outline-primary" type="submit">Search</button>
                 <!-- Dropdown for search results -->
-                <ul id="searchResults" class="dropdown-menu position-absolute w-100 list-unstyled" style="display: none; z-index: 1000;"></ul>
+                <ul id="searchResults" style="position: absolute; display: none; z-index: 1000;"></ul>
             </form>
 
             <!-- Profile Button -->
@@ -45,6 +45,9 @@
             </div>
         </div>
     </header>
+    <!-- Search results (previews) will appear here -->
+    <div id="searchResultsContainer" class="container mt-4">
+    </div>
 
     <!-- Modal for Login/Register -->
     <div class="modal" tabindex="-1" id="authModal">
