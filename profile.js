@@ -133,6 +133,12 @@ document.addEventListener("DOMContentLoaded", function() {
       height: 300,
     });
 
+    if (!cropper) {
+      console.error("Cropper is not initialized.");
+      alert("Please select and crop an image first.");
+      return;
+    }
+
     canvas.toBlob((blob) => {
       const base64Image = canvas.toDataURL('image/jpeg').split(',')[1]; // Convert the canvas to Base64
       const user = auth.currentUser;
@@ -178,4 +184,28 @@ document.addEventListener("DOMContentLoaded", function() {
     cancelNameButton.addEventListener("click", () => {
         nameEditSection.style.display = "none"; // Hide name edit section without saving
     });
+  // Delete account functionality
+  document.getElementById("deleteAccountButton").addEventListener("click", function () {
+      if (confirm("Are you sure you want to delete your account? This action cannot be undone.")) {
+          const user = auth.currentUser;
+          if (user) {
+              const userRef = db.collection("users").doc(user.uid);
+
+              // Delete user document from Firestore
+              userRef.delete().then(() => {
+                  // Delete user account
+                  user.delete().then(() => {
+                      alert("Account successfully deleted.");
+                      window.location.href = "kauara.html"; // Redirect to main page
+                  }).catch((error) => {
+                      console.error("Error deleting account:", error);
+                      alert("Failed to delete account. Please try again.");
+                  });
+              }).catch((error) => {
+                  console.error("Error deleting user data:", error);
+                  alert("Failed to delete account data. Please try again.");
+              });
+          }
+      }
+  });
 });

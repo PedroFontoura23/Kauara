@@ -92,13 +92,14 @@ document.addEventListener("DOMContentLoaded", function () {
         auth.createUserWithEmailAndPassword(email, password)
             .then(userCredential => {
                 const user = userCredential.user;
+                const userId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
                 console.log("Registered:", user);
 
                 // Add the email to Firestore
                 db.collection("users").doc(user.uid).set({
                     fullName: name,
                     profilePicture: "default-profile.png",
-                    userId: "Hello! Welcome to my profile!",
+                    userId: userId,
                     email: user.email  // Storing the email in Firestore
                 }).then(() => {
                     console.log("User data saved to Firestore");
@@ -147,6 +148,7 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
+        // Query Firestore for matching users
         db.collection("users")
             .where("fullName", ">=", query)
             .where("fullName", "<=", query + "\uf8ff")
@@ -163,8 +165,9 @@ document.addEventListener("DOMContentLoaded", function () {
                         listItem.className = "dropdown-item";
                         listItem.textContent = userData.fullName || "No Name";
 
+                        // Populate input with the selected name on click
                         listItem.addEventListener("click", () => {
-                            searchInput.value = userData.fullName; // Populate input with selected name
+                            searchInput.value = userData.fullName;
                             searchResults.style.display = "none"; // Hide the dropdown
                         });
 
@@ -185,88 +188,90 @@ document.addEventListener("DOMContentLoaded", function () {
             });
     });
 
-    // Handle search on "Enter" key press (update main page previews)
+    // Handle search submission (Enter or Search button click)
+    function performSearch(query) {
+        searchResultsContainer.innerHTML = ""; // Clear previous results
+
+        // Perform Firestore queries for fullName, email, or userId
+        const usersRef = db.collection("users");
+        Promise.all([
+            usersRef.where("fullName", ">=", query).where("fullName", "<=", query + "\uf8ff").get(),
+            usersRef.where("email", ">=", query).where("email", "<=", query + "\uf8ff").get(),
+            usersRef.where("userId", "==", query).get(),
+        ]).then((snapshots) => {
+            let foundResults = false;
+
+            snapshots.forEach((snapshot) => {
+                if (!snapshot.empty) {
+                    foundResults = true;
+                    snapshot.forEach((doc) => {
+                        const userData = doc.data();
+
+                        // Create a preview container
+                        const preview = document.createElement("div");
+                        preview.className = "card mb-3";
+                        preview.style.cursor = "pointer";
+
+                        // Determine the profile picture URL or default
+                        const profilePictureUrl = userData.profilePicture
+                            ? `data:image/jpeg;base64,${userData.profilePicture}`
+                            : "default-profile.png";
+
+                        preview.innerHTML = `
+                            <div class="row g-0 align-items-center">
+                                <div class="col-2">
+                                    <img src="${profilePictureUrl}" class="img-fluid rounded-circle" alt="ProfilePicture" style="width: 50px; height: 50px;">
+                                </div>
+                                <div class="col-10">
+                                    <div class="card-body">
+                                        <h5 class="card-title">${userData.fullName || "No Name Available"}</h5>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+
+                        // Redirect to the public profile page when clicked
+                        preview.addEventListener("click", () => {
+                            window.location.href = `public-profile.html?userId=${encodeURIComponent(userData.userId)}`;
+                        });
+
+                        searchResultsContainer.appendChild(preview);
+                    });
+                }
+            });
+
+            if (!foundResults) {
+                searchResultsContainer.innerHTML = "<p>No results found.</p>";
+            }
+        }).catch((error) => {
+            console.error("Error searching users:", error);
+            searchResultsContainer.innerHTML = "<p>An error occurred. Please try again later.</p>";
+        });
+    }
+
+    // Handle "Enter" keypress
     searchInput.addEventListener("keypress", function (event) {
         if (event.key === "Enter") {
             event.preventDefault(); // Prevent page reload
             const query = searchInput.value.trim();
-
-            if (!query) {
-                searchResultsContainer.innerHTML = "<p>Please enter a valid search term.</p>";
-                return;
+            if (query) {
+                performSearch(query); // Perform search
             }
-
-            // Clear previous results
-            searchResultsContainer.innerHTML = "";
-
-            // Search Firestore for matching users
-            db.collection("users")
-                .where("fullName", ">=", query)
-                .where("fullName", "<=", query + "\uf8ff")
-                .get()
-                .then((snapshot) => {
-                    if (!snapshot.empty) {
-                        snapshot.forEach((doc) => {
-                            const userData = doc.data();
-
-                            // Create a preview container
-                            const preview = document.createElement("div");
-                            preview.className = "card mb-3";
-                            preview.style.cursor = "pointer";
-
-                            // Get the profile picture URL or Base64 string
-                            const profilePic = userData.profilePicture;
-                            const profilePictureUrl = profilePic ? `data:image/jpeg;base64,${profilePic}` : "default-profile.png";
-
-                            preview.innerHTML = `
-                                <div class="row g-0 align-items-center">
-                                    <div class="col-2">
-                                        <img src="${profilePictureUrl}" class="img-fluid rounded-circle" alt="ProfilePicture" style="width: 50px; height: 50px;">
-                                    </div>
-                                    <div class="col-10">
-                                        <div class="card-body">
-                                            <h5 class="card-title">${userData.fullName || "No Name Available"}</h5>
-                                        </div>
-                                    </div>
-                                </div>
-                            `;
-
-                            // When the preview is clicked, redirect to the public profile page
-                            preview.addEventListener("click", () => {
-                                if (userData.email) {
-                                    window.location.href = `public-profile.html?email=${encodeURIComponent(userData.email)}`;
-                                } else {
-                                    console.error("Email not available for this user.");
-                                }
-                            });
-                            // Add click event to redirect to public profile
-                            preview.addEventListener("click", () => {
-                                // Redirect to public-profile.html with the email in the query string
-                                window.location.href = `public-profile.html?email=${encodeURIComponent(userData.email)}`;
-                            });
-                            preview.addEventListener("click", () => {
-                                // Check if userData.email is valid
-                                console.log(userData.email); // This should print the correct email
-                                window.location.href = `public-profile.html?email=${encodeURIComponent(userData.email)}`;
-                            });
-
-                            searchResultsContainer.appendChild(preview);
-                        });
-                    } else {
-                        searchResultsContainer.innerHTML = "<p>No results found.</p>";
-                    }
-                })
-                .catch((error) => {
-                    console.error("Error searching users:", error);
-                    searchResultsContainer.innerHTML = "<p>An error occurred. Please try again later.</p>";
-                });
         }
     });
 
+    // Handle "Search" button click
+    searchForm.addEventListener("submit", function (event) {
+        event.preventDefault(); // Prevent form submission reload
+        const query = searchInput.value.trim();
+        if (query) {
+            performSearch(query); // Perform search
+        }
+    });
 
     // Hide dropdown if user clicks outside
     document.addEventListener("click", (event) => {
-        if (!searchInput.contains(event.target)) {
+        if (!searchInput.contains(event.target) && !searchResults.contains(event.target)) {
             searchResults.style.display = "none";
         }
     });

@@ -16,9 +16,9 @@ const db = firebase.firestore();
 
 // Get the email from the URL parameters
 const urlParams = new URLSearchParams(window.location.search);
-const emailFromUrl = urlParams.get("email");
+const userIdFromUrl = urlParams.get("userId");
 
-console.log("Email from URL:", emailFromUrl);
+console.log("User Id from URL:", userIdFromUrl);
 
 // Get reference to elements where we display user info
 const userNameElement = document.getElementById("userName");
@@ -27,9 +27,9 @@ const userBioElement = document.getElementById("userBio");
 const profilePictureElement = document.getElementById("profilePicture");
 
 // Fetch the user data from Firestore based on email
-if (emailFromUrl) {
+if (userIdFromUrl) {
     db.collection("users")
-        .where("email", "==", emailFromUrl)  // Query by email
+        .where("userId", "==", userIdFromUrl)  // Query by email
         .get()
         .then(snapshot => {
             if (!snapshot.empty) {
