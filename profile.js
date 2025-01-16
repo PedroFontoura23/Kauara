@@ -1,4 +1,4 @@
-document.addEventListener("DOMContentLoaded", function () {
+document.addEventListener("DOMContentLoaded", function() {
   // Initialize Firebase
   const firebaseConfig = {
     apiKey: "AIzaSyBcBmuXY9ulETrbn2PmzjsDZ7JKRcehqGo",
@@ -34,22 +34,31 @@ document.addEventListener("DOMContentLoaded", function () {
   const nameInput = document.getElementById("nameInput");
   const saveNameButton = document.getElementById("saveNameButton");
   const cancelNameButton = document.getElementById("cancelNameButton");
-  const deleteAccountButton = document.getElementById("deleteAccountButton");
 
   let cropper;
 
   // Check if user is logged in
   auth.onAuthStateChanged((user) => {
     if (user) {
+      // Fetch user data from Firestore
       db.collection("users").doc(user.uid).get().then((doc) => {
         if (doc.exists) {
           const data = doc.data();
           userNameElement.textContent = data.fullName || "No Name Available";
           userEmailElement.textContent = user.email;
-          profilePictureElement.src = data.profilePicture
-            ? `data:image/jpeg;base64,${data.profilePicture}`
-            : "default-profile.png";
+          
+          // Check if there's a Base64 string for the profile picture
+          if (data.profilePicture) {
+            profilePictureElement.src = `data:image/jpeg;base64,${data.profilePicture}`; // Load Base64 image
+          } else {
+            profilePictureElement.src = "default-profile.png"; // Default image if none exists
+          }
+          
           userBioElement.textContent = data.bio || "No bio available. Click edit to add one.";
+          
+          // Display the rating
+          document.getElementById("userRating").textContent = 
+            data.averageRating ? `${data.averageRating.toFixed(1)} / 5.0` : "No ratings yet";
         } else {
           console.error("User document not found!");
         }
@@ -57,112 +66,117 @@ document.addEventListener("DOMContentLoaded", function () {
         console.error("Error fetching user data:", error);
       });
     } else {
-      window.location.href = "kauara.html";
+      window.location.href = "kauara.html"; // Redirect to main page if not logged in
     }
   });
 
   // Edit Bio functionality
-  editBioButton.addEventListener("click", () => {
-    bioInput.value = userBioElement.textContent === "No bio available. Click edit to add one." ? "" : userBioElement.textContent;
-    bioEditSection.style.display = "block";
+  editBioButton.addEventListener('click', () => {
+    bioInput.value = userBioElement.textContent === 'No bio available. Click edit to add one.' ? '' : userBioElement.textContent;
+    bioEditSection.style.display = 'block'; // Show the bio edit section
   });
 
-  saveBioButton.addEventListener("click", () => {
+  // Save bio to Firestore
+  saveBioButton.addEventListener('click', () => {
     const newBio = bioInput.value.trim();
     if (newBio && auth.currentUser) {
-      db.collection("users").doc(auth.currentUser.uid).update({ bio: newBio })
+      const userRef = db.collection('users').doc(auth.currentUser.uid);
+      userRef.update({ bio: newBio })
         .then(() => {
           userBioElement.textContent = newBio;
-          bioEditSection.style.display = "none";
+          bioEditSection.style.display = 'none'; // Close the bio edit section
         })
         .catch((error) => {
-          console.error("Error updating bio:", error);
-          alert("Error updating bio. Please try again.");
+          console.error('Error updating bio:', error);
+          alert('Error updating bio. Please try again.');
         });
     }
   });
 
-  cancelBioButton.addEventListener("click", () => {
-    bioEditSection.style.display = "none";
+  // Cancel bio editing
+  cancelBioButton.addEventListener('click', () => {
+    bioEditSection.style.display = 'none'; // Hide the bio edit section without saving
   });
 
-  logoutButton.addEventListener("click", () => {
+  // Logout functionality
+  logoutButton.addEventListener('click', function() {
     auth.signOut().then(() => {
-      window.location.href = "kauara.html";
+      window.location.href = 'kauara.html'; // Redirect to the main page after logout
     }).catch((error) => {
-      console.error("Error signing out:", error);
+      console.error("Error signing out: ", error);
     });
   });
 
   // File upload and cropping
-  uploadPictureButton.addEventListener("click", () => {
-    const fileInput = document.createElement("input");
-    fileInput.type = "file";
-    fileInput.accept = "image/*";
-
-    fileInput.addEventListener("change", (event) => {
+  uploadPictureButton.addEventListener('click', () => {
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.addEventListener('change', (event) => {
       const file = event.target.files[0];
       if (file) {
         const reader = new FileReader();
         reader.onload = () => {
           cropImage.src = reader.result;
           cropModal.show();
-          if (cropper) cropper.destroy();
           cropper = new Cropper(cropImage, {
             aspectRatio: 1,
             viewMode: 1,
           });
         };
-        reader.onerror = () => {
-          console.error("Error reading file:", reader.error);
-          alert("Failed to load the image. Please try again.");
-        };
-        reader.readAsDataURL(file);
-      } else {
-        console.error("No file selected.");
-        alert("Please select a valid image file.");
+        reader.readAsDataURL(file); // Convert the image file to base64
       }
     });
-
     fileInput.click();
   });
 
-  cropButton.addEventListener("click", () => {
+  // Save cropped image to Firestore as Base64
+  cropButton.addEventListener('click', () => {
+    const canvas = cropper.getCroppedCanvas({
+      width: 300,
+      height: 300,
+    });
+
     if (!cropper) {
-      alert("Please select and crop an image before saving.");
+      console.error("Cropper is not initialized.");
+      alert("Please select and crop an image first.");
       return;
     }
 
-    const canvas = cropper.getCroppedCanvas({ width: 300, height: 300 });
     canvas.toBlob((blob) => {
-      const base64Image = canvas.toDataURL("image/jpeg").split(",")[1];
-      if (auth.currentUser) {
-        db.collection("users").doc(auth.currentUser.uid).update({ profilePicture: base64Image })
+      const base64Image = canvas.toDataURL('image/jpeg').split(',')[1]; // Convert the canvas to Base64
+      const user = auth.currentUser;
+      if (user) {
+        const userRef = db.collection('users').doc(user.uid);
+        userRef.update({ profilePicture: base64Image })
           .then(() => {
-            profilePictureElement.src = `data:image/jpeg;base64,${base64Image}`;
+            profilePictureElement.src = `data:image/jpeg;base64,${base64Image}`; // Display the image
             cropModal.hide();
             cropper.destroy();
           })
           .catch((error) => {
-            console.error("Error updating profile picture:", error);
-            alert("Error updating profile picture.");
+            console.error('Error updating profile picture:', error);
+            alert('Error updating profile picture.');
           });
       }
-    }, "image/jpeg");
+    }, 'image/jpeg');
   });
 
+  // Edit Name functionality
   editNameButton.addEventListener("click", () => {
-    nameInput.value = userNameElement.textContent.trim();
-    nameEditSection.style.display = "block";
+    nameInput.value = userNameElement.textContent.trim(); // Pre-fill input with current name
+    nameEditSection.style.display = "block"; // Show name edit section
   });
 
+  // Save Name to Firestore
   saveNameButton.addEventListener("click", () => {
     const newName = nameInput.value.trim();
     if (newName && auth.currentUser) {
-      db.collection("users").doc(auth.currentUser.uid).update({ fullName: newName })
+      const userRef = db.collection("users").doc(auth.currentUser.uid);
+      userRef.update({ fullName: newName })
         .then(() => {
-          userNameElement.textContent = newName;
-          nameEditSection.style.display = "none";
+          userNameElement.textContent = newName; // Update UI with new name
+          nameEditSection.style.display = "none"; // Hide name edit section
         })
         .catch((error) => {
           console.error("Error updating name:", error);
@@ -171,31 +185,32 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
+  // Cancel name editing
   cancelNameButton.addEventListener("click", () => {
-    nameEditSection.style.display = "none";
+    nameEditSection.style.display = "none"; // Hide name edit section without saving
   });
 
   // Delete account functionality
-  deleteAccountButton.addEventListener("click", () => {
+  document.getElementById("deleteAccountButton").addEventListener("click", function () {
     if (confirm("Are you sure you want to delete your account? This action cannot be undone.")) {
       const user = auth.currentUser;
       if (user) {
-        db.collection("users").doc(user.uid).delete()
-          .then(() => {
-            user.delete()
-              .then(() => {
-                alert("Account successfully deleted.");
-                window.location.href = "kauara.html";
-              })
-              .catch((error) => {
-                console.error("Error deleting account:", error);
-                alert("Failed to delete account. Please try again.");
-              });
-          })
-          .catch((error) => {
-            console.error("Error deleting user data:", error);
-            alert("Failed to delete account data. Please try again.");
+        const userRef = db.collection("users").doc(user.uid);
+
+        // Delete user document from Firestore
+        userRef.delete().then(() => {
+          // Delete user account
+          user.delete().then(() => {
+            alert("Account successfully deleted.");
+            window.location.href = "kauara.html"; // Redirect to main page
+          }).catch((error) => {
+            console.error("Error deleting account:", error);
+            alert("Failed to delete account. Please try again.");
           });
+        }).catch((error) => {
+          console.error("Error deleting user data:", error);
+          alert("Failed to delete account data. Please try again.");
+        });
       }
     }
   });
