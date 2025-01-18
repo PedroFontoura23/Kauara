@@ -27,15 +27,15 @@ const profilePictureElement = document.getElementById("profilePicture");
 const ratingContainer = document.getElementById("ratingContainer");
 
 if (userIdFromUrl) {
+    // Fetch user data from the "users" collection
     db.collection("users")
-        .where("userId", "==", userIdFromUrl)
+        .doc(userIdFromUrl) // Assuming the userId is the document ID
         .get()
-        .then(snapshot => {
-            if (!snapshot.empty) {
-                const userData = snapshot.docs[0].data();
+        .then(userDoc => {
+            if (userDoc.exists) {
+                const userData = userDoc.data();
                 userNameElement.textContent = userData.user_Name || "No Name Available";
-                userEmailElement.textContent = userData.email || "No Email Available";
-                userBioElement.textContent = userData.user_bio || "No bio available";
+                userBioElement.textContent = userData.user_Bio || "No bio available";
 
                 const profilePic = userData.profilePicture;
                 if (profilePic) {
@@ -44,8 +44,26 @@ if (userIdFromUrl) {
                     profilePictureElement.src = "default-profile.png";
                 }
 
+                // Fetch contact data from the "contact" collection where foreignUserId equals userId
+                db.collection("contact")
+                    .where("foreignUserId", "==", userIdFromUrl) // Match foreignUserId to userId
+                    .get()
+                    .then(contactSnapshot => {
+                        if (!contactSnapshot.empty) {
+                            // Assuming there's only one contact document per user
+                            const contactData = contactSnapshot.docs[0].data();
+                            userEmailElement.textContent = contactData.contactEmail || "No Email Available";
+                        } else {
+                            userEmailElement.textContent = "No Contact Info Available";
+                        }
+                    })
+                    .catch(error => {
+                        console.error("Error fetching contact data:", error);
+                        userEmailElement.textContent = "Error fetching contact info";
+                    });
+
                 // Initialize rating system
-                new RatingSystem(snapshot.docs[0].id, ratingContainer);
+                new RatingSystem(userDoc.id, ratingContainer);
             } else {
                 userNameElement.textContent = "User not found";
                 userEmailElement.textContent = "";
