@@ -33,9 +33,9 @@ if (userIdFromUrl) {
         .then(snapshot => {
             if (!snapshot.empty) {
                 const userData = snapshot.docs[0].data();
-                userNameElement.textContent = userData.fullName || "No Name Available";
+                userNameElement.textContent = userData.user_Name || "No Name Available";
                 userEmailElement.textContent = userData.email || "No Email Available";
-                userBioElement.textContent = userData.bio || "No bio available";
+                userBioElement.textContent = userData.user_bio || "No bio available";
 
                 const profilePic = userData.profilePicture;
                 if (profilePic) {
