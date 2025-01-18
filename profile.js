@@ -46,28 +46,63 @@ document.addEventListener("DOMContentLoaded", function () {
     if (user) {
       getUserIdFromUid(user.uid).then((firestoreUserId) => {
         console.log(`Logging in as: ${firestoreUserId}`);
-        db.collection("users")
-          .doc(firestoreUserId)
-          .get()
-          .then((userDoc) => {
-            if (userDoc.exists) {
-              const userData = userDoc.data();
-              userNameElement.textContent = userData.user_Name || "No Name Available";
-              userEmailElement.textContent = user.email;
-              userBioElement.textContent = userData.user_Bio || "No Bio Available";
+        
+        // Get user document
+        const userDocRef = db.collection("users").doc(firestoreUserId);
+        
+        // Get ratings for the user
+        const ratingsQuery = db.collection("ratings").where("foreignUserId", "==", firestoreUserId);
+        
+        // Execute both queries in parallel
+        Promise.all([
+          userDocRef.get(),
+          ratingsQuery.get()
+        ])
+        .then(([userDoc, ratingsSnapshot]) => {
+          // Handle user data
+          if (userDoc.exists) {
+            const userData = userDoc.data();
+            userNameElement.textContent = userData.user_Name || "No Name Available";
+            userEmailElement.textContent = user.email;
+            userBioElement.textContent = userData.user_Bio || "No Bio Available";
 
-              if (userData.profilePicture) {
-                profilePictureElement.src = `data:image/jpeg;base64,${userData.profilePicture}`;
-              }
-            } else {
-              console.error(`No user data found for UID: ${firestoreUserId}`);
+            if (userData.profilePicture) {
+              profilePictureElement.src = `data:image/jpeg;base64,${userData.profilePicture}`;
             }
-          })
-          .catch((error) => {
-            console.error("Error fetching user data:", error);
-          });
+            
+            // Handle ratings data
+            const ratings = ratingsSnapshot.docs.map(doc => doc.data().ratingValue);
+            const totalRatings = ratings.length;
+            
+            if (totalRatings > 0) {
+              const averageRating = ratings.reduce((a, b) => a + b, 0) / totalRatings;
+              document.getElementById("userRating").textContent = 
+                `${averageRating.toFixed(1)} ⭐ (${totalRatings} ratings)`;
+            } else {
+              document.getElementById("userRating").textContent = "No ratings yet";
+            }
+          } else {
+            console.error(`No user data found for UID: ${firestoreUserId}`);
+            document.getElementById("userRating").textContent = "Error loading ratings";
+          }
+        })
+        .catch((error) => {
+          console.error("Error fetching user data:", error);
+          if (error.code === 'permission-denied') {
+            alert("You don't have permission to access this profile.");
+            window.location.href = "kauara.html";
+          } else {
+            alert("An error occurred while loading the profile.");
+          }
+        });
+      })
+      .catch((error) => {
+        console.error("Error getting user ID:", error);
+        alert("Error loading user data");
+        window.location.href = "kauara.html";
       });
     } else {
+      // User is not logged in, redirect to main page
       window.location.href = "kauara.html";
     }
   });

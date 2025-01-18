@@ -26,10 +26,13 @@ const userBioElement = document.getElementById("userBio");
 const profilePictureElement = document.getElementById("profilePicture");
 const ratingContainer = document.getElementById("ratingContainer");
 
+// Declare ratingSystem in the global scope
+let ratingSystem;
+
 if (userIdFromUrl) {
     // Fetch user data from the "users" collection
     db.collection("users")
-        .doc(userIdFromUrl) // Assuming the userId is the document ID
+        .doc(userIdFromUrl)
         .get()
         .then(userDoc => {
             if (userDoc.exists) {
@@ -46,11 +49,10 @@ if (userIdFromUrl) {
 
                 // Fetch contact data from the "contact" collection where foreignUserId equals userId
                 db.collection("contact")
-                    .where("foreignUserId", "==", userIdFromUrl) // Match foreignUserId to userId
+                    .where("foreignUserId", "==", userIdFromUrl)
                     .get()
                     .then(contactSnapshot => {
                         if (!contactSnapshot.empty) {
-                            // Assuming there's only one contact document per user
                             const contactData = contactSnapshot.docs[0].data();
                             userEmailElement.textContent = contactData.contactEmail || "No Email Available";
                         } else {
@@ -62,8 +64,8 @@ if (userIdFromUrl) {
                         userEmailElement.textContent = "Error fetching contact info";
                     });
 
-                // Initialize rating system
-                new RatingSystem(userDoc.id, ratingContainer);
+                // Initialize rating system and assign it to the global variable
+                ratingSystem = new RatingSystem(userIdFromUrl, ratingContainer);
             } else {
                 userNameElement.textContent = "User not found";
                 userEmailElement.textContent = "";
