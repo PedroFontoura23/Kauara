@@ -1,4 +1,4 @@
-document.addEventListener("DOMContentLoaded", function() {
+document.addEventListener("DOMContentLoaded", function () {
   // Initialize Firebase
   const firebaseConfig = {
     apiKey: "AIzaSyBcBmuXY9ulETrbn2PmzjsDZ7JKRcehqGo",
@@ -7,7 +7,7 @@ document.addEventListener("DOMContentLoaded", function() {
     storageBucket: "kauara1.firebasestorage.app",
     messagingSenderId: "651139031771",
     appId: "1:651139031771:web:8c73a3e1fff2d5cf2ae2fe",
-    measurementId: "G-KL18R1CJ6S"
+    measurementId: "G-KL18R1CJ6S",
   };
   firebase.initializeApp(firebaseConfig);
 
@@ -17,102 +17,129 @@ document.addEventListener("DOMContentLoaded", function() {
   // Elements
   const userNameElement = document.getElementById("userName");
   const userEmailElement = document.getElementById("userEmail");
-  const profilePictureElement = document.getElementById("profilePicture");
   const userBioElement = document.getElementById("userBio");
-  const editBioButton = document.getElementById("editBioButton");
-  const logoutButton = document.getElementById("logoutButton");
-  const bioEditSection = document.getElementById("bioEditSection");
-  const bioInput = document.getElementById("bioInput");
-  const saveBioButton = document.getElementById("saveBioButton");
-  const cancelBioButton = document.getElementById("cancelBioButton");
-  const uploadPictureButton = document.getElementById("uploadPictureButton");
+  const profilePictureElement = document.getElementById("profilePicture");
   const cropModal = new bootstrap.Modal(document.getElementById("cropModal"));
   const cropImage = document.getElementById("cropImage");
   const cropButton = document.getElementById("cropButton");
-  const editNameButton = document.getElementById("editNameButton");
-  const nameEditSection = document.getElementById("nameEditSection");
-  const nameInput = document.getElementById("nameInput");
-  const saveNameButton = document.getElementById("saveNameButton");
-  const cancelNameButton = document.getElementById("cancelNameButton");
+  const uploadPictureButton = document.getElementById("uploadPictureButton");
 
   let cropper;
+
+  // Helper function to get user ID format (e.g., "user_1", "user_2")
+  function getUserIdFromUid(uid) {
+    return db
+      .collection("users")
+      .where("firebaseUID", "==", uid)
+      .get()
+      .then((querySnapshot) => {
+        if (!querySnapshot.empty) {
+          return querySnapshot.docs[0].id; // Return the user_(number)
+        } else {
+          throw new Error(`No user found for UID: ${uid}`);
+        }
+      });
+  }
 
   // Check if user is logged in
   auth.onAuthStateChanged((user) => {
     if (user) {
-      // Fetch user data from Firestore
-      db.collection("users").doc(user.uid).get().then((doc) => {
-        if (doc.exists) {
-          const data = doc.data();
-          userNameElement.textContent = data.fullName || "No Name Available";
-          userEmailElement.textContent = user.email;
-          
-          // Check if there's a Base64 string for the profile picture
-          if (data.profilePicture) {
-            profilePictureElement.src = `data:image/jpeg;base64,${data.profilePicture}`; // Load Base64 image
-          } else {
-            profilePictureElement.src = "default-profile.png"; // Default image if none exists
-          }
-          
-          userBioElement.textContent = data.bio || "No bio available. Click edit to add one.";
-          
-          // Display the rating
-          document.getElementById("userRating").textContent = 
-            data.averageRating ? `${data.averageRating.toFixed(1)} / 5.0` : "No ratings yet";
-        } else {
-          console.error("User document not found!");
-        }
-      }).catch((error) => {
-        console.error("Error fetching user data:", error);
+      getUserIdFromUid(user.uid).then((firestoreUserId) => {
+        console.log(`Logging in as: ${firestoreUserId}`);
+        db.collection("users")
+          .doc(firestoreUserId)
+          .get()
+          .then((userDoc) => {
+            if (userDoc.exists) {
+              const userData = userDoc.data();
+              userNameElement.textContent = userData.user_Name || "No Name Available";
+              userEmailElement.textContent = user.email;
+              userBioElement.textContent = userData.user_Bio || "No Bio Available";
+
+              if (userData.profilePicture) {
+                profilePictureElement.src = `data:image/jpeg;base64,${userData.profilePicture}`;
+              }
+            } else {
+              console.error(`No user data found for UID: ${firestoreUserId}`);
+            }
+          })
+          .catch((error) => {
+            console.error("Error fetching user data:", error);
+          });
       });
     } else {
-      window.location.href = "kauara.html"; // Redirect to main page if not logged in
+      window.location.href = "kauara.html";
     }
   });
 
-  // Edit Bio functionality
-  editBioButton.addEventListener('click', () => {
-    bioInput.value = userBioElement.textContent === 'No bio available. Click edit to add one.' ? '' : userBioElement.textContent;
-    bioEditSection.style.display = 'block'; // Show the bio edit section
+  // Edit Name Functionality
+  document.getElementById("editNameButton").addEventListener("click", () => {
+    const nameEditSection = document.getElementById("nameEditSection");
+    nameEditSection.style.display = "block";
+    const nameInput = document.getElementById("nameInput");
+    nameInput.value = userNameElement.textContent; // Set the current name in the input
   });
 
-  // Save bio to Firestore
-  saveBioButton.addEventListener('click', () => {
-    const newBio = bioInput.value.trim();
-    if (newBio && auth.currentUser) {
-      const userRef = db.collection('users').doc(auth.currentUser.uid);
-      userRef.update({ bio: newBio })
+  document.getElementById("saveNameButton").addEventListener("click", () => {
+    const newName = document.getElementById("nameInput").value.trim();
+    const user = auth.currentUser;
+
+    getUserIdFromUid(user.uid).then((firestoreUserId) => {
+      db.collection("users")
+        .doc(firestoreUserId)
+        .update({ user_Name: newName })
         .then(() => {
-          userBioElement.textContent = newBio;
-          bioEditSection.style.display = 'none'; // Close the bio edit section
+          userNameElement.textContent = newName; // Update the displayed name
+          document.getElementById("nameEditSection").style.display = "none"; // Hide the edit section
         })
         .catch((error) => {
-          console.error('Error updating bio:', error);
-          alert('Error updating bio. Please try again.');
+          console.error("Error updating name:", error);
+          alert("Failed to update name.");
         });
-    }
-  });
-
-  // Cancel bio editing
-  cancelBioButton.addEventListener('click', () => {
-    bioEditSection.style.display = 'none'; // Hide the bio edit section without saving
-  });
-
-  // Logout functionality
-  logoutButton.addEventListener('click', function() {
-    auth.signOut().then(() => {
-      window.location.href = 'kauara.html'; // Redirect to the main page after logout
-    }).catch((error) => {
-      console.error("Error signing out: ", error);
     });
   });
 
+  document.getElementById("cancelNameButton").addEventListener("click", () => {
+    document.getElementById("nameEditSection").style.display = "none"; // Hide the edit section
+  });
+
+  // Edit Bio Functionality
+  document.getElementById("editBioButton").addEventListener("click", () => {
+    const bioEditSection = document.getElementById("bioEditSection");
+    bioEditSection.style.display = "block";
+    const bioInput = document.getElementById("bioInput");
+    bioInput.value = userBioElement.textContent; // Set the current bio in the input
+  });
+
+  document.getElementById("saveBioButton").addEventListener("click", () => {
+    const newBio = document.getElementById("bioInput").value.trim();
+    const user = auth.currentUser;
+
+    getUserIdFromUid(user.uid).then((firestoreUserId) => {
+      db.collection("users")
+        .doc(firestoreUserId)
+        .update({ user_Bio: newBio })
+        .then(() => {
+          userBioElement.textContent = newBio; // Update the displayed bio
+          document.getElementById("bioEditSection").style.display = "none"; // Hide the edit section
+        })
+        .catch((error) => {
+          console.error("Error updating bio:", error);
+          alert("Failed to update bio.");
+        });
+    });
+  });
+
+  document.getElementById("cancelBioButton").addEventListener("click", () => {
+    document.getElementById("bioEditSection").style.display = "none"; // Hide the edit section
+  });
+
   // File upload and cropping
-  uploadPictureButton.addEventListener('click', () => {
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = 'image/*';
-    fileInput.addEventListener('change', (event) => {
+  uploadPictureButton.addEventListener("click", () => {
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "image/*";
+    fileInput.addEventListener("change", (event) => {
       const file = event.target.files[0];
       if (file) {
         const reader = new FileReader();
@@ -131,7 +158,7 @@ document.addEventListener("DOMContentLoaded", function() {
   });
 
   // Save cropped image to Firestore as Base64
-  cropButton.addEventListener('click', () => {
+  cropButton.addEventListener("click", () => {
     const canvas = cropper.getCroppedCanvas({
       width: 300,
       height: 300,
@@ -144,74 +171,88 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     canvas.toBlob((blob) => {
-      const base64Image = canvas.toDataURL('image/jpeg').split(',')[1]; // Convert the canvas to Base64
+      const base64Image = canvas.toDataURL("image/jpeg").split(",")[1];
       const user = auth.currentUser;
-      if (user) {
-        const userRef = db.collection('users').doc(user.uid);
-        userRef.update({ profilePicture: base64Image })
+
+      getUserIdFromUid(user.uid).then((firestoreUserId) => {
+        db.collection("users")
+          .doc(firestoreUserId)
+          .update({ profilePicture: base64Image })
           .then(() => {
-            profilePictureElement.src = `data:image/jpeg;base64,${base64Image}`; // Display the image
+            profilePictureElement.src = `data:image/jpeg;base64,${base64Image}`;
             cropModal.hide();
             cropper.destroy();
           })
           .catch((error) => {
-            console.error('Error updating profile picture:', error);
-            alert('Error updating profile picture.');
+            console.error("Error updating profile picture:", error);
+            alert("Error updating profile picture.");
           });
-      }
-    }, 'image/jpeg');
+      });
+    }, "image/jpeg");
   });
 
-  // Edit Name functionality
-  editNameButton.addEventListener("click", () => {
-    nameInput.value = userNameElement.textContent.trim(); // Pre-fill input with current name
-    nameEditSection.style.display = "block"; // Show name edit section
+  // Log Out Functionality
+  document.getElementById('logoutButton').addEventListener('click', () => {
+    auth.signOut().then(() => {
+      window.location.href = "kauara.html"; // Redirect to login page
+    }).catch((error) => {
+      console.error("Error during sign out: ", error);
+      alert("Failed to log out.");
+    });
   });
 
-  // Save Name to Firestore
-  saveNameButton.addEventListener("click", () => {
-    const newName = nameInput.value.trim();
-    if (newName && auth.currentUser) {
-      const userRef = db.collection("users").doc(auth.currentUser.uid);
-      userRef.update({ fullName: newName })
-        .then(() => {
-          userNameElement.textContent = newName; // Update UI with new name
-          nameEditSection.style.display = "none"; // Hide name edit section
-        })
-        .catch((error) => {
-          console.error("Error updating name:", error);
-          alert("Error updating name. Please try again.");
-        });
+  //delete account
+  document.getElementById("deleteAccountButton").addEventListener("click", () => {
+    const user = auth.currentUser;
+
+    if (!user) {
+      alert("No user is logged in.");
+      return;
+    }
+
+    // Function to delete the user account
+    function deleteUserAccount() {
+      // Get the user ID from Firestore
+      getUserIdFromUid(user.uid).then((firestoreUserId) => {
+        const userDocRef = db.collection("users").doc(firestoreUserId);
+        const contactDocRef = db.collection("contact").doc(firestoreUserId.replace('user', 'contact'));
+
+        // Delete the user and contact documents
+        Promise.all([
+          userDocRef.delete(),
+          contactDocRef.delete()
+        ])
+          .then(() => {
+            console.log("User and contact documents deleted successfully.");
+
+            // Now delete the user's authentication
+            user.delete()
+              .then(() => {
+                console.log("User authentication deleted successfully.");
+                alert("Your account has been deleted.");
+                window.location.href = "kauara.html"; // Redirect to login page
+              })
+              .catch((error) => {
+                console.error("Error deleting authentication:", error);
+                alert("Failed to delete user authentication.");
+              });
+          })
+          .catch((error) => {
+            console.error("Error deleting documents:", error);
+            alert("Failed to delete user or contact document.");
+          });
+      })
+      .catch((error) => {
+        console.error("Error fetching user ID:", error);
+        alert("Failed to retrieve user data.");
+      });
+    }
+
+    // Confirm the deletion with the user before proceeding
+    if (confirm("Are you sure you want to delete your account? This action is irreversible.")) {
+      deleteUserAccount();
     }
   });
 
-  // Cancel name editing
-  cancelNameButton.addEventListener("click", () => {
-    nameEditSection.style.display = "none"; // Hide name edit section without saving
-  });
 
-  // Delete account functionality
-  document.getElementById("deleteAccountButton").addEventListener("click", function () {
-    if (confirm("Are you sure you want to delete your account? This action cannot be undone.")) {
-      const user = auth.currentUser;
-      if (user) {
-        const userRef = db.collection("users").doc(user.uid);
-
-        // Delete user document from Firestore
-        userRef.delete().then(() => {
-          // Delete user account
-          user.delete().then(() => {
-            alert("Account successfully deleted.");
-            window.location.href = "kauara.html"; // Redirect to main page
-          }).catch((error) => {
-            console.error("Error deleting account:", error);
-            alert("Failed to delete account. Please try again.");
-          });
-        }).catch((error) => {
-          console.error("Error deleting user data:", error);
-          alert("Failed to delete account data. Please try again.");
-        });
-      }
-    }
-  });
 });
