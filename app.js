@@ -35,6 +35,10 @@ document.addEventListener("DOMContentLoaded", function () {
     const searchResultsContainer = document.getElementById("searchResultsContainer");
     const searchForm = document.getElementById("searchForm");
     const searchResults = document.getElementById("searchResults");
+    const registerConfirmPassword = document.getElementById("registerConfirmPassword");
+
+
+
 
     // Helper Functions
     function displayErrorMessage(message) {
@@ -50,14 +54,58 @@ document.addEventListener("DOMContentLoaded", function () {
     // Handle clicks outside the modal to close it
     document.addEventListener("click", function(event) {
         const modal = document.getElementById("authModal");
+        const profileButton = document.getElementById("profileButton");
 
-        // Check if the click is outside the modal and its content
+        // Check if the click is outside the modal and not on the profile button
         if (!modal.contains(event.target) && !profileButton.contains(event.target)) {
-            // Close the modal without reloading the page
-            const modalInstance = bootstrap.Modal.getInstance(modal);
-            modalInstance.hide();  // Close the modal
+            closeModal();
         }
     });
+
+    // Select the close button inside the modal
+    const modalCloseButton = document.querySelector(".btn-close");
+
+    // Attach the same close logic to the close button
+    modalCloseButton.addEventListener("click", function() {
+        closeModal();
+    });
+
+    // Function to close the modal and remove the backdrop
+    function closeModal() {
+        const modal = document.getElementById("authModal");
+        const modalInstance = bootstrap.Modal.getInstance(modal);
+        
+        if (modalInstance) {
+            modalInstance.hide();  // Close the modal
+        }
+
+        // Remove the modal backdrop manually
+        const backdrop = document.querySelector(".modal-backdrop");
+        if (backdrop) {
+            backdrop.remove();  // Remove the lingering backdrop
+        }
+
+        // Reset body styles to ensure scrolling is enabled
+        document.body.classList.remove("modal-open");
+        document.body.style.overflow = "";
+    }
+
+
+
+    // Function to handle error messages without blocking
+    function displayErrorMessage(message) {
+        errorMessage.textContent = message;
+        errorMessage.style.display = "block";
+
+        setTimeout(() => {
+            errorMessage.style.display = "none";
+        }, 5000); // Hide error after 5 seconds
+    }
+
+    function clearErrorMessage() {
+        errorMessage.textContent = "";
+        errorMessage.style.display = "none";
+    }
 
 
 
@@ -110,10 +158,8 @@ document.addEventListener("DOMContentLoaded", function () {
                     .then((querySnapshot) => {
                         if (!querySnapshot.empty) {
                             window.location.href = "profile.html";
-                        } else {
-                            displayErrorMessage("User profile not found.");
                         }
-                    })
+                                            })
                     .catch((error) => {
                         console.error("Error fetching contact data:", error);
                         displayErrorMessage("Error accessing user data.");
@@ -125,16 +171,117 @@ document.addEventListener("DOMContentLoaded", function () {
             });
     });
 
-    // Registration Logic
-    registerSubmitButton.addEventListener("click", () => {
+    auth.onAuthStateChanged(async (user) => {
+        if (user && user.emailVerified) {
+            console.log("User is logged in and email verified. Checking pending users...");
+
+            try {
+                const pendingUserSnapshot = await db.collection("pendingUsers")
+                    .where("firebaseUID", "==", user.uid)
+                    .get();
+
+                if (!pendingUserSnapshot.empty) {
+                    const pendingUserData = pendingUserSnapshot.docs[0].data();
+                    const userId = pendingUserData.userId;
+                    const contactId = `contact_${userId.split("_")[1]}`;
+
+                    // Move user data to the "users" collection
+                    await db.collection("users").doc(userId).set({
+                        user_Name: pendingUserData.user_Name,
+                        user_Password: pendingUserData.user_Password,
+                        user_FullName: pendingUserData.user_FullName,
+                        user_Bio: pendingUserData.user_Bio,
+                        firebaseUID: pendingUserData.firebaseUID,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        userId: userId
+                    });
+
+                    // Create contact document in "contact" collection
+                    await db.collection("contact").doc(contactId).set({
+                        contactEmail: pendingUserData.contactEmail,
+                        contactTelephone: pendingUserData.contactTelephone,
+                        foreignUserId: userId,
+                        firebaseUID: pendingUserData.firebaseUID,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    // Remove from pendingUsers collection
+                    await db.collection("pendingUsers").doc(userId).delete();
+
+                    console.log("User data successfully transferred!");
+                    window.location.href = "profile.html"
+
+                    // Remove loading message
+                    removeLoadingMessage();
+                } else {
+                    // Check for user in 'users' collection if not found in pendingUsers
+                    const userDoc = await db.collection("users").where("firebaseUID", "==", user.uid).get();
+
+                    if (!userDoc.empty) {
+                        console.log("User data found. Redirecting to profile...");
+                        removeLoadingMessage();
+;
+                    } else {
+                        removeLoadingMessage();
+                        displayErrorMessage("No user data found. Please contact support.");
+                    }
+                }
+            } catch (error) {
+                console.error("Error during user verification process:", error);
+                removeLoadingMessage();
+                displayErrorMessage("An error occurred. Please try again later.");
+            }
+        } else {
+            console.log("No verified user logged in.");
+        }
+    });
+
+    // Helper function to show a loading message
+    function displayLoadingMessage(message) {
+        const loadingDiv = document.createElement("div");
+        loadingDiv.id = "loadingMessage";
+        loadingDiv.style.position = "fixed";
+        loadingDiv.style.top = "0";
+        loadingDiv.style.left = "0";
+        loadingDiv.style.width = "100%";
+        loadingDiv.style.height = "100%";
+        loadingDiv.style.backgroundColor = "rgba(0, 0, 0, 0.5)";
+        loadingDiv.style.color = "white";
+        loadingDiv.style.display = "flex";
+        loadingDiv.style.alignItems = "center";
+        loadingDiv.style.justifyContent = "center";
+        loadingDiv.style.fontSize = "24px";
+        loadingDiv.innerHTML = message;
+        document.body.appendChild(loadingDiv);
+    }
+
+    // Helper function to remove the loading message
+    function removeLoadingMessage() {
+        const loadingDiv = document.getElementById("loadingMessage");
+        if (loadingDiv) {
+            document.body.removeChild(loadingDiv);
+        }
+    }
+
+
+
+
+    //register function
+    registerSubmitButton.addEventListener("click", async () => {
         const email = registerEmail.value.trim();
         const password = registerPassword.value.trim();
+        const confirmPassword = registerConfirmPassword.value.trim();
         const name = registerName.value.trim();
 
         clearErrorMessage();
 
-        if (!email || !password || !name) {
+        if (!email || !password || !confirmPassword || !name) {
             displayErrorMessage("All fields are required.");
+            return;
+        }
+
+        if (password !== confirmPassword) {
+            displayErrorMessage("Passwords do not match.");
             return;
         }
 
@@ -143,82 +290,73 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
-        auth.createUserWithEmailAndPassword(email, password)
-            .then((userCredential) => {
-                const user = userCredential.user;
+        try {
+            // Check if the user already exists in pending users collection
+            const existingUser = await db.collection("pendingUsers").where("email", "==", email).get();
+            if (!existingUser.empty) {
+                displayErrorMessage("This email is already registered but not verified. Please check your inbox.");
+                return;
+            }
 
-                // Fetch current user count
-                db.collection("usersCount").doc("count").get()
-                    .then((doc) => {
-                        if (doc.exists) {
-                            let count = doc.data().count;
-                            const userId = `user_${count + 1}`;
-                            const contactId = `contact_${count + 1}`;
+            // Create the Firebase Authentication account
+            const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+            const user = userCredential.user;
 
-                            // Create user document
-                            return db.collection("users").doc(userId).set({
-                                user_Name: name,
-                                user_Password: password,
-                                user_FullName: name,
-                                user_Bio: "---",
-                                firebaseUID: user.uid,
-                                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                                userId: userId
-                            })
-                            .then(() => {
-                                // Create contact document
-                                return db.collection("contact").doc(contactId).set({
-                                    contactEmail: email,
-                                    contactTelephone: "N/A",
-                                    foreignUserId: userId,
-                                    firebaseUID: user.uid,
-                                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                                });
-                            })
-                            .then(() => {
-                                // Update users count
-                                return db.collection("usersCount").doc("count").update({
-                                    count: count + 1
-                                });
-                            })
-                            .then(() => {
-                                // Send verification email
-                                return user.sendEmailVerification();
-                            })
-                            .then(() => {
-                                alert(`Verification email sent to ${email}. Please verify your email before logging in.`);
-                                return auth.signOut();
-                            })
-                            .then(() => {
-                                window.location.href = "kauara.html";
-                            });
-                        } else {
-                            throw new Error("Could not fetch user count.");
-                        }
-                    })
-                    .catch((error) => {
-                        console.error("Error during registration:", error);
-                        user.delete();
-                        displayErrorMessage("Registration failed. Please try again.");
-                    });
-            })
-            .catch((error) => {
-                console.error("Account creation error:", error);
-                switch (error.code) {
-                    case "auth/email-already-in-use":
-                        displayErrorMessage("This email is already registered.");
-                        break;
-                    case "auth/invalid-email":
-                        displayErrorMessage("Please enter a valid email address.");
-                        break;
-                    case "auth/weak-password":
-                        displayErrorMessage("Please choose a stronger password.");
-                        break;
-                    default:
-                        displayErrorMessage("Registration failed. Please try again.");
-                }
+            // Fetch current user count for unique ID generation
+            const countDoc = await db.collection("usersCount").doc("count").get();
+            if (!countDoc.exists) {
+                throw new Error("Could not fetch user count.");
+            }
+
+            let count = countDoc.data().count;
+            const userId = `user_${count + 1}`;
+            const contactId = `contact_${count + 1}`;
+
+            // Send verification email
+            await user.sendEmailVerification();
+            alert(`Verification email sent to ${email}. Please verify your email before logging in.`);
+
+            // Store user data in the temporary pendingUsers collection
+            await db.collection("pendingUsers").doc(userId).set({
+                user_Name: name,
+                user_Password: password,
+                user_FullName: name,
+                user_Bio: "---",
+                firebaseUID: user.uid,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                userId: userId,
+                contactEmail: email,
+                contactTelephone: "N/A"
             });
+
+            // Increment the users count
+            await db.collection("usersCount").doc("count").update({
+                count: count + 1
+            });
+
+            // Sign the user out after registration to force email verification first
+            await auth.signOut();
+            window.location.href = "kauara.html";
+
+        } catch (error) {
+            console.error("Account creation error:", error);
+            switch (error.code) {
+                case "auth/email-already-in-use":
+                    displayErrorMessage("This email is already registered. Please check your inbox to verify.");
+                    break;
+                case "auth/invalid-email":
+                    displayErrorMessage("Please enter a valid email address.");
+                    break;
+                case "auth/weak-password":
+                    displayErrorMessage("Please choose a stronger password.");
+                    break;
+                default:
+                    displayErrorMessage("Registration failed. Please try again.");
+            }
+        }
     });
+
+
 
     // Search Functionality
     searchInput.addEventListener("input", function() {
@@ -453,15 +591,16 @@ function initializePosts() {
             minute: '2-digit'
         });
 
-        // Create post HTML structure
+        // Create post HTML structure with clickable elements
         postDiv.innerHTML = `
             <div class="card-header d-flex align-items-center">
                 <img src="${post.userProfilePic ? `data:image/jpeg;base64,${post.userProfilePic}` : '/default-profile.jpg'}"
-                     class="rounded-circle me-2"
+                     class="rounded-circle me-2 user-profile-link"
                      alt="Profile Picture"
-                     style="width: 40px; height: 40px; object-fit: cover;">
+                     style="width: 40px; height: 40px; object-fit: cover; cursor: pointer;"
+                     data-user-id="${post.foreignUserId}">
                 <div>
-                    <h6 class="mb-0">${post.userName}</h6>
+                    <h6 class="mb-0 user-profile-link" style="cursor: pointer;" data-user-id="${post.foreignUserId}">${post.userName}</h6>
                     <small class="text-muted">${formattedDate}</small>
                 </div>
             </div>
@@ -476,9 +615,17 @@ function initializePosts() {
             </div>
         `;
 
+        // Add click event listeners to profile elements
+        const profileElements = postDiv.querySelectorAll('.user-profile-link');
+        profileElements.forEach(element => {
+            element.addEventListener('click', () => {
+                const userId = element.getAttribute('data-user-id');
+                window.location.href = `public-profile.html?userId=${encodeURIComponent(userId)}`;
+            });
+        });
+
         return postDiv;
     }
-
     // Initial load of posts
     console.log("Starting initial posts load");
     displayAllPosts();
