@@ -68,10 +68,12 @@
                             <h5>Register</h5>
                             <input type="email" id="registerEmail" class="form-control" placeholder="Email" required>
                             <input type="password" id="registerPassword" class="form-control mt-2" placeholder="Password" required>
+                            <input type="password" id="registerConfirmPassword" class="form-control mt-2" placeholder="Confirm Password" required>
                             <input type="text" id="registerName" class="form-control mt-2" placeholder="Full Name" required>
                             <button class="btn btn-primary mt-2" id="registerSubmitButton">Register</button>
                             <p>Already have an account? <span id="showLogin" class="text-primary" style="cursor: pointer;">Log in here</span></p>
                         </div>
+
                     </div>
                 </div>
             </div>
@@ -83,6 +85,13 @@
     </header>
         <!-- Search results (previews) will appear here -->
     <div id="searchResultsContainer" class="container mt-4">
+    </div>
+
+    <div class="container mt-4">
+        <h3>Recent Posts</h3>
+        <div id="allPostsContainer" class="container-fluid p-0">
+            <!-- Posts will be dynamically loaded here -->
+        </div>
     </div>
 
 
