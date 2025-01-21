@@ -339,6 +339,7 @@ document.addEventListener("DOMContentLoaded", function () {
             performSearch(query);
         }
     });
+    
 
     // Handle clicks outside search results
     document.addEventListener("click", (event) => {
@@ -361,4 +362,138 @@ document.addEventListener("DOMContentLoaded", function () {
             };
         }
     });
+});
+function initializePosts() {
+    console.log("Initializing posts display");
+    const allPostsContainer = document.getElementById("allPostsContainer");
+    const db = firebase.firestore();
+
+    if (!allPostsContainer) {
+        console.error("Posts container not found");
+        return;
+    }
+
+    function displayAllPosts() {
+        console.log("Starting to fetch posts");
+        allPostsContainer.innerHTML = "";
+
+        db.collection("posts")
+            .orderBy("timestamp", "desc")
+            .get()
+            .then((querySnapshot) => {
+                console.log(`Found ${querySnapshot.size} posts`);
+                const postPromises = querySnapshot.docs.map(async (doc) => {
+                    const postData = doc.data();
+                    console.log("Post data:", postData);
+                    
+                    try {
+                        const userDoc = await db.collection("users")
+                            .doc(postData.foreignUserId)  // Changed from userId to foreignUserId
+                            .get();
+                        
+                        if (!userDoc.exists) {
+                            console.error(`No user found for ID: ${postData.foreignUserId}`);
+                            return null;
+                        }
+
+                        const userData = userDoc.data();
+                        console.log("User data found:", userData.user_Name);
+                        
+                        return {
+                            postId: doc.id,
+                            ...postData,
+                            userName: userData.user_Name || "Unknown User",
+                            userProfilePic: userData.profilePicture || null
+                        };
+                    } catch (error) {
+                        console.error("Error fetching user data:", error);
+                        return null;
+                    }
+                });
+
+                return Promise.all(postPromises);
+            })
+            .then((posts) => {
+                const validPosts = posts.filter(post => post !== null);
+                console.log(`Displaying ${validPosts.length} valid posts`);
+                
+                if (validPosts.length === 0) {
+                    allPostsContainer.innerHTML = '<p class="text-muted">No posts available</p>';
+                    return;
+                }
+
+                validPosts.forEach(post => {
+                    const postElement = createPostElement(post);
+                    allPostsContainer.appendChild(postElement);
+                });
+            })
+            .catch((error) => {
+                console.error("Error fetching posts:", error);
+                allPostsContainer.innerHTML = `
+                    <div class="alert alert-danger">
+                        Error loading posts. Please try again later.
+                        <br>
+                        Error details: ${error.message}
+                    </div>
+                `;
+            });
+    }
+
+    function createPostElement(post) {
+        const postDiv = document.createElement("div");
+        postDiv.className = "card mb-4";
+        
+        // Format timestamp
+        const timestamp = post.timestamp?.toDate() || new Date();
+        const formattedDate = timestamp.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+
+        // Create post HTML structure
+        postDiv.innerHTML = `
+            <div class="card-header d-flex align-items-center">
+                <img src="${post.userProfilePic ? `data:image/jpeg;base64,${post.userProfilePic}` : '/default-profile.jpg'}"
+                     class="rounded-circle me-2"
+                     alt="Profile Picture"
+                     style="width: 40px; height: 40px; object-fit: cover;">
+                <div>
+                    <h6 class="mb-0">${post.userName}</h6>
+                    <small class="text-muted">${formattedDate}</small>
+                </div>
+            </div>
+            <div class="card-body">
+                <p class="card-text">${post.postText}</p>
+                ${post.postImage ? `
+                    <img src="data:image/jpeg;base64,${post.postImage}"
+                         class="img-fluid rounded"
+                         alt="Post Image"
+                         style="max-height: 500px; width: auto;">
+                ` : ''}
+            </div>
+        `;
+
+        return postDiv;
+    }
+
+    // Initial load of posts
+    console.log("Starting initial posts load");
+    displayAllPosts();
+
+    db.collection("posts")
+      .orderBy("timestamp", "desc")
+      .onSnapshot((snapshot) => {
+        // Update only when changes occur
+      });
+}
+
+// In your main DOMContentLoaded listener, add:
+document.addEventListener("DOMContentLoaded", function () {
+    // ... your existing initialization code ...
+    
+    // Initialize posts at the end of your main initialization
+    initializePosts();
 });
