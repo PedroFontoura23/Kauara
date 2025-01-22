@@ -44,7 +44,7 @@
                 <button class="btn btn-primary" id="profileButton">Login</button>
             </div>
         </div>
-            <!-- Modal for Login/Register -->
+         <!-- Modal for Login/Register -->
         <div class="modal" tabindex="-1" id="authModal">
             <div class="modal-dialog">
                 <div class="modal-content">
@@ -58,7 +58,14 @@
                         <div id="loginForm">
                             <h5>Login</h5>
                             <input type="email" id="loginEmail" class="form-control" placeholder="Email" required>
-                            <input type="password" id="loginPassword" class="form-control mt-2" placeholder="Password" required>
+                            <div class="input-group mt-2">
+                                <input type="password" id="loginPassword" class="form-control" placeholder="Password" required>
+                                <div class="input-group-append">
+                                    <span class="input-group-text" id="toggleLoginPassword">
+                                        <i class="fas fa-eye"></i> <!-- FontAwesome eye icon -->
+                                    </span>
+                                </div>
+                            </div>
                             <button class="btn btn-primary mt-2" id="loginSubmitButton">Log In</button>
                             <p>Don't have an account? <span id="showRegister" class="text-primary" style="cursor: pointer;">Register here</span></p>
                         </div>
@@ -67,19 +74,32 @@
                         <div id="registerForm" style="display: none;">
                             <h5>Register</h5>
                             <input type="email" id="registerEmail" class="form-control" placeholder="Email" required>
-                            <input type="password" id="registerPassword" class="form-control mt-2" placeholder="Password" required>
-                            <input type="password" id="registerConfirmPassword" class="form-control mt-2" placeholder="Confirm Password" required>
+                            <div class="input-group mt-2">
+                                <input type="password" id="registerPassword" class="form-control" placeholder="Password" required>
+                                <div class="input-group-append">
+                                    <span class="input-group-text" id="toggleRegisterPassword">
+                                        <i class="fas fa-eye"></i> <!-- FontAwesome eye icon -->
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="input-group mt-2">
+                                <input type="password" id="registerConfirmPassword" class="form-control" placeholder="Confirm Password" required>
+                                <div class="input-group-append">
+                                    <span class="input-group-text" id="toggleRegisterConfirmPassword">
+                                        <i class="fas fa-eye"></i> <!-- FontAwesome eye icon -->
+                                    </span>
+                                </div>
+                            </div>
                             <input type="text" id="registerName" class="form-control mt-2" placeholder="Full Name" required>
                             <button class="btn btn-primary mt-2" id="registerSubmitButton">Register</button>
                             <p>Already have an account? <span id="showLogin" class="text-primary" style="cursor: pointer;">Log in here</span></p>
                         </div>
-
                     </div>
                 </div>
             </div>
         </div>
 
-        <script src="app.js"></script>
+        <script src="../javascript/app.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
     </header>
@@ -93,7 +113,31 @@
             <!-- Posts will be dynamically loaded here -->
         </div>
     </div>
-
+    <template id="post-template">
+        <div class="card mb-4">
+            <div class="card-header d-flex align-items-center">
+                <img src="" class="rounded-circle me-2 user-profile-link" alt="Profile Picture" style="width: 40px; height: 40px; object-fit: cover; cursor: pointer;">
+                <div>
+                    <h6 class="mb-0 user-profile-link" style="cursor: pointer;"></h6>
+                    <small class="text-muted"></small>
+                </div>
+            </div>
+            <div class="card-body">
+                <p class="card-text"></p>
+                <img src="" class="img-fluid rounded post-image" alt="Post Image" style="max-height: 500px; width: auto;">
+            </div>
+            <!-- Comment Section -->
+            <div class="card-footer">
+                <div class="comments-container">
+                    <!-- Comments will be dynamically loaded here -->
+                </div>
+                <div class="input-group mt-2">
+                    <input type="text" class="form-control comment-input" placeholder="Write a comment...">
+                    <button class="btn btn-outline-primary comment-submit">Post</button>
+                </div>
+            </div>
+        </div>
+    </template>
 
 
 </body>

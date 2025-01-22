@@ -309,6 +309,7 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   });
 
+
   //delete account
   document.getElementById("deleteAccountButton").addEventListener("click", () => {
     const user = auth.currentUser;
@@ -318,283 +319,318 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    // Function to delete the user account
-    function deleteUserAccount() {
-      // Get the user ID from Firestore
-      getUserIdFromUid(user.uid).then((firestoreUserId) => {
-        const userDocRef = db.collection("users").doc(firestoreUserId);
-        const contactDocRef = db.collection("contact").doc(firestoreUserId.replace('user', 'contact'));
-
-        // Delete the user and contact documents
-        Promise.all([
-          userDocRef.delete(),
-          contactDocRef.delete()
-        ])
-          .then(() => {
-            console.log("User and contact documents deleted successfully.");
-
-            // Now delete the user's authentication
-            user.delete()
-              .then(() => {
-                console.log("User authentication deleted successfully.");
-                alert("Your account has been deleted.");
-                window.location.href = "kauara.html"; // Redirect to login page
-              })
-              .catch((error) => {
-                console.error("Error deleting authentication:", error);
-                alert("Failed to delete user authentication.");
-              });
-          })
-          .catch((error) => {
-            console.error("Error deleting documents:", error);
-            alert("Failed to delete user or contact document.");
-          });
-      })
-      .catch((error) => {
-        console.error("Error fetching user ID:", error);
-        alert("Failed to retrieve user data.");
-      });
-    }
-
     // Confirm the deletion with the user before proceeding
-    if (confirm("Are you sure you want to delete your account? This action is irreversible.")) {
-      deleteUserAccount();
+    if (confirm("Are you sure you want to delete your account and all your posts? This action is irreversible.")) {
+      deleteUserAccountAndPosts(user);
     }
   });
 
-  // Display posts when the page is loaded
-  function displayPosts() {
-    const user = auth.currentUser;
+  // Function to delete the user account and all their posts
+  async function deleteUserAccountAndPosts(user) {
+    try {
+      // Get the user's Firestore ID
+      const firestoreUserId = await getUserIdFromUid(user.uid);
 
-    if (!user) {
-      console.error("No user is logged in.");
-      return;
+      // Step 1: Fetch all posts with the user's foreignUserId
+      const postsQuery = db.collection("posts").where("foreignUserId", "==", firestoreUserId);
+      const postsSnapshot = await postsQuery.get();
+
+      // Step 2: Delete each post
+      const deletePostPromises = [];
+      postsSnapshot.forEach((doc) => {
+        deletePostPromises.push(doc.ref.delete());
+      });
+
+      // Wait for all posts to be deleted
+      await Promise.all(deletePostPromises);
+      console.log("All posts deleted successfully.");
+
+      // Step 3: Delete the user's profile and contact documents
+      const userDocRef = db.collection("users").doc(firestoreUserId);
+      const contactDocRef = db.collection("contact").doc(firestoreUserId.replace('user', 'contact'));
+
+      await Promise.all([
+        userDocRef.delete(),
+        contactDocRef.delete()
+      ]);
+      console.log("User and contact documents deleted successfully.");
+
+      // Step 4: Delete the user's authentication
+      await user.delete();
+      console.log("User authentication deleted successfully.");
+
+      // Notify the user and redirect
+      alert("Your account and all associated posts have been deleted.");
+      window.location.href = "kauara.html"; // Redirect to login page
+    } catch (error) {
+      console.error("Error during account deletion:", error);
+      alert("Failed to delete account and posts.");
     }
-
-    getUserIdFromUid(user.uid).then((firestoreUserId) => {
-      db.collection("posts")
-        .where("foreignUserId", "==", firestoreUserId) // Only fetch posts for the logged-in user
-        .orderBy("timestamp", "desc") // Order by most recent
-        .get()
-        .then((querySnapshot) => {
-          const postsContainer = document.getElementById("allPostsContainer");
-
-          if (!postsContainer) {
-            console.error("Posts container element not found.");
-            return;
-          }
-
-          postsContainer.innerHTML = ""; // Clear the container before adding new posts
-
-          querySnapshot.forEach((doc) => {
-            const post = doc.data();
-            const postId = doc.id; // Get the document ID for deleting later
-            const postElement = document.createElement("div");
-            postElement.classList.add("post");
-
-            // Add the post text
-            const postText = document.createElement("p");
-            postText.textContent = post.postText;
-            postElement.appendChild(postText);
-
-            // If there's an image, display it
-            if (post.postImage) {
-              const postImage = document.createElement("img");
-              postImage.src = `data:image/jpeg;base64,${post.postImage}`;
-              postImage.alt = "Post image";
-              postElement.appendChild(postImage);
-            }
-
-            // Add timestamp
-            const timestamp = post.timestamp.toDate(); // Convert Firestore timestamp to JavaScript Date
-            const formattedTimestamp = formatTimestamp(timestamp); // Call a function to format the timestamp
-            const postTimestamp = document.createElement("span");
-            postTimestamp.textContent = `Posted on: ${formattedTimestamp}`;
-            postElement.appendChild(postTimestamp);
-
-            // Add delete button
-            const deleteButton = document.createElement("button");
-            deleteButton.textContent = "Delete";
-            deleteButton.classList.add("btn", "btn-danger");
-            deleteButton.addEventListener("click", () => {
-              deletePost(postId); // Call the delete function when button is clicked
-            });
-            postElement.appendChild(deleteButton);
-
-            // Add the post element to the container
-            postsContainer.appendChild(postElement);
-          });
-        })
-        .catch((error) => {
-          console.error("Error fetching posts:", error);
-        });
-    }).catch((error) => {
-      console.error("Error fetching user ID:", error);
-    });
   }
 
   // Helper function to format timestamp as a readable date (e.g., "January 21, 2025, 5:00 PM")
   function formatTimestamp(date) {
-    const options = { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric', 
-      hour: '2-digit', 
-      minute: '2-digit', 
-      hour12: true 
-    };
-    return date.toLocaleString('en-US', options); // Format using the user's local settings
+      const options = { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric', 
+          hour: '2-digit', 
+          minute: '2-digit', 
+          hour12: true 
+      };
+      return date.toLocaleString('en-US', options); // Format using the user's local settings
   }
 
-  // Delete post function
-  function deletePost(postId) {
-    const user = auth.currentUser;
+  function displayPosts() {
+      const user = auth.currentUser;
 
-    if (!user) {
-      alert("You need to be logged in to delete a post.");
-      return;
-    }
-
-    if (confirm("Are you sure you want to delete this post? This action cannot be undone.")) {
-      db.collection("posts")
-        .doc(postId)
-        .delete()
-        .then(() => {
-          alert("Post deleted successfully.");
-          displayPosts(); // Refresh the posts list after deletion
-        })
-        .catch((error) => {
-          console.error("Error deleting post:", error);
-          alert("Failed to delete the post.");
-        });
-    }
-  }
-
-
-  // Post Creation Handling
-  addPostButton.addEventListener("click", () => {
-    postModal.show();
-  });
-
-  postImageInput.addEventListener("change", async (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      try {
-        // Compress image before showing cropper
-        const compressedImage = await compressImage(file);
-        selectedImageFile = file;
-        postCropImage.src = compressedImage;
-        
-        if (postCropper) {
-          postCropper.destroy();
-        }
-        
-        postCropModal.show();
-        postCropper = new Cropper(postCropImage, {
-          aspectRatio: NaN,
-          viewMode: 1
-        });
-      } catch (error) {
-        alert(error.message);
-        postImageInput.value = ''; // Clear the input
-        selectedImageFile = null;
-      }
-    }
-  });
-
-  postCropButton.addEventListener("click", () => {
-    if (!postCropper) {
-      alert("Please select an image first");
-      return;
-    }
-
-    const canvas = postCropper.getCroppedCanvas();
-
-    postImagePreview.src = canvas.toDataURL("image/jpeg");
-    postImagePreview.classList.remove("d-none");
-    postCropModal.hide();
-  });
-
-  submitPostButton.addEventListener("click", async () => {
-    const postContent = postText.value.trim();
-    if (!postContent && !selectedImageFile) {
-      alert("Please add text or an image.");
-      return;
-    }
-
-    const user = auth.currentUser;
-    if (!user) {
-      alert("User is not logged in.");
-      return;
-    }
-
-    try {
-      const firestoreUserId = await getUserIdFromUid(user.uid);
-      let base64Image = null;
-
-      if (selectedImageFile && postCropper) {
-        const canvas = postCropper.getCroppedCanvas();
-        base64Image = canvas.toDataURL("image/jpeg").split(",")[1];
+      if (!user) {
+          console.error("No user is logged in.");
+          return;
       }
 
-      await savePostToFirestore(postContent, base64Image, firestoreUserId);
-    } catch (error) {
-      console.error("Error handling post submission:", error);
-      alert("Something went wrong.");
-    }
-  });
+      getUserIdFromUid(user.uid).then((firestoreUserId) => {
+          db.collection("posts")
+              .where("foreignUserId", "==", firestoreUserId) // Only fetch posts for the logged-in user
+              .orderBy("timestamp", "desc") // Order by most recent
+              .get()
+              .then((querySnapshot) => {
+                  const postsContainer = document.getElementById("allPostsContainer");
 
-  async function savePostToFirestore(text, base64Image, userId) {
-    console.log("UserID:", userId);  // Log the userId to ensure it's correctly fetched
-    
-    // Check if the userId is missing or invalid
-    if (!userId) {
-      alert("User ID is missing.");
-      return;
-    }
+                  if (!postsContainer) {
+                      console.error("Posts container element not found.");
+                      return;
+                  }
 
-    // Check if text or an image is provided
-    if (!text && !base64Image) {
-      alert("Please add some text or an image.");
-      return;
-    }
+                  postsContainer.innerHTML = ""; // Clear the container before adding new posts
 
-    // Ensure the text is a string, and if it's empty, use a placeholder
-    const postText = text.trim() || "No content provided";
+                  if (querySnapshot.empty) {
+                      // Display a message if no posts are found
+                      const noPostsMessage = document.createElement("p");
+                      noPostsMessage.textContent = "No posts available. Create your first post!";
+                      noPostsMessage.classList.add("text-muted", "text-center");
+                      postsContainer.appendChild(noPostsMessage);
+                      return;
+                  }
 
-    try {
-      // Add the post to Firestore
-      await db.collection("posts").add({
-        foreignUserId: userId,  // This should be the userId from Firestore
-        postText: postText,     // The text content of the post
-        postImage: base64Image, // Base64 image string, if available
-        timestamp: firebase.firestore.FieldValue.serverTimestamp() // Firestore server timestamp
+                  querySnapshot.forEach((doc) => {
+                      const post = doc.data();
+                      const postId = doc.id; // Get the document ID for deleting later
+                      const postElement = document.createElement("div");
+                      postElement.classList.add("card", "mb-4");
+
+                      // Add the post text
+                      const postText = document.createElement("p");
+                      postText.textContent = post.postText;
+                      postElement.appendChild(postText);
+
+                      // If there's an image, display it
+                      if (post.postImage) {
+                          const postImage = document.createElement("img");
+                          postImage.src = `data:image/jpeg;base64,${post.postImage}`; // Ensure proper interpolation
+                          postImage.alt = "Post image";
+                          postImage.classList.add("img-fluid", "mt-2");
+                          postElement.appendChild(postImage);
+                      }
+
+                      // Add timestamp
+                      const timestamp = post.timestamp.toDate(); // Convert Firestore timestamp to JavaScript Date
+                      const formattedTimestamp = formatTimestamp(timestamp); // Use the helper function
+                      const postTimestamp = document.createElement("p");
+                      postTimestamp.textContent = `Posted on: ${formattedTimestamp}`;
+                      postTimestamp.classList.add("text-muted", "mt-2", "mb-0");
+                      postElement.appendChild(postTimestamp);
+
+                      // Add delete button
+                      const deleteButton = document.createElement("button");
+                      deleteButton.textContent = "Delete";
+                      deleteButton.classList.add("btn", "btn-danger", "mt-2");
+                      deleteButton.addEventListener("click", () => {
+                          deletePost(postId); // Call the delete function when button is clicked
+                      });
+                      postElement.appendChild(deleteButton);
+
+                      // Add comment section
+                      const commentsContainer = document.createElement("div");
+                      commentsContainer.id = `comments-${postId}`;
+                      commentsContainer.classList.add("comments-container", "mt-3");
+                      postElement.appendChild(commentsContainer);
+
+                      // Add comment input and submit button
+                      const commentInputGroup = document.createElement("div");
+                      commentInputGroup.classList.add("input-group", "mt-2");
+
+                      const commentInput = document.createElement("input");
+                      commentInput.type = "text";
+                      commentInput.classList.add("form-control", "comment-input");
+                      commentInput.placeholder = "Write a comment...";
+                      commentInput.id = `commentInput-${postId}`;
+
+                      const commentSubmitButton = document.createElement("button");
+                      commentSubmitButton.textContent = "Post";
+                      commentSubmitButton.classList.add("btn", "btn-outline-primary", "comment-submit");
+                      commentSubmitButton.setAttribute("data-post-id", postId);
+
+                      commentInputGroup.appendChild(commentInput);
+                      commentInputGroup.appendChild(commentSubmitButton);
+                      postElement.appendChild(commentInputGroup);
+
+                      // Load comments for this post
+                      loadComments(postId, commentsContainer);
+
+                      // Add event listener for comment submission
+                      commentSubmitButton.addEventListener("click", async () => {
+                          const commentText = commentInput.value.trim();
+                          if (!commentText) {
+                              alert("Please enter a comment.");
+                              return;
+                          }
+
+                          const user = auth.currentUser;
+                          if (!user) {
+                              alert("You must be logged in to comment.");
+                              return;
+                          }
+
+                          try {
+                              // Fetch the custom user_id from the users collection
+                              const userQuery = await db.collection("users")
+                                  .where("firebaseUID", "==", user.uid)
+                                  .get();
+
+                              if (userQuery.empty) {
+                                  alert("User data not found. Please contact support.");
+                                  return;
+                              }
+
+                              const customUserId = userQuery.docs[0].data().userId;
+
+                              // Save the comment to Firestore
+                              await db.collection("comments").add({
+                                  foreignUserId: customUserId, // Use the custom user_id
+                                  foreignPostId: postId,       // ID of the post being commented on
+                                  content: commentText,        // The comment text
+                                  timestamp: firebase.firestore.FieldValue.serverTimestamp() // Timestamp
+                              });
+
+                              // Clear the input
+                              commentInput.value = "";
+
+                              // Reload comments for this post
+                              loadComments(postId, commentsContainer);
+                          } catch (error) {
+                              console.error("Error submitting comment:", error);
+                              alert("Failed to submit comment. Please try again.");
+                          }
+                      });
+
+                      // Add the post element to the container
+                      postsContainer.appendChild(postElement);
+                  });
+              })
+              .catch((error) => {
+                  console.error("Error fetching posts:", error);
+                  const postsContainer = document.getElementById("allPostsContainer");
+                  if (postsContainer) {
+                      postsContainer.innerHTML = `<p class="text-danger">Error loading posts. Please try again later.</p>`;
+                  }
+              });
+      }).catch((error) => {
+          console.error("Error fetching user ID:", error);
       });
+  }
 
-      // Reset UI elements after post creation
-      postModal.hide();
-      postText.value = "";  // Clear the text input
-      postImageInput.value = ""; // Reset the file input
-      postImagePreview.classList.add("d-none");  // Hide the image preview
-      selectedImageFile = null;  // Reset the selected image file
-      
-      // Destroy the cropper if it was used
-      if (postCropper) {
-        postCropper.destroy();
-        postCropper = null;
+  // Function to load comments for a post
+  async function loadComments(postId, commentsContainer) {
+      commentsContainer.innerHTML = ""; // Clear existing comments
+
+      try {
+          const commentsSnapshot = await db.collection("comments")
+              .where("foreignPostId", "==", postId)
+              .orderBy("timestamp", "asc")
+              .get();
+
+          if (commentsSnapshot.empty) {
+              commentsContainer.innerHTML = '<p class="text-muted">No comments yet.</p>';
+              return;
+          }
+
+          // Display each comment
+          commentsSnapshot.forEach(async (doc) => {
+              const commentData = doc.data();
+
+              // Fetch user data for the comment
+              const userQuery = await db.collection("users")
+                  .where("userId", "==", commentData.foreignUserId)
+                  .get();
+
+              if (userQuery.empty) {
+                  console.error("User not found for comment:", commentData.foreignUserId);
+                  return;
+              }
+
+              const userData = userQuery.docs[0].data();
+              const userName = userData.user_Name || "Unknown User";
+              const userProfilePic = userData.profilePicture || null;
+
+              // Create comment element
+              const commentElement = document.createElement("div");
+              commentElement.className = "mb-3 d-flex align-items-center";
+
+              // Add profile picture
+              const profilePicElement = document.createElement("img");
+              profilePicElement.src = userProfilePic ? `data:image/jpeg;base64,${userProfilePic}` : "default-profile.png";
+              profilePicElement.className = "rounded-circle me-2";
+              profilePicElement.style.width = "40px";
+              profilePicElement.style.height = "40px";
+              profilePicElement.style.cursor = "pointer";
+              profilePicElement.setAttribute("data-user-id", commentData.foreignUserId);
+
+              // Add click event to profile picture
+              profilePicElement.addEventListener("click", () => {
+                  const userId = profilePicElement.getAttribute("data-user-id");
+                  window.location.href = `public-profile.html?userId=${encodeURIComponent(userId)}`;
+              });
+
+              // Add comment content
+              const commentContent = document.createElement("div");
+              commentContent.className = "d-flex flex-column";
+
+              // Add commenter's name (clickable)
+              const commenterName = document.createElement("strong");
+              commenterName.textContent = userName;
+              commenterName.style.cursor = "pointer";
+              commenterName.setAttribute("data-user-id", commentData.foreignUserId);
+
+              // Add click event to commenter's name
+              commenterName.addEventListener("click", () => {
+                  const userId = commenterName.getAttribute("data-user-id");
+                  window.location.href = `public-profile.html?userId=${encodeURIComponent(userId)}`;
+              });
+
+              // Add comment text
+              const commentText = document.createElement("span");
+              commentText.textContent = commentData.content;
+
+              // Add timestamp
+              const commentTimestamp = document.createElement("small");
+              commentTimestamp.className = "text-muted";
+              commentTimestamp.textContent = commentData.timestamp.toDate().toLocaleString();
+
+              // Append elements
+              commentContent.appendChild(commenterName);
+              commentContent.appendChild(commentText);
+              commentContent.appendChild(commentTimestamp);
+
+              commentElement.appendChild(profilePicElement);
+              commentElement.appendChild(commentContent);
+
+              commentsContainer.appendChild(commentElement);
+          });
+      } catch (error) {
+          console.error("Error loading comments:", error);
+          commentsContainer.innerHTML = '<p class="text-danger">Error loading comments.</p>';
       }
-
-      // Provide feedback to the user
-      alert("Post successfully created!");
-      
-      // Optionally, you can refresh the posts here
-      displayPosts();
-
-    } catch (error) {
-      // Log the error and alert the user in case of failure
-      console.error("Error adding post:", error);
-      alert("Failed to create post.");
-    }
   }
 
 
