@@ -44,6 +44,123 @@ document.addEventListener("DOMContentLoaded", function () {
   let cropper;
   let postCropper = null;
 
+  // Add this event listener for the "Create Post" button
+  addPostButton.addEventListener("click", () => {
+    console.log("Create Post button clicked!"); // Debugging: Log to console
+    postModal.show(); // Open the post creation modal
+  });
+
+  // Handle image upload and cropping
+  postImageInput.addEventListener("change", async (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      try {
+        const compressedImage = await compressImage(file);
+        selectedImageFile = file;
+        postCropImage.src = compressedImage;
+
+        if (postCropper) {
+          postCropper.destroy();
+        }
+
+        postCropModal.show();
+        postCropper = new Cropper(postCropImage, {
+          aspectRatio: NaN,
+          viewMode: 1
+        });
+      } catch (error) {
+        alert(error.message);
+        postImageInput.value = ''; // Clear the input
+        selectedImageFile = null;
+      }
+    }
+  });
+
+  // Handle image cropping
+  postCropButton.addEventListener("click", () => {
+    if (!postCropper) {
+      alert("Please select an image first");
+      return;
+    }
+
+    const canvas = postCropper.getCroppedCanvas();
+    postImagePreview.src = canvas.toDataURL("image/jpeg");
+    postImagePreview.classList.remove("d-none");
+    postCropModal.hide();
+  });
+
+  // Handle post submission
+  submitPostButton.addEventListener("click", async () => {
+    const postContent = postText.value.trim();
+    if (!postContent && !selectedImageFile) {
+      alert("Please add text or an image.");
+      return;
+    }
+
+    const user = auth.currentUser;
+    if (!user) {
+      alert("User is not logged in.");
+      return;
+    }
+
+    try {
+      const firestoreUserId = await getUserIdFromUid(user.uid);
+      let base64Image = null;
+
+      if (selectedImageFile && postCropper) {
+        const canvas = postCropper.getCroppedCanvas();
+        base64Image = canvas.toDataURL("image/jpeg").split(",")[1];
+      }
+
+      await savePostToFirestore(postContent, base64Image, firestoreUserId);
+    } catch (error) {
+      console.error("Error handling post submission:", error);
+      alert("Something went wrong.");
+    }
+  });
+
+  // Function to save the post to Firestore
+  async function savePostToFirestore(text, base64Image, userId) {
+    console.log("UserID:", userId);
+    if (!userId) {
+      alert("User ID is missing.");
+      return;
+    }
+
+    if (!text && !base64Image) {
+      alert("Please add some text or an image.");
+      return;
+    }
+
+    const postText = text.trim() || "No content provided";
+
+    try {
+      await db.collection("posts").add({
+        foreignUserId: userId,
+        postText: postText,
+        postImage: base64Image,
+        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      postModal.hide();
+      postText.value = "";
+      postImageInput.value = "";
+      postImagePreview.classList.add("d-none");
+      selectedImageFile = null;
+
+      if (postCropper) {
+        postCropper.destroy();
+        postCropper = null;
+      }
+
+      alert("Post successfully created!");
+      displayPosts();
+    } catch (error) {
+      console.error("Error adding post:", error);
+      alert("Failed to create post.");
+    }
+  }
+
   // Helper function to get user ID format (e.g., "user_1", "user_2")
   function getUserIdFromUid(uid) {
     return db
@@ -632,6 +749,4 @@ document.addEventListener("DOMContentLoaded", function () {
           commentsContainer.innerHTML = '<p class="text-danger">Error loading comments.</p>';
       }
   }
-
-
 });
