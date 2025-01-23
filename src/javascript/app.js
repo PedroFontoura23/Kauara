@@ -146,11 +146,42 @@ document.addEventListener("DOMContentLoaded", function () {
         clearErrorMessage();
     });
 
-    // Show the modal when clicking the profile button
-    profileButton.addEventListener("click", () => {
-        new bootstrap.Modal(authModal).show();
+    // Function to update the profile button behavior
+    function updateProfileButtonBehavior(user) {
+        if (user && user.emailVerified) {
+            // User is logged in and email is verified
+            profileButton.textContent = "Profile";
+            profileButton.href = "profile.html"; // Set href to profile page
+        } else {
+            // User is not logged in or email is not verified
+            profileButton.textContent = "Log In / Register";
+            profileButton.removeAttribute("href"); // Remove href to prevent redirect
+        }
+    }
+
+    // Check authentication state on page load
+    auth.onAuthStateChanged(user => {
+        updateProfileButtonBehavior(user);
     });
 
+    // Handle profile button click
+    profileButton.addEventListener("click", function (event) {
+        const user = auth.currentUser;
+
+        if (user && user.emailVerified) {
+            // User is logged in, redirect to profile page
+            // Close the modal if it's open
+            const modalInstance = bootstrap.Modal.getInstance(authModal);
+            if (modalInstance) {
+                modalInstance.hide(); // Close the modal
+            }
+            window.location.href = "profile.html"; // Redirect to profile page
+        } else {
+            // User is not logged in, show login/register modal
+            event.preventDefault(); // Prevent default behavior (e.g., href redirect)
+            new bootstrap.Modal(authModal).show(); // Show the modal
+        }
+    });
 
     // Login Logic
     loginSubmitButton.addEventListener("click", () => {
@@ -241,7 +272,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     const userDoc = await db.collection("users").where("firebaseUID", "==", user.uid).get();
 
                     if (!userDoc.empty) {
-                        console.log("User data found. Redirecting to profile...");
+                        console.log("User data found.");
                         removeLoadingMessage();
 ;
                     } else {
@@ -524,354 +555,52 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 
-    // Check authentication state
-    auth.onAuthStateChanged(user => {
-        if (user && user.emailVerified) {
-            profileButton.textContent = "Profile";
-            profileButton.onclick = () => {
-                window.location.href = "profile.html";
-            };
-        } else {
-            profileButton.textContent = "Log In / Register";
-            profileButton.onclick = () => {
-                new bootstrap.Modal(authModal).show();
-            };
-        }
-    });
-});
-function initializePosts() {
-    console.log("Initializing posts display");
-    const allPostsContainer = document.getElementById("allPostsContainer");
-    const db = firebase.firestore();
-
-    if (!allPostsContainer) {
-        console.error("Posts container not found");
-        return;
-    }
-
-    let lastVisible = null; // Track the last visible post for pagination
-    let isFetching = false; // Prevent multiple simultaneous fetches
-
-    // Function to display all posts
-    function displayAllPosts() {
-        if (isFetching) return; // Prevent multiple simultaneous fetches
-        isFetching = true;
-
-        console.log("Starting to fetch posts");
-        allPostsContainer.innerHTML = ""; // Clear the container before fetching new posts
-
-        let query = db.collection("posts")
-            .orderBy("timestamp", "desc")
-            .limit(10); // Fetch the first 10 posts
-
-        // Add pagination support if we already have a "lastVisible" document
-        if (lastVisible) {
-            query = query.startAfter(lastVisible);
-        }
-
-        query.get()
-            .then((querySnapshot) => {
-                console.log(`Found ${querySnapshot.size} posts`);
-                const postPromises = querySnapshot.docs.map(async (doc) => {
-                    const postData = doc.data();
-                    console.log("Post data:", postData);
-
-                    try {
-                        // Fetch user data for the post
-                        const userDoc = await db.collection("users")
-                            .doc(postData.foreignUserId)
-                            .get();
-
-                        if (!userDoc.exists) {
-                            console.error(`No user found for ID: ${postData.foreignUserId}`);
-                            return null; // Skip this post
-                        }
-
-                        const userData = userDoc.data();
-                        console.log("User data found:", userData.user_Name);
-
-                        return {
-                            postId: doc.id,
-                            ...postData,
-                            userName: userData.user_Name || "Unknown User",
-                            userProfilePic: userData.profilePicture || null
-                        };
-                    } catch (error) {
-                        console.error("Error fetching user data:", error);
-                        return null; // Skip this post
-                    }
-                });
-
-                return Promise.all(postPromises).then((posts) => {
-                    const validPosts = posts.filter(post => post !== null);
-                    console.log(`Displaying ${validPosts.length} valid posts`);
-
-                    if (validPosts.length === 0) {
-                        allPostsContainer.innerHTML = '<p class="text-muted">No posts available</p>';
-                        return;
-                    }
-
-                    // Display each valid post
-                    validPosts.forEach(post => {
-                        try {
-                            const postElement = createPostElement(post);
-                            if (postElement) {
-                                allPostsContainer.appendChild(postElement);
-                            }
-                        } catch (error) {
-                            console.error("Error creating post element:", error);
-                        }
-                    });
-
-                    // Update the last visible post for pagination
-                    if (querySnapshot && querySnapshot.docs.length > 0) {
-                        lastVisible = querySnapshot.docs[querySnapshot.docs.length - 1];
-                    }
-                });
-            })
-            .catch((error) => {
-                console.error("Error fetching posts:", error);
-                allPostsContainer.innerHTML = `
-                    <div class="alert alert-danger">
-                        Error loading posts. Please try again later.
-                        <br>
-                        Error details: ${error.message}
-                    </div>
-                `;
-            })
-            .finally(() => {
-                isFetching = false; // Reset the fetching flag
-            });
-    }
-
-    // Function to create a post element
-    function createPostElement(post) {
-        if (!post || !post.postId || !post.foreignUserId || !post.userName) {
-            console.error("Invalid post object:", post);
-            return null; // Skip invalid posts
-        }
-
-        const postDiv = document.createElement("div");
-        postDiv.className = "card mb-4";
-
-        // Format timestamp
-        const timestamp = post.timestamp?.toDate() || new Date();
-        const formattedDate = timestamp.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-
-        // Create post HTML structure with clickable elements
-        postDiv.innerHTML = `
-            <div class="card-header d-flex align-items-center">
-                <img src="${post.userProfilePic ? `data:image/jpeg;base64,${post.userProfilePic}` : '/default-profile.jpg'}"
-                     class="rounded-circle me-2 user-profile-link"
-                     alt="Profile Picture"
-                     style="width: 40px; height: 40px; object-fit: cover; cursor: pointer;"
-                     data-user-id="${post.foreignUserId}">
-                <div>
-                    <h6 class="mb-0 user-profile-link" style="cursor: pointer;" data-user-id="${post.foreignUserId}">${post.userName}</h6>
-                    <small class="text-muted">${formattedDate}</small>
-                </div>
-            </div>
-            <div class="card-body">
-                <p class="card-text">${post.postText}</p>
-                ${post.postImage ? `
-                    <img src="data:image/jpeg;base64,${post.postImage}"
-                         class="img-fluid rounded"
-                         alt="Post Image"
-                         style="max-height: 500px; width: auto;">
-                ` : ''}
-            </div>
-            <!-- Comment Section -->
-            <div class="card-footer">
-                <div class="comments-container">
-                    <!-- Comments will be dynamically loaded here -->
-                </div>
-                <div class="input-group mt-2">
-                    <input type="text" class="form-control comment-input" placeholder="Write a comment...">
-                    <button class="btn btn-outline-primary comment-submit">Post</button>
-                </div>
-            </div>
-        `;
-
-        // Add click event listeners to profile elements
-        const profileElements = postDiv.querySelectorAll('.user-profile-link');
-        profileElements.forEach(element => {
-            element.addEventListener('click', () => {
-                const userId = element.getAttribute('data-user-id');
-                window.location.href = `public-profile.html?userId=${encodeURIComponent(userId)}`;
-            });
-        });
-
-        // Handle comment submission
-        const commentInput = postDiv.querySelector('.comment-input');
-        const commentSubmitButton = postDiv.querySelector('.comment-submit');
-        const commentsContainer = postDiv.querySelector('.comments-container');
-
-        commentSubmitButton.addEventListener('click', async () => {
-            const commentText = commentInput.value.trim();
-            if (!commentText) {
-                alert("Please enter a comment.");
-                return;
-            }
-
-            const user = firebase.auth().currentUser;
-            if (!user) {
-                alert("You must be logged in to comment.");
-                return;
-            }
-
-            try {
-                // Fetch the custom user_id from the users collection
-                const userQuery = await db.collection("users")
-                    .where("firebaseUID", "==", user.uid)
-                    .get();
-
-                if (userQuery.empty) {
-                    alert("User data not found. Please contact support.");
-                    return;
-                }
-
-                const customUserId = userQuery.docs[0].data().userId;
-
-                // Save the comment to Firestore
-                await db.collection("comments").add({
-                    foreignUserId: customUserId, // Use the custom user_id
-                    foreignPostId: post.postId,  // ID of the post being commented on
-                    content: commentText,        // The comment text
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp() // Timestamp
-                });
-
-                // Clear the input
-                commentInput.value = "";
-
-                // Reload comments for this post
-                loadComments(post.postId, commentsContainer);
-            } catch (error) {
-                console.error("Error submitting comment:", error);
-                alert("Failed to submit comment. Please try again.");
-            }
-        });
-
-        // Load comments for this post
-        loadComments(post.postId, commentsContainer);
-
-        return postDiv; // Always return a valid DOM element
-    }
-
-    // Function to load comments for a post
-    async function loadComments(postId, commentsContainer) {
-        commentsContainer.innerHTML = ""; // Clear existing comments
-
+    auth.onAuthStateChanged(async (user) => {
+    if (user) {
         try {
-            const commentsSnapshot = await db.collection("comments")
-                .where("foreignPostId", "==", postId)
-                .orderBy("timestamp", "asc")
-                .get();
-
-            if (commentsSnapshot.empty) {
-                commentsContainer.innerHTML = '<p class="text-muted">No comments yet.</p>';
-                return;
-            }
-
-            // Display each comment
-            commentsSnapshot.forEach(async (doc) => {
-                const commentData = doc.data();
-
-                // Fetch user data for the comment
-                const userQuery = await db.collection("users")
-                    .where("userId", "==", commentData.foreignUserId)
-                    .get();
-
-                if (userQuery.empty) {
-                    console.error("User not found for comment:", commentData.foreignUserId);
-                    return;
-                }
-
-                const userData = userQuery.docs[0].data();
-                const userName = userData.user_Name || "Unknown User";
-                const userProfilePic = userData.profilePicture || null;
-
-                // Create comment element
-                const commentElement = document.createElement("div");
-                commentElement.className = "mb-3 d-flex align-items-center";
-
-                // Add profile picture
-                const profilePicElement = document.createElement("img");
-                profilePicElement.src = userProfilePic ? `data:image/jpeg;base64,${userProfilePic}` : "default-profile.png";
-                profilePicElement.className = "rounded-circle me-2";
-                profilePicElement.style.width = "40px";
-                profilePicElement.style.height = "40px";
-                profilePicElement.style.cursor = "pointer";
-                profilePicElement.setAttribute("data-user-id", commentData.foreignUserId);
-
-                // Add click event to profile picture
-                profilePicElement.addEventListener("click", () => {
-                    const userId = profilePicElement.getAttribute("data-user-id");
-                    window.location.href = `public-profile.html?userId=${encodeURIComponent(userId)}`;
-                });
-
-                // Add comment content
-                const commentContent = document.createElement("div");
-                commentContent.className = "d-flex flex-column";
-
-                // Add commenter's name (clickable)
-                const commenterName = document.createElement("strong");
-                commenterName.textContent = userName;
-                commenterName.style.cursor = "pointer";
-                commenterName.setAttribute("data-user-id", commentData.foreignUserId);
-
-                // Add click event to commenter's name
-                commenterName.addEventListener("click", () => {
-                    const userId = commenterName.getAttribute("data-user-id");
-                    window.location.href = `public-profile.html?userId=${encodeURIComponent(userId)}`;
-                });
-
-                // Add comment text
-                const commentText = document.createElement("span");
-                commentText.textContent = commentData.content;
-
-                // Add timestamp
-                const commentTimestamp = document.createElement("small");
-                commentTimestamp.className = "text-muted";
-                commentTimestamp.textContent = commentData.timestamp.toDate().toLocaleString();
-
-                // Append elements
-                commentContent.appendChild(commenterName);
-                commentContent.appendChild(commentText);
-                commentContent.appendChild(commentTimestamp);
-
-                commentElement.appendChild(profilePicElement);
-                commentElement.appendChild(commentContent);
-
-                commentsContainer.appendChild(commentElement);
-            });
+            const firestoreUserId = await getUserIdFromUid(user.uid);
+            const postManager = initializePostManager('allPostsContainer');
+            postManager.displayPosts(null, firestoreUserId); // Pass the current user's ID
         } catch (error) {
-            console.error("Error loading comments:", error);
-            commentsContainer.innerHTML = '<p class="text-danger">Error loading comments.</p>';
+            console.error("Error fetching current user ID:", error);
         }
     }
 
-    // Initial load of posts
-    console.log("Starting initial posts load");
-    displayAllPosts();
+    async function getUserIdFromUid(uid) {
+        const userQuery = await db.collection("users")
+            .where("firebaseUID", "==", uid)
+            .get();
 
-    // Listen for new posts
-    db.collection("posts")
-        .orderBy("timestamp", "desc")
-        .onSnapshot((snapshot) => {
-            console.log("New post detected. Refreshing posts...");
-            displayAllPosts(); // Refresh posts when a new post is added
+        if (!userQuery.empty) {
+            return userQuery.docs[0].id; // Return the Firestore user ID
+        } else {
+            throw new Error(`No user found for UID: ${uid}`);
+        }
+    }
+
+
+});
+    function initializePosts() {
+        console.log("Initializing posts display");
+
+        // Initialize Firebase if not already initialized
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                try {
+                    const firestoreUserId = await getUserIdFromUid(user.uid);
+                    const postManager = initializePostManager('allPostsContainer');
+                    postManager.displayPosts(null, firestoreUserId); // Pass the current user's ID
+                } catch (error) {
+                    console.error("Error fetching current user ID:", error);
+                }
+            }
         });
-}
-// In your main DOMContentLoaded listener, add:
-document.addEventListener("DOMContentLoaded", function () {
-    // ... your existing initialization code ...
-    
-    // Initialize posts at the end of your main initialization
-    initializePosts();
+    }
 });

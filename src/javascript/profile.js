@@ -50,6 +50,10 @@ document.addEventListener("DOMContentLoaded", function () {
     postModal.show(); // Open the post creation modal
   });
 
+  function initializePostManager(containerId) {
+    return new PostManager(db, auth, containerId);
+  }
+
   // Handle image upload and cropping
   postImageInput.addEventListener("change", async (event) => {
     const file = event.target.files[0];
@@ -437,32 +441,52 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // Confirm the deletion with the user before proceeding
-    if (confirm("Are you sure you want to delete your account and all your posts? This action is irreversible.")) {
+    if (confirm("Are you sure you want to delete your account and all associated data? This action is irreversible.")) {
       deleteUserAccountAndPosts(user);
     }
   });
 
-  // Function to delete the user account and all their posts
+  // Function to delete the user account and all their posts, comments, and comments on their posts
   async function deleteUserAccountAndPosts(user) {
     try {
       // Get the user's Firestore ID
       const firestoreUserId = await getUserIdFromUid(user.uid);
 
-      // Step 1: Fetch all posts with the user's foreignUserId
+      // Step 1: Fetch all posts made by the user
       const postsQuery = db.collection("posts").where("foreignUserId", "==", firestoreUserId);
       const postsSnapshot = await postsQuery.get();
 
-      // Step 2: Delete each post
-      const deletePostPromises = [];
-      postsSnapshot.forEach((doc) => {
-        deletePostPromises.push(doc.ref.delete());
+      // Step 2: Delete all comments on the user's posts
+      const deleteCommentPromises = [];
+      postsSnapshot.forEach((postDoc) => {
+        const postId = postDoc.id;
+
+        // Fetch all comments on this post
+        const commentsQuery = db.collection("comments").where("foreignPostId", "==", postId);
+        deleteCommentPromises.push(
+          commentsQuery.get().then((commentsSnapshot) => {
+            const deleteComments = commentsSnapshot.docs.map((commentDoc) => commentDoc.ref.delete());
+            return Promise.all(deleteComments);
+          })
+        );
       });
 
-      // Wait for all posts to be deleted
-      await Promise.all(deletePostPromises);
-      console.log("All posts deleted successfully.");
+      // Step 3: Delete all comments made by the user
+      const userCommentsQuery = db.collection("comments").where("foreignUserId", "==", firestoreUserId);
+      deleteCommentPromises.push(
+        userCommentsQuery.get().then((commentsSnapshot) => {
+          const deleteUserComments = commentsSnapshot.docs.map((commentDoc) => commentDoc.ref.delete());
+          return Promise.all(deleteUserComments);
+        })
+      );
 
-      // Step 3: Delete the user's profile and contact documents
+      // Step 4: Delete all posts made by the user
+      const deletePostPromises = postsSnapshot.docs.map((doc) => doc.ref.delete());
+
+      // Wait for all deletions to complete
+      await Promise.all([...deleteCommentPromises, ...deletePostPromises]);
+
+      // Step 5: Delete the user's profile and contact documents
       const userDocRef = db.collection("users").doc(firestoreUserId);
       const contactDocRef = db.collection("contact").doc(firestoreUserId.replace('user', 'contact'));
 
@@ -470,18 +494,16 @@ document.addEventListener("DOMContentLoaded", function () {
         userDocRef.delete(),
         contactDocRef.delete()
       ]);
-      console.log("User and contact documents deleted successfully.");
 
-      // Step 4: Delete the user's authentication
+      // Step 6: Delete the user's authentication
       await user.delete();
-      console.log("User authentication deleted successfully.");
 
       // Notify the user and redirect
-      alert("Your account and all associated posts have been deleted.");
+      alert("Your account and all associated data have been deleted.");
       window.location.href = "kauara.html"; // Redirect to login page
     } catch (error) {
       console.error("Error during account deletion:", error);
-      alert("Failed to delete account and posts.");
+      alert("Failed to delete account and associated data.");
     }
   }
 
@@ -507,246 +529,10 @@ document.addEventListener("DOMContentLoaded", function () {
       }
 
       getUserIdFromUid(user.uid).then((firestoreUserId) => {
-          db.collection("posts")
-              .where("foreignUserId", "==", firestoreUserId) // Only fetch posts for the logged-in user
-              .orderBy("timestamp", "desc") // Order by most recent
-              .get()
-              .then((querySnapshot) => {
-                  const postsContainer = document.getElementById("allPostsContainer");
-
-                  if (!postsContainer) {
-                      console.error("Posts container element not found.");
-                      return;
-                  }
-
-                  postsContainer.innerHTML = ""; // Clear the container before adding new posts
-
-                  if (querySnapshot.empty) {
-                      // Display a message if no posts are found
-                      const noPostsMessage = document.createElement("p");
-                      noPostsMessage.textContent = "No posts available. Create your first post!";
-                      noPostsMessage.classList.add("text-muted", "text-center");
-                      postsContainer.appendChild(noPostsMessage);
-                      return;
-                  }
-
-                  querySnapshot.forEach((doc) => {
-                      const post = doc.data();
-                      const postId = doc.id; // Get the document ID for deleting later
-                      const postElement = document.createElement("div");
-                      postElement.classList.add("card", "mb-4");
-
-                      // Add the post text
-                      const postText = document.createElement("p");
-                      postText.textContent = post.postText;
-                      postElement.appendChild(postText);
-
-                      // If there's an image, display it
-                      if (post.postImage) {
-                          const postImage = document.createElement("img");
-                          postImage.src = `data:image/jpeg;base64,${post.postImage}`; // Ensure proper interpolation
-                          postImage.alt = "Post image";
-                          postImage.classList.add("img-fluid", "mt-2");
-                          postElement.appendChild(postImage);
-                      }
-
-                      // Add timestamp
-                      const timestamp = post.timestamp.toDate(); // Convert Firestore timestamp to JavaScript Date
-                      const formattedTimestamp = formatTimestamp(timestamp); // Use the helper function
-                      const postTimestamp = document.createElement("p");
-                      postTimestamp.textContent = `Posted on: ${formattedTimestamp}`;
-                      postTimestamp.classList.add("text-muted", "mt-2", "mb-0");
-                      postElement.appendChild(postTimestamp);
-
-                      // Add delete button
-                      const deleteButton = document.createElement("button");
-                      deleteButton.textContent = "Delete";
-                      deleteButton.classList.add("btn", "btn-danger", "mt-2");
-                      deleteButton.addEventListener("click", () => {
-                          deletePost(postId); // Call the delete function when button is clicked
-                      });
-                      postElement.appendChild(deleteButton);
-
-                      // Add comment section
-                      const commentsContainer = document.createElement("div");
-                      commentsContainer.id = `comments-${postId}`;
-                      commentsContainer.classList.add("comments-container", "mt-3");
-                      postElement.appendChild(commentsContainer);
-
-                      // Add comment input and submit button
-                      const commentInputGroup = document.createElement("div");
-                      commentInputGroup.classList.add("input-group", "mt-2");
-
-                      const commentInput = document.createElement("input");
-                      commentInput.type = "text";
-                      commentInput.classList.add("form-control", "comment-input");
-                      commentInput.placeholder = "Write a comment...";
-                      commentInput.id = `commentInput-${postId}`;
-
-                      const commentSubmitButton = document.createElement("button");
-                      commentSubmitButton.textContent = "Post";
-                      commentSubmitButton.classList.add("btn", "btn-outline-primary", "comment-submit");
-                      commentSubmitButton.setAttribute("data-post-id", postId);
-
-                      commentInputGroup.appendChild(commentInput);
-                      commentInputGroup.appendChild(commentSubmitButton);
-                      postElement.appendChild(commentInputGroup);
-
-                      // Load comments for this post
-                      loadComments(postId, commentsContainer);
-
-                      // Add event listener for comment submission
-                      commentSubmitButton.addEventListener("click", async () => {
-                          const commentText = commentInput.value.trim();
-                          if (!commentText) {
-                              alert("Please enter a comment.");
-                              return;
-                          }
-
-                          const user = auth.currentUser;
-                          if (!user) {
-                              alert("You must be logged in to comment.");
-                              return;
-                          }
-
-                          try {
-                              // Fetch the custom user_id from the users collection
-                              const userQuery = await db.collection("users")
-                                  .where("firebaseUID", "==", user.uid)
-                                  .get();
-
-                              if (userQuery.empty) {
-                                  alert("User data not found. Please contact support.");
-                                  return;
-                              }
-
-                              const customUserId = userQuery.docs[0].data().userId;
-
-                              // Save the comment to Firestore
-                              await db.collection("comments").add({
-                                  foreignUserId: customUserId, // Use the custom user_id
-                                  foreignPostId: postId,       // ID of the post being commented on
-                                  content: commentText,        // The comment text
-                                  timestamp: firebase.firestore.FieldValue.serverTimestamp() // Timestamp
-                              });
-
-                              // Clear the input
-                              commentInput.value = "";
-
-                              // Reload comments for this post
-                              loadComments(postId, commentsContainer);
-                          } catch (error) {
-                              console.error("Error submitting comment:", error);
-                              alert("Failed to submit comment. Please try again.");
-                          }
-                      });
-
-                      // Add the post element to the container
-                      postsContainer.appendChild(postElement);
-                  });
-              })
-              .catch((error) => {
-                  console.error("Error fetching posts:", error);
-                  const postsContainer = document.getElementById("allPostsContainer");
-                  if (postsContainer) {
-                      postsContainer.innerHTML = `<p class="text-danger">Error loading posts. Please try again later.</p>`;
-                  }
-              });
+          const postManager = initializePostManager('allPostsContainer');
+          postManager.displayPosts(firestoreUserId, firestoreUserId); // Pass the logged-in user's ID as both filterUserId and currentUserId
       }).catch((error) => {
           console.error("Error fetching user ID:", error);
       });
-  }
-
-  // Function to load comments for a post
-  async function loadComments(postId, commentsContainer) {
-      commentsContainer.innerHTML = ""; // Clear existing comments
-
-      try {
-          const commentsSnapshot = await db.collection("comments")
-              .where("foreignPostId", "==", postId)
-              .orderBy("timestamp", "asc")
-              .get();
-
-          if (commentsSnapshot.empty) {
-              commentsContainer.innerHTML = '<p class="text-muted">No comments yet.</p>';
-              return;
-          }
-
-          // Display each comment
-          commentsSnapshot.forEach(async (doc) => {
-              const commentData = doc.data();
-
-              // Fetch user data for the comment
-              const userQuery = await db.collection("users")
-                  .where("userId", "==", commentData.foreignUserId)
-                  .get();
-
-              if (userQuery.empty) {
-                  console.error("User not found for comment:", commentData.foreignUserId);
-                  return;
-              }
-
-              const userData = userQuery.docs[0].data();
-              const userName = userData.user_Name || "Unknown User";
-              const userProfilePic = userData.profilePicture || null;
-
-              // Create comment element
-              const commentElement = document.createElement("div");
-              commentElement.className = "mb-3 d-flex align-items-center";
-
-              // Add profile picture
-              const profilePicElement = document.createElement("img");
-              profilePicElement.src = userProfilePic ? `data:image/jpeg;base64,${userProfilePic}` : "default-profile.png";
-              profilePicElement.className = "rounded-circle me-2";
-              profilePicElement.style.width = "40px";
-              profilePicElement.style.height = "40px";
-              profilePicElement.style.cursor = "pointer";
-              profilePicElement.setAttribute("data-user-id", commentData.foreignUserId);
-
-              // Add click event to profile picture
-              profilePicElement.addEventListener("click", () => {
-                  const userId = profilePicElement.getAttribute("data-user-id");
-                  window.location.href = `public-profile.html?userId=${encodeURIComponent(userId)}`;
-              });
-
-              // Add comment content
-              const commentContent = document.createElement("div");
-              commentContent.className = "d-flex flex-column";
-
-              // Add commenter's name (clickable)
-              const commenterName = document.createElement("strong");
-              commenterName.textContent = userName;
-              commenterName.style.cursor = "pointer";
-              commenterName.setAttribute("data-user-id", commentData.foreignUserId);
-
-              // Add click event to commenter's name
-              commenterName.addEventListener("click", () => {
-                  const userId = commenterName.getAttribute("data-user-id");
-                  window.location.href = `public-profile.html?userId=${encodeURIComponent(userId)}`;
-              });
-
-              // Add comment text
-              const commentText = document.createElement("span");
-              commentText.textContent = commentData.content;
-
-              // Add timestamp
-              const commentTimestamp = document.createElement("small");
-              commentTimestamp.className = "text-muted";
-              commentTimestamp.textContent = commentData.timestamp.toDate().toLocaleString();
-
-              // Append elements
-              commentContent.appendChild(commenterName);
-              commentContent.appendChild(commentText);
-              commentContent.appendChild(commentTimestamp);
-
-              commentElement.appendChild(profilePicElement);
-              commentElement.appendChild(commentContent);
-
-              commentsContainer.appendChild(commentElement);
-          });
-      } catch (error) {
-          console.error("Error loading comments:", error);
-          commentsContainer.innerHTML = '<p class="text-danger">Error loading comments.</p>';
-      }
   }
 });
