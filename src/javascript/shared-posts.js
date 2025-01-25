@@ -122,7 +122,7 @@ class PostManager {
     }
 
     // Create a post element with proper user ID verification
-    createPostElement(postId, postData, userData, currentUserId, filterUserId) {
+    createPostElement(postId, postData, userData) {
         const postElement = document.createElement("div");
         postElement.className = "card mb-4";
 
@@ -180,11 +180,6 @@ class PostManager {
                         <button class="btn btn-outline-primary comment-submit" data-post-id="${postId}">Post</button>
                     </div>
                 </div>
-
-                <!-- Delete Post Button (if applicable) -->
-                ${postData.foreignUserId === currentUserId ? `
-                    <button class="btn btn-danger mt-2 delete-post-button" data-post-id="${postId}">Delete Post</button>
-                ` : ''}
             </div>
         `;
 
@@ -212,7 +207,6 @@ class PostManager {
         const commentsContainer = postElement.querySelector('.comments-container');
         const commentInputContainer = postElement.querySelector('.comment-input-container');
         const commentsToggleButton = postElement.querySelector('.comments-toggle-button');
-        const deletePostButton = postElement.querySelector('.delete-post-button');
 
         // Toggle comments and comment input visibility
         commentsToggleButton.addEventListener('click', async () => {
@@ -220,7 +214,7 @@ class PostManager {
             if (!isCommentsVisible) {
                 // Load comments if they haven't been loaded yet
                 if (commentsContainer.innerHTML === "") {
-                    await this.loadComments(postId, commentsContainer, currentUserId);
+                    await this.loadComments(postId, commentsContainer);
                 }
                 commentsContainer.style.display = "block";
                 commentInputContainer.style.display = "block"; // Show the comment input bar
@@ -244,10 +238,6 @@ class PostManager {
                 this.submitComment(postId, commentInput, commentsContainer);
             }
         });
-
-        if (deletePostButton) {
-            deletePostButton.addEventListener('click', () => this.deletePost(postId, filterUserId));
-        }
 
         return postElement;
     }
@@ -661,6 +651,17 @@ class PostManager {
             // Clear input field after successful submission
             commentInput.value = "";
 
+            // Display a success message
+            const successMessage = document.createElement("div");
+            successMessage.className = "alert alert-success mt-2";
+            successMessage.textContent = "Comment added!";
+            commentsContainer.appendChild(successMessage);
+
+            // Remove the success message after 3 seconds
+            setTimeout(() => {
+                successMessage.remove();
+            }, 3000);
+
             // The new comment will be automatically loaded by Firestore's real-time listener
         } catch (error) {
             console.error("Error submitting comment:", error);
@@ -702,6 +703,10 @@ class PostManager {
             return;
         }
 
+        // Modify the container to be scrollable
+        commentsContainer.style.maxHeight = "300px"; // Set a fixed max height
+        commentsContainer.style.overflowY = "auto"; // Enable vertical scrolling
+
         // Ensure existing listener is unsubscribed to prevent duplication
         if (this.commentListeners[postId]) {
             this.commentListeners[postId]();  // Unsubscribe the previous listener
@@ -737,22 +742,51 @@ class PostManager {
                     return commentData;
                 });
 
-                // Clear the container only if necessary (e.g., first load or major changes)
-                if (!renderedCommentIds.size) {
-                    commentsContainer.innerHTML = ""; // Clear the container on first load
-                }
+                // Clear the container
+                commentsContainer.innerHTML = ""; 
 
-                // Rebuild the comments container based on the updated array
-                commentsContainer.innerHTML = ""; // Clear the container
-                commentsArray.forEach(commentData => {
+                // Limit to first 8 comments
+                const displayComments = commentsArray.slice(0, 8);
+
+                // Rebuild the comments container
+                displayComments.forEach(commentData => {
                     const userData = this.usersCache[commentData.foreignUserId] || {};
                     const commentElement = this.createCommentElement(commentData, userData, currentUserId, postId, commentsContainer);
                     commentsContainer.appendChild(commentElement);
                 });
 
-                // Update the renderedCommentIds set
-                renderedCommentIds.clear();
-                commentsArray.forEach(comment => renderedCommentIds.add(comment.id));
+                // Add "Load More" button if there are more than 8 comments
+                if (commentsArray.length > 8) {
+                    const loadMoreButton = document.createElement("button");
+                    loadMoreButton.textContent = `Load More Comments (${commentsArray.length - 8} more)`;
+                    loadMoreButton.className = "btn btn-outline-secondary w-100 mt-2";
+                    
+                    // Track the number of comments currently displayed
+                    let displayedCommentCount = 8;
+
+                    loadMoreButton.addEventListener('click', () => {
+                        // Load next batch of comments
+                        const nextComments = commentsArray.slice(displayedCommentCount, displayedCommentCount + 8);
+                        
+                        nextComments.forEach(commentData => {
+                            const userData = this.usersCache[commentData.foreignUserId] || {};
+                            const commentElement = this.createCommentElement(commentData, userData, currentUserId, postId, commentsContainer);
+                            commentsContainer.appendChild(commentElement);
+                        });
+
+                        // Update displayed count
+                        displayedCommentCount += 8;
+
+                        // Remove or update "Load More" button if no more comments
+                        if (displayedCommentCount >= commentsArray.length) {
+                            loadMoreButton.remove();
+                        } else {
+                            loadMoreButton.textContent = `Load More Comments (${commentsArray.length - displayedCommentCount} more)`;
+                        }
+                    });
+
+                    commentsContainer.appendChild(loadMoreButton);
+                }
             }, (error) => {
                 console.error("Error loading comments:", error);
                 commentsContainer.innerHTML = '<p class="text-danger">Error loading comments.</p>';

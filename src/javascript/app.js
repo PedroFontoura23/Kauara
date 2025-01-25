@@ -42,8 +42,8 @@ document.addEventListener("DOMContentLoaded", function () {
     togglePasswordVisibility("registerPassword", "toggleRegisterPassword");
     togglePasswordVisibility("registerConfirmPassword", "toggleRegisterConfirmPassword");
 
-
-
+    
+    
     // Helper Functions
     function displayErrorMessage(message) {
         errorMessage.textContent = message;
@@ -55,44 +55,13 @@ document.addEventListener("DOMContentLoaded", function () {
         errorMessage.style.display = "none";
     }
 
-    // Handle clicks outside the modal to close it
-    document.addEventListener("click", function(event) {
-        const modal = document.getElementById("authModal");
-        const profileButton = document.getElementById("profileButton");
-
-        // Check if the click is outside the modal and not on the profile button
-        if (!modal.contains(event.target) && !profileButton.contains(event.target)) {
-            closeModal();
-        }
-    });
-
     // Select the close button inside the modal
     const modalCloseButton = document.querySelector(".btn-close");
 
     // Attach the same close logic to the close button
     modalCloseButton.addEventListener("click", function() {
-        closeModal();
     });
 
-    // Function to close the modal and remove the backdrop
-    function closeModal() {
-        const modal = document.getElementById("authModal");
-        const modalInstance = bootstrap.Modal.getInstance(modal);
-        
-        if (modalInstance) {
-            modalInstance.hide();  // Close the modal
-        }
-
-        // Remove the modal backdrop manually
-        const backdrop = document.querySelector(".modal-backdrop");
-        if (backdrop) {
-            backdrop.remove();  // Remove the lingering backdrop
-        }
-
-        // Reset body styles to ensure scrolling is enabled
-        document.body.classList.remove("modal-open");
-        document.body.style.overflow = "";
-    }
 
     // Helper function to toggle password visibility
     function togglePasswordVisibility(inputId, toggleIconId) {
@@ -128,8 +97,6 @@ document.addEventListener("DOMContentLoaded", function () {
         errorMessage.textContent = "";
         errorMessage.style.display = "none";
     }
-
-
 
     // Show/Hide Form Functions
     showLoginButton.addEventListener("click", () => {
@@ -170,17 +137,56 @@ document.addEventListener("DOMContentLoaded", function () {
 
         if (user && user.emailVerified) {
             // User is logged in, redirect to profile page
-            // Close the modal if it's open
-            const modalInstance = bootstrap.Modal.getInstance(authModal);
-            if (modalInstance) {
-                modalInstance.hide(); // Close the modal
-            }
-            window.location.href = "profile.html"; // Redirect to profile page
+            window.location.href = "profile.html";
         } else {
             // User is not logged in, show login/register modal
             event.preventDefault(); // Prevent default behavior (e.g., href redirect)
-            new bootstrap.Modal(authModal).show(); // Show the modal
+
+            // Show the modal without a backdrop
+            const modal = new bootstrap.Modal(authModal, { backdrop: false });
+
+            // Add a slight delay to ensure the modal is fully initialized
+            setTimeout(() => {
+                modal.show();
+
+                // Add a click event listener to close the modal when clicking outside
+                document.addEventListener("click", closeModalOnClickOutside);
+            }, 10); // Small delay to ensure modal is ready
         }
+    });
+
+    // Function to close the modal when clicking outside
+    function closeModalOnClickOutside(event) {
+        const modalContent = document.querySelector(".modal-content");
+
+        // Check if the click is outside the modal content
+        if (!modalContent.contains(event.target)) {
+            // Close the modal
+            const modal = bootstrap.Modal.getInstance(authModal);
+            if (modal) {
+                modal.hide();
+
+                // Remove the event listener after closing the modal
+                document.removeEventListener("click", closeModalOnClickOutside);
+            }
+        }
+    }
+
+    authModal.addEventListener("hidden.bs.modal", function () {
+        // Reset to the login form
+        loginForm.style.display = "block";
+        registerForm.style.display = "none";
+        document.getElementById("modalTitle").textContent = "Login";
+
+        // Clear form fields
+        loginEmail.value = "";
+        loginPassword.value = "";
+        registerEmail.value = "";
+        registerPassword.value = "";
+        registerName.value = "";
+
+        // Clear error messages
+        clearErrorMessage();
     });
 
     // Login Logic
@@ -198,6 +204,7 @@ document.addEventListener("DOMContentLoaded", function () {
         auth.signInWithEmailAndPassword(email, password)
             .then((userCredential) => {
                 const user = userCredential.user;
+                console.log("User signed in:", user);
 
                 if (!user.emailVerified) {
                     auth.signOut();
@@ -205,15 +212,27 @@ document.addEventListener("DOMContentLoaded", function () {
                     return;
                 }
 
-                // Find user in contact collection
+                // Close the modal after successful login or registration
+                const modalInstance = bootstrap.Modal.getInstance(authModal);
+                modalInstance.hide(); // Close the modal
+
+                // Clear the login form fields
+                loginEmail.value = "";
+                loginPassword.value = "";
+
+                // Continue with the rest of the code (e.g., redirect to profile page)
                 db.collection("contact")
                     .where("firebaseUID", "==", user.uid)
                     .get()
                     .then((querySnapshot) => {
                         if (!querySnapshot.empty) {
-                            window.location.href = "profile.html";
+                            console.log("User found in contact collection");
+                            window.location.href = "profile.html"; // Redirect to profile page
+                        } else {
+                            console.error("No matching user found in contact collection");
+                            displayErrorMessage("Error accessing user data.");
                         }
-                                            })
+                    })
                     .catch((error) => {
                         console.error("Error fetching contact data:", error);
                         displayErrorMessage("Error accessing user data.");
@@ -316,8 +335,6 @@ document.addEventListener("DOMContentLoaded", function () {
             document.body.removeChild(loadingDiv);
         }
     }
-
-
 
 
     //register function
@@ -591,16 +608,10 @@ document.addEventListener("DOMContentLoaded", function () {
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        auth.onAuthStateChanged(async (user) => {
-            if (user) {
-                try {
-                    const firestoreUserId = await getUserIdFromUid(user.uid);
-                    const postManager = initializePostManager('allPostsContainer');
-                    postManager.displayPosts(null, firestoreUserId); // Pass the current user's ID
-                } catch (error) {
-                    console.error("Error fetching current user ID:", error);
-                }
-            }
-        });
+        // Initialize PostManager and display posts
+        const postManager = initializePostManager('allPostsContainer');
+        postManager.displayPosts(); // Load posts without requiring a logged-in user
     }
+    // At the end of app.js
+    initializePosts();
 });
