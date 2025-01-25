@@ -6,7 +6,22 @@ class PostManager {
         this.container = document.getElementById(containerId);
         this.usersCache = {}; // Cache for user data
         this.postsCache = {}; // Cache for posts
+        this.commentListeners = {}; // Store real-time comment listeners
+        this.likesCache = new Map(); // Cache for post likes (postId -> Set of userIds)
+        this.commentLikesCache = new Map(); // Cache for comment likes (commentId -> Set of userIds)
+        this.isLiking = new Set(); // Track posts being liked/unliked to debounce clicks
+        this.isCommentLiking = new Set(); // Track comments being liked/unliked to debounce clicks
     }
+
+    cleanupCommentListeners() {
+    for (const postId in this.commentListeners) {
+        if (this.commentListeners[postId]) {
+            this.commentListeners[postId](); // Unsubscribe the listener
+        }
+    }
+    this.commentListeners = {}; // Reset the object
+
+}
 
     async cacheUsers(userIds) {
         if (userIds.length === 0) return;
@@ -22,6 +37,8 @@ class PostManager {
             this.usersCache[userData.userId] = userData;
         });
     }
+
+
 
     // Helper function to get the Firestore user ID from Firebase UID
     async getUserIdFromUid(uid) {
@@ -143,6 +160,11 @@ class PostManager {
                 ` : ''}
             </div>
             <div class="card-footer">
+                <!-- Like Button -->
+                <button class="btn btn-outline-primary like-button" data-post-id="${postId}">
+                    <span class="like-count">${postData.likes_count || 0}</span> Likes
+                </button>
+
                 <!-- Comments Button -->
                 <button class="btn btn-outline-secondary comments-toggle-button" data-post-id="${postId}">
                     Show Comments
@@ -151,10 +173,12 @@ class PostManager {
                 <!-- Comments Container (Hidden by Default) -->
                 <div class="comments-container mt-3" id="comments-${postId}" style="display: none;"></div>
 
-                <!-- Comment Input Section -->
-                <div class="input-group mt-2">
-                    <input type="text" class="form-control comment-input" placeholder="Write a comment..." id="commentInput-${postId}">
-                    <button class="btn btn-outline-primary comment-submit" data-post-id="${postId}">Post</button>
+                <!-- Comment Input Section (Hidden by Default) -->
+                <div class="comment-input-container mt-2" id="commentInputContainer-${postId}" style="display: none;">
+                    <div class="input-group">
+                        <input type="text" class="form-control comment-input" placeholder="Write a comment..." id="commentInput-${postId}">
+                        <button class="btn btn-outline-primary comment-submit" data-post-id="${postId}">Post</button>
+                    </div>
                 </div>
 
                 <!-- Delete Post Button (if applicable) -->
@@ -173,24 +197,24 @@ class PostManager {
             });
         });
 
-        const commentInput = postElement.querySelector('.comment-input');
-        const commentSubmitButton = postElement.querySelector('.comment-submit');
-        const commentsContainer = postElement.querySelector('.comments-container');
-        const deletePostButton = postElement.querySelector('.delete-post-button');
-        const commentsToggleButton = postElement.querySelector('.comments-toggle-button');
-
-        // Submit comment on button click
-        commentSubmitButton.addEventListener('click', () => this.submitComment(postId, commentInput, commentsContainer));
-
-        // Submit comment on "Enter" key press
-        commentInput.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') {
-                event.preventDefault(); // Prevent default behavior (e.g., adding a new line)
-                this.submitComment(postId, commentInput, commentsContainer);
+        const likeButton = postElement.querySelector('.like-button');
+        likeButton.addEventListener('click', async () => {
+            const user = await this.getCurrentUser();
+            if (user) {
+                await this.likePost(postId, user.firestoreUserId);
+                const likesCount = await this.getLikesCount(postId);
+                likeButton.querySelector('.like-count').textContent = likesCount;
+            } else {
+                alert("You must be logged in to like a post.");
             }
         });
 
-        // Toggle comments visibility
+        const commentsContainer = postElement.querySelector('.comments-container');
+        const commentInputContainer = postElement.querySelector('.comment-input-container');
+        const commentsToggleButton = postElement.querySelector('.comments-toggle-button');
+        const deletePostButton = postElement.querySelector('.delete-post-button');
+
+        // Toggle comments and comment input visibility
         commentsToggleButton.addEventListener('click', async () => {
             const isCommentsVisible = commentsContainer.style.display === "block";
             if (!isCommentsVisible) {
@@ -199,10 +223,25 @@ class PostManager {
                     await this.loadComments(postId, commentsContainer, currentUserId);
                 }
                 commentsContainer.style.display = "block";
+                commentInputContainer.style.display = "block"; // Show the comment input bar
                 commentsToggleButton.textContent = "Hide Comments";
             } else {
                 commentsContainer.style.display = "none";
+                commentInputContainer.style.display = "none"; // Hide the comment input bar
                 commentsToggleButton.textContent = "Show Comments";
+            }
+        });
+
+        // Handle comment submission
+        const commentInput = postElement.querySelector('.comment-input');
+        const commentSubmitButton = postElement.querySelector('.comment-submit');
+        commentSubmitButton.addEventListener('click', () => this.submitComment(postId, commentInput, commentsContainer));
+
+        // Handle "Enter" key for comment submission
+        commentInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault(); // Prevent default behavior (e.g., adding a new line)
+                this.submitComment(postId, commentInput, commentsContainer);
             }
         });
 
@@ -217,6 +256,45 @@ class PostManager {
     createCommentElement(commentData, userData, currentUserId, postId, commentsContainer) {
         const commentElement = document.createElement("div");
         commentElement.className = "mb-3 d-flex align-items-center";
+        commentElement.setAttribute("data-comment-id", commentData.id); // Add unique identifier
+
+        // Handle the timestamp
+        let timestamp;
+        if (commentData.timestamp && typeof commentData.timestamp.toDate === 'function') {
+            // If it's a Firestore Timestamp object, convert it to a Date
+            timestamp = commentData.timestamp.toDate();
+        } else if (commentData.timestamp instanceof Date) {
+            // If it's already a Date object, use it directly
+            timestamp = commentData.timestamp;
+        } else {
+            // If no valid timestamp is provided, use the current time
+            timestamp = new Date();
+        }
+
+        // Check if the current user has liked the comment
+        const hasLiked = this.hasUserLikedComment(commentData.id, currentUserId);
+
+        // Create the comment content
+        commentElement.innerHTML = `
+            <img src="${userData.profilePicture ? `data:image/jpeg;base64,${userData.profilePicture}` : 'default-profile.png'}" 
+                 class="rounded-circle me-2 user-profile-link"
+                 style="width: 40px; height: 40px; cursor: pointer;"
+                 data-user-id="${commentData.foreignUserId}"
+                 alt="Profile Picture">
+            <div class="d-flex flex-column flex-grow-1">
+                <strong class="user-profile-link" style="cursor: pointer;" data-user-id="${commentData.foreignUserId}">
+                    ${userData.user_Name || "Unknown User"}
+                </strong>
+                <span>${commentData.content}</span>
+                <small class="text-muted">
+                    ${timestamp.toLocaleString()} <!-- Use the timestamp directly -->
+                </small>
+            </div>
+            <!-- Like Button for Comments -->
+            <button class="btn btn-outline-primary btn-sm comment-like-button" data-comment-id="${commentData.id}">
+                <span class="comment-like-count">${commentData.likes_count || 0}</span> Likes
+            </button>
+        `;
 
         // Create the three-dots menu
         const dotsMenu = document.createElement("span");
@@ -283,26 +361,19 @@ class PostManager {
         optionsContainer.appendChild(dotsMenu);
         optionsContainer.appendChild(popup);
 
-        // Create the comment content
-        commentElement.innerHTML = `
-            <img src="${userData.profilePicture ? `data:image/jpeg;base64,${userData.profilePicture}` : 'default-profile.png'}" 
-                 class="rounded-circle me-2 user-profile-link"
-                 style="width: 40px; height: 40px; cursor: pointer;"
-                 data-user-id="${commentData.foreignUserId}"
-                 alt="Profile Picture">
-            <div class="d-flex flex-column flex-grow-1">
-                <strong class="user-profile-link" style="cursor: pointer;" data-user-id="${commentData.foreignUserId}">
-                    ${userData.user_Name || "Unknown User"}
-                </strong>
-                <span>${commentData.content}</span>
-                <small class="text-muted">
-                    ${commentData.timestamp ? commentData.timestamp.toDate().toLocaleString() : "Just now"}
-                </small>
-            </div>
-        `;
-
         // Append the options container to the comment element
         commentElement.appendChild(optionsContainer);
+
+        // Add event listener for the comment like button
+        const likeButton = commentElement.querySelector('.comment-like-button');
+        likeButton.addEventListener('click', async () => {
+            const user = await this.getCurrentUser();
+            if (user) {
+                await this.likeComment(commentData.id, user.firestoreUserId);
+            } else {
+                alert("You must be logged in to like a comment.");
+            }
+        });
 
         // Add click events for profile navigation
         const profileLinks = commentElement.querySelectorAll('.user-profile-link');
@@ -316,24 +387,221 @@ class PostManager {
         return commentElement;
     }
 
+    async likePost(postId, userId) {
+        // Debounce: Prevent multiple rapid clicks
+        if (this.isLiking.has(postId)) return;
+        this.isLiking.add(postId);
+
+        // Optimistic UI update
+        const likeButton = document.querySelector(`.like-button[data-post-id="${postId}"]`);
+        const likeCountElement = likeButton?.querySelector('.like-count');
+        const currentLikes = parseInt(likeCountElement?.textContent || 0);
+
+        // Check if the user has already liked the post locally
+        const hasLiked = this.likesCache.get(postId)?.has(userId) || false;
+
+        // Update the UI optimistically
+        if (likeCountElement) {
+            likeCountElement.textContent = hasLiked ? currentLikes - 1 : currentLikes + 1;
+        }
+
+        try {
+            // Use a batch write for atomic operations
+            const batch = this.db.batch();
+
+            const likeRef = this.db.collection("likes").doc(`${postId}_${userId}`);
+            const postRef = this.db.collection("posts").doc(postId);
+
+            if (hasLiked) {
+                // Unlike: Remove the like and decrement the count
+                batch.delete(likeRef);
+                batch.update(postRef, {
+                    likes_count: firebase.firestore.FieldValue.increment(-1)
+                });
+                this.likesCache.get(postId)?.delete(userId); // Update local cache
+            } else {
+                // Like: Add the like and increment the count
+                batch.set(likeRef, {
+                    foreignUserId: userId,
+                    foreignPostId: postId,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                batch.update(postRef, {
+                    likes_count: firebase.firestore.FieldValue.increment(1)
+                });
+                if (!this.likesCache.has(postId)) {
+                    this.likesCache.set(postId, new Set());
+                }
+                this.likesCache.get(postId).add(userId); // Update local cache
+            }
+
+            // Commit the batch
+            await batch.commit();
+        } catch (error) {
+            console.error("Error updating like:", error);
+
+            // Revert the UI if the operation fails
+            if (likeCountElement) {
+                likeCountElement.textContent = currentLikes;
+            }
+
+            alert("Failed to update like. Please try again.");
+        } finally {
+            // Re-enable the like button
+            this.isLiking.delete(postId);
+        }
+    }
+
+    // Load likes for a post and cache them locally
+    async loadLikes(postId) {
+        const likesSnapshot = await this.db.collection("likes")
+            .where("foreignPostId", "==", postId)
+            .get();
+
+        const userIds = new Set();
+        likesSnapshot.forEach(doc => {
+            userIds.add(doc.data().foreignUserId);
+        });
+
+        this.likesCache.set(postId, userIds); // Cache the likes
+    }
+
+    // Check if the current user has liked a post
+    hasUserLikedPost(postId, userId) {
+        return this.likesCache.get(postId)?.has(userId) || false;
+    }
+
+
+    async getLikesCount(postId) {
+        const postDoc = await this.db.collection("posts").doc(postId).get();
+        return postDoc.data().likes_count || 0;
+    }
+
+        // Like a comment
+    async likeComment(commentId, userId) {
+        // Debounce: Prevent multiple rapid clicks
+        if (this.isCommentLiking.has(commentId)) return;
+        this.isCommentLiking.add(commentId);
+
+        // Optimistic UI update
+        const likeButton = document.querySelector(`.comment-like-button[data-comment-id="${commentId}"]`);
+        const likeCountElement = likeButton?.querySelector('.comment-like-count');
+        const currentLikes = parseInt(likeCountElement?.textContent || 0);
+
+        // Check if the user has already liked the comment locally
+        const hasLiked = this.commentLikesCache.get(commentId)?.has(userId) || false;
+
+        // Update the UI optimistically
+        if (likeCountElement) {
+            likeCountElement.textContent = hasLiked ? currentLikes - 1 : currentLikes + 1;
+        }
+
+        try {
+            // Use a batch write for atomic operations
+            const batch = this.db.batch();
+
+            const likeRef = this.db.collection("comment_likes").doc(`${commentId}_${userId}`);
+            const commentRef = this.db.collection("comments").doc(commentId);
+
+            if (hasLiked) {
+                // Unlike: Remove the like and decrement the count
+                batch.delete(likeRef);
+                batch.update(commentRef, {
+                    likes_count: firebase.firestore.FieldValue.increment(-1)
+                });
+                this.commentLikesCache.get(commentId)?.delete(userId); // Update local cache
+            } else {
+                // Like: Add the like and increment the count
+                batch.set(likeRef, {
+                    foreignUserId: userId,
+                    foreignCommentId: commentId,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                batch.update(commentRef, {
+                    likes_count: firebase.firestore.FieldValue.increment(1)
+                });
+                if (!this.commentLikesCache.has(commentId)) {
+                    this.commentLikesCache.set(commentId, new Set());
+                }
+                this.commentLikesCache.get(commentId).add(userId); // Update local cache
+            }
+
+            // Commit the batch
+            await batch.commit();
+        } catch (error) {
+            console.error("Error updating comment like:", error);
+
+            // Revert the UI if the operation fails
+            if (likeCountElement) {
+                likeCountElement.textContent = currentLikes;
+            }
+
+            alert("Failed to update comment like. Please try again.");
+        } finally {
+            // Re-enable the like button
+            this.isCommentLiking.delete(commentId);
+        }
+    }
+
+    // Load likes for a comment and cache them locally
+    async loadCommentLikes(commentId) {
+        const likesSnapshot = await this.db.collection("comment_likes")
+            .where("foreignCommentId", "==", commentId)
+            .get();
+
+        const userIds = new Set();
+        likesSnapshot.forEach(doc => {
+            userIds.add(doc.data().foreignUserId);
+        });
+
+        this.commentLikesCache.set(commentId, userIds); // Cache the likes
+    }
+
+    // Check if the current user has liked a comment
+    hasUserLikedComment(commentId, userId) {
+        return this.commentLikesCache.get(commentId)?.has(userId) || false;
+    }
+
+
+    //deletes comments and its associated likes
     async deleteComment(commentId, postId, commentsContainer, currentUserId) {
         if (!commentsContainer) {
             console.error("Comments container is undefined.");
             return;
         }
 
-        if (!confirm("Are you sure you want to delete this comment?")) {
+        if (!confirm("Are you sure you want to delete this comment and all its likes?")) {
             return;
         }
 
         try {
-            // Delete the comment from Firestore
-            await this.db.collection("comments").doc(commentId).delete();
+            // Create a Firestore batch for atomic operations
+            const batch = this.db.batch();
 
-            // Refresh the comments section
-            await this.loadComments(postId, commentsContainer, currentUserId);
+            // 1. Delete the comment
+            const commentRef = this.db.collection("comments").doc(commentId);
+            batch.delete(commentRef);
 
-            alert("Comment deleted successfully.");
+            // 2. Delete all likes associated with the comment
+            const likesQuery = this.db.collection("comment_likes")
+                .where("foreignCommentId", "==", commentId);
+            const likesSnapshot = await likesQuery.get();
+            likesSnapshot.forEach(doc => {
+                const likeRef = this.db.collection("comment_likes").doc(doc.id);
+                batch.delete(likeRef);
+            });
+
+            // Commit the batch
+            await batch.commit();
+
+            // Remove the deleted comment from the DOM
+            const deletedCommentElement = commentsContainer.querySelector(`[data-comment-id="${commentId}"]`);
+            if (deletedCommentElement) {
+                deletedCommentElement.remove();
+            }
+
+            // Optional: Notify the user that the comment was deleted
+            console.log("Comment and associated likes deleted successfully.");
         } catch (error) {
             console.error("Error deleting comment:", error);
             alert("Failed to delete comment. Please try again.");
@@ -341,66 +609,89 @@ class PostManager {
     }
     // Submit a comment
     async submitComment(postId, commentInput, commentsContainer) {
+        console.log("Starting comment submission...");
+
+        // Prevent multiple submissions
+        if (this.isSubmitting) {
+            console.log("A submission is already in progress. Ignoring this request.");
+            return;
+        }
+
+        this.isSubmitting = true;
+        console.log("Submission flag set to true.");
+
         const commentText = commentInput.value.trim();
         if (!commentText) {
             alert("Please enter a comment.");
+            this.isSubmitting = false;
             return;
         }
 
         const user = await this.getCurrentUser();
         if (!user) {
             alert("You must be logged in to comment.");
+            this.isSubmitting = false;
             return;
         }
 
-        // Disable the input and button to prevent multiple submissions
-        commentInput.disabled = true;
         const submitButton = commentsContainer.parentElement.querySelector('.comment-submit');
-        if (submitButton) {
-            submitButton.disabled = true;
+        if (!submitButton) {
+            console.error("Submit button not found. Aborting submission.");
+            this.isSubmitting = false;
+            return;
         }
 
+        // Disable input and button to prevent multiple clicks
+        commentInput.disabled = true;
+        submitButton.disabled = true;
+        submitButton.textContent = "Posting...";
+
         try {
-            // Save the comment to Firestore
-            const commentRef = await this.db.collection("comments").add({
-                foreignUserId: user.firestoreUserId, // Use Firestore user ID
+            // Save the comment to Firestore with a default likes_count of 0
+            await this.db.collection("comments").add({
+                foreignUserId: user.firestoreUserId,
                 foreignPostId: postId,
                 content: commentText,
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                likes_count: 0 // Ensure likes_count is always set
             });
 
-            // Fetch the newly added comment from Firestore
-            const commentDoc = await commentRef.get();
-            const commentData = commentDoc.data();
+            console.log("Comment submitted successfully.");
 
-            // Fetch the user data for the comment author
-            const userQuery = await this.db.collection("users")
-                .where("userId", "==", commentData.foreignUserId)
-                .get();
-
-            if (userQuery.empty) {
-                console.error("User not found for comment:", commentData.foreignUserId);
-                return;
-            }
-
-            const userData = userQuery.docs[0].data();
-
-            // Create and append the new comment element
-            const commentElement = this.createCommentElement(commentData, userData, user.firestoreUserId);
-            commentsContainer.appendChild(commentElement);
-
-            // Clear the input field
+            // Clear input field after successful submission
             commentInput.value = "";
+
+            // The new comment will be automatically loaded by Firestore's real-time listener
         } catch (error) {
             console.error("Error submitting comment:", error);
             alert("Failed to submit comment. Please try again.");
         } finally {
-            // Re-enable the input and button after submission is complete
+            // Re-enable input and button
             commentInput.disabled = false;
-            const submitButton = commentsContainer.parentElement.querySelector('.comment-submit');
-            if (submitButton) {
-                submitButton.disabled = false;
-            }
+            submitButton.disabled = false;
+            submitButton.textContent = "Post";
+
+            this.isSubmitting = false;
+        }
+    }
+
+    // Helper function to fetch user data
+    async fetchUserData(userId) {
+        if (this.usersCache[userId]) {
+            return this.usersCache[userId];
+        }
+
+        const userQuery = await this.db.collection("users")
+            .where("userId", "==", userId)
+            .get();
+
+        if (!userQuery.empty) {
+            const userData = userQuery.docs[0].data();
+            this.usersCache[userId] = userData; // Cache the user data
+            return userData;
+        } else {
+            console.error("User not found:", userId);
+            return { user_Name: "Unknown User" };
         }
     }
 
@@ -411,72 +702,117 @@ class PostManager {
             return;
         }
 
-        commentsContainer.innerHTML = '<p class="text-muted">Loading comments...</p>';
-
-        try {
-            // Fetch all comments for the post
-            const commentsSnapshot = await this.db.collection("comments")
-                .where("foreignPostId", "==", postId)
-                .orderBy("timestamp", "asc")
-                .get();
-
-            if (commentsSnapshot.empty) {
-                commentsContainer.innerHTML = '<p class="text-muted">No comments yet.</p>';
-                return;
-            }
-
-            // Extract user IDs from comments
-            const userIds = commentsSnapshot.docs.map(doc => doc.data().foreignUserId);
-            const uniqueUserIds = [...new Set(userIds)]; // Remove duplicates
-
-            // Fetch user data for all unique user IDs
-            const usersQuery = await this.db.collection("users")
-                .where("userId", "in", uniqueUserIds)
-                .get();
-
-            // Cache user data
-            const usersCache = {};
-            usersQuery.forEach(doc => {
-                usersCache[doc.data().userId] = doc.data();
-            });
-
-            // Clear the loading message
-            commentsContainer.innerHTML = "";
-
-            // Render all comments
-            commentsSnapshot.docs.forEach(doc => {
-                const commentData = { id: doc.id, ...doc.data() };
-                const userData = usersCache[commentData.foreignUserId] || {};
-                const commentElement = this.createCommentElement(commentData, userData, currentUserId, postId, commentsContainer);
-                commentsContainer.appendChild(commentElement);
-            });
-        } catch (error) {
-            console.error("Error loading comments:", error);
-            commentsContainer.innerHTML = '<p class="text-danger">Error loading comments.</p>';
+        // Ensure existing listener is unsubscribed to prevent duplication
+        if (this.commentListeners[postId]) {
+            this.commentListeners[postId]();  // Unsubscribe the previous listener
+            delete this.commentListeners[postId];
         }
+
+        // Track rendered comment IDs and their current order
+        const renderedCommentIds = new Set();
+        let commentsArray = []; // Array to hold comments for sorting
+
+        // Set up a real-time listener for comments
+        const unsubscribe = this.db.collection("comments")
+            .where("foreignPostId", "==", postId)
+            .orderBy("likes_count", "desc") // Sort by likes_count in descending order
+            .orderBy("timestamp", "asc") // Secondary sort by timestamp for comments with the same likes
+            .onSnapshot(async (snapshot) => {
+                if (snapshot.empty) {
+                    commentsContainer.innerHTML = '<p class="text-muted">No comments yet.</p>';
+                    return;
+                }
+
+                // Fetch user data for all unique user IDs
+                const userIds = snapshot.docs.map(doc => doc.data().foreignUserId);
+                const uniqueUserIds = [...new Set(userIds)];
+                await this.cacheUsers(uniqueUserIds);
+
+                // Update the comments array with the latest data
+                commentsArray = snapshot.docs.map(doc => {
+                    const commentData = { id: doc.id, ...doc.data() };
+                    if (commentData.likes_count === undefined || commentData.likes_count === null) {
+                        commentData.likes_count = 0; // Ensure likes_count is defined
+                    }
+                    return commentData;
+                });
+
+                // Clear the container only if necessary (e.g., first load or major changes)
+                if (!renderedCommentIds.size) {
+                    commentsContainer.innerHTML = ""; // Clear the container on first load
+                }
+
+                // Rebuild the comments container based on the updated array
+                commentsContainer.innerHTML = ""; // Clear the container
+                commentsArray.forEach(commentData => {
+                    const userData = this.usersCache[commentData.foreignUserId] || {};
+                    const commentElement = this.createCommentElement(commentData, userData, currentUserId, postId, commentsContainer);
+                    commentsContainer.appendChild(commentElement);
+                });
+
+                // Update the renderedCommentIds set
+                renderedCommentIds.clear();
+                commentsArray.forEach(comment => renderedCommentIds.add(comment.id));
+            }, (error) => {
+                console.error("Error loading comments:", error);
+                commentsContainer.innerHTML = '<p class="text-danger">Error loading comments.</p>';
+            });
+
+        // Store the unsubscribe function for cleanup
+        this.commentListeners[postId] = unsubscribe;
     }
-    // Delete a post and its associated comments
+
+
+    // Delete a post and its associated comments and likes
     async deletePost(postId, filterUserId) {
-        if (!confirm("Are you sure you want to delete this post and all its comments?")) {
+        if (!confirm("Are you sure you want to delete this post and all its comments and likes?")) {
             return;
         }
 
         try {
-            // Delete all comments associated with the post
+            // Create a Firestore batch for atomic operations
+            const batch = this.db.batch();
+
+            // 1. Delete the post
+            const postRef = this.db.collection("posts").doc(postId);
+            batch.delete(postRef);
+
+            // 2. Delete all comments associated with the post
             const commentsSnapshot = await this.db.collection("comments")
                 .where("foreignPostId", "==", postId)
                 .get();
 
-            const deleteCommentPromises = commentsSnapshot.docs.map(doc => doc.ref.delete());
-            await Promise.all(deleteCommentPromises);
+            commentsSnapshot.forEach(doc => {
+                const commentRef = this.db.collection("comments").doc(doc.id);
+                batch.delete(commentRef);
 
-            // Delete the post
-            await this.db.collection("posts").doc(postId).delete();
+                // 3. Delete all likes associated with each comment
+                const commentLikesQuery = this.db.collection("comment_likes")
+                    .where("foreignCommentId", "==", doc.id);
+                commentLikesQuery.get().then(likesSnapshot => {
+                    likesSnapshot.forEach(likeDoc => {
+                        const likeRef = this.db.collection("comment_likes").doc(likeDoc.id);
+                        batch.delete(likeRef);
+                    });
+                });
+            });
+
+            // 4. Delete all likes associated with the post
+            const postLikesQuery = this.db.collection("likes")
+                .where("foreignPostId", "==", postId);
+            const postLikesSnapshot = await postLikesQuery.get();
+            postLikesSnapshot.forEach(doc => {
+                const likeRef = this.db.collection("likes").doc(doc.id);
+                batch.delete(likeRef);
+            });
+
+            // Commit the batch
+            await batch.commit();
 
             // Refresh the posts after deletion
             this.displayPosts(filterUserId);
 
-            alert("Post and comments deleted successfully.");
+            alert("Post, comments, and associated likes deleted successfully.");
         } catch (error) {
             console.error("Error deleting post:", error);
             alert("Failed to delete post. Please try again.");
@@ -488,5 +824,12 @@ class PostManager {
 function initializePostManager(containerId) {
     const db = firebase.firestore();
     const auth = firebase.auth();
-    return new PostManager(db, auth, containerId);
+    const postManager = new PostManager(db, auth, containerId);
+
+    // Add the beforeunload event listener
+    window.addEventListener('beforeunload', () => {
+        postManager.cleanupCommentListeners();
+    });
+
+    return postManager;
 }
