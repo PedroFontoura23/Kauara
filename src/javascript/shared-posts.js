@@ -76,9 +76,6 @@ class PostManager {
 
     // Display posts with proper user ID verification
     async displayPosts(filterUserId = null, currentUserId = null, loadMore = false) {
-        // Use this.currentFilterUserId if no filterUserId is passed
-        filterUserId = filterUserId || this.currentFilterUserId;
-        
         if (!this.container) {
             console.error("Posts container not found");
             return;
