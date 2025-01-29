@@ -54,15 +54,21 @@ async function getCurrentUserId() {
 // Function to display posts
 async function displayPosts(userIdFromUrl) {
     const postsContainer = document.getElementById("postsContainer");
-    if (!postsContainer) return;
+    if (!postsContainer) {
+        console.error("Posts container not found.");
+        return;
+    }
 
-    // Fetch the current user's ID
+    // Initialize PostManager with userIdFromUrl
+    const postManager = initializePostManager('postsContainer', userIdFromUrl);
+
+    // Current user's ID might be used for other operations, but we're filtering by userIdFromUrl
     const currentUserId = await getCurrentUserId();
 
-    // Initialize PostManager and display posts
-    const postManager = initializePostManager('postsContainer');
-    postManager.displayPosts(userIdFromUrl, currentUserId); // Pass both userIdFromUrl and currentUserId
+    // Pass userIdFromUrl as the filterUserId
+    postManager.displayPosts(userIdFromUrl, currentUserId);
 }
+
 
 if (userIdFromUrl) {
     db.collection("users")
@@ -113,6 +119,12 @@ if (userIdFromUrl) {
         .catch(error => {
             console.error("Error fetching user data:", error);
         });
+} else {
+    console.error("No user ID found in URL");
+}
+// Make sure to call this function with userIdFromUrl when you initialize your page
+if (userIdFromUrl) {
+    displayPosts(userIdFromUrl);
 } else {
     console.error("No user ID found in URL");
 }

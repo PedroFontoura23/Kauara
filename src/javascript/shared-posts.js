@@ -1,16 +1,20 @@
 class PostManager {
-    constructor(db, auth, containerId) {
+    constructor(db, auth, containerId, filterUserId = null) {
         this.db = db;
         this.auth = auth;
         this.containerId = containerId;
         this.container = document.getElementById(containerId);
-        this.usersCache = {}; // Cache for user data
-        this.postsCache = {}; // Cache for posts
-        this.commentListeners = {}; // Store real-time comment listeners
-        this.likesCache = new Map(); // Cache for post likes (postId -> Set of userIds)
-        this.commentLikesCache = new Map(); // Cache for comment likes (commentId -> Set of userIds)
-        this.isLiking = new Set(); // Track posts being liked/unliked to debounce clicks
-        this.isCommentLiking = new Set(); // Track comments being liked/unliked to debounce clicks
+        this.usersCache = {};
+        this.postsCache = {};
+        this.commentListeners = {};
+        this.likesCache = new Map();
+        this.commentLikesCache = new Map();
+        this.isLiking = new Set();
+        this.isCommentLiking = new Set();
+        this.lastVisiblePost = null; // Track the last visible post
+        this.batchSize = 2; // Number of posts to load per batch
+        this.isLoading = false; // Prevent multiple simultaneous loads
+        this.currentFilterUserId = filterUserId; // Store the filterUserId
     }
 
     cleanupCommentListeners() {
@@ -71,54 +75,113 @@ class PostManager {
     }
 
     // Display posts with proper user ID verification
-    async displayPosts(filterUserId = null, currentUserId = null, limit = 10) {
+    async displayPosts(filterUserId = null, currentUserId = null, loadMore = false) {
+        // Use this.currentFilterUserId if no filterUserId is passed
+        filterUserId = filterUserId || this.currentFilterUserId;
+        
         if (!this.container) {
             console.error("Posts container not found");
             return;
         }
 
-        this.container.innerHTML = "<p>Loading posts...</p>";
+        if (this.isLoading) return;
+        this.isLoading = true;
+
+        // If not loading more or if filter changed, reset the view
+        if (!loadMore || this.currentFilterUserId !== filterUserId) {
+            this.container.innerHTML = "<p>Loading posts...</p>";
+            this.lastVisiblePost = null;
+            this.currentFilterUserId = filterUserId; // Update the current filter
+        }
 
         try {
-            // Fetch posts
-            let query = this.db.collection("posts")
-                .orderBy("timestamp", "desc")
-                .limit(limit);
-
             if (filterUserId) {
-                query = query.where("foreignUserId", "==", filterUserId);
+                console.log(`Fetching posts for user: ${filterUserId}`);
+            } else {
+                console.log("Fetching posts for no specific user (all posts)");
+            }
+
+            // Start with base query
+            let query = this.db.collection("posts")
+                .orderBy("timestamp", "desc");
+
+            // If filterUserId is provided, add the where clause
+            if (this.currentFilterUserId) {
+                query = query.where("foreignUserId", "==", this.currentFilterUserId);
+            }
+
+            // Add limit
+            query = query.limit(this.batchSize);
+
+            // Add startAfter if loading more
+            if (loadMore && this.lastVisiblePost) {
+                query = query.startAfter(this.lastVisiblePost);
             }
 
             const snapshot = await query.get();
 
             if (snapshot.empty) {
-                this.container.innerHTML = "<p>No posts available.</p>";
+                if (!loadMore) {
+                    this.container.innerHTML = "<p>No posts available.</p>";
+                }
                 return;
             }
 
-            // Fetch user data for all posts in parallel
             const userIds = snapshot.docs.map(doc => doc.data().foreignUserId);
-            const uniqueUserIds = [...new Set(userIds)]; // Remove duplicates
-            await this.cacheUsers(uniqueUserIds); // Cache user data
+            const uniqueUserIds = [...new Set(userIds)];
+            await this.cacheUsers(uniqueUserIds);
 
-            // Render posts
-            this.container.innerHTML = ""; // Clear loading message
-            for (const doc of snapshot.docs) {
+            if (!loadMore) {
+                this.container.innerHTML = "";
+            }
+
+            snapshot.docs.forEach(doc => {
                 const postData = doc.data();
                 const userData = this.usersCache[postData.foreignUserId] || {};
                 const postElement = this.createPostElement(doc.id, postData, userData, currentUserId, filterUserId);
                 this.container.appendChild(postElement);
 
-                // Load comments for the post
                 const commentsContainer = postElement.querySelector(`#comments-${doc.id}`);
                 if (commentsContainer) {
                     this.loadComments(doc.id, commentsContainer, currentUserId);
                 }
+            });
+
+            this.lastVisiblePost = snapshot.docs[snapshot.docs.length - 1];
+
+            if (snapshot.docs.length === this.batchSize) {
+                const lastPostElement = this.container.lastElementChild;
+                this.observeLastPost(lastPostElement, this.currentFilterUserId);
             }
         } catch (error) {
             console.error("Error fetching posts:", error);
-            this.container.innerHTML = "<p>Error loading posts.</p>";
+            if (!loadMore) {
+                this.container.innerHTML = "<p>Error loading posts.</p>";
+            }
+        } finally {
+            this.isLoading = false;
         }
+    }
+
+    observeLastPost(lastPostElement, filterUserId) {
+        let isDebounced = false; // Debounce flag
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting && !this.isLoading && !isDebounced) {
+                    isDebounced = true; // Activate debounce
+                    observer.disconnect(); // Disconnect the observer immediately
+
+                    setTimeout(() => {
+                        isDebounced = false; // Reset debounce after a delay
+                    }, 1000); // 1-second debounce
+
+                    this.displayPosts(filterUserId, null, true); // Pass filterUserId here
+                }
+            });
+        }, { threshold: 1.0 });
+
+        observer.observe(lastPostElement);
     }
 
     // Create a post element with proper user ID verification
@@ -855,10 +918,13 @@ class PostManager {
 }
 
 // Initialization function
-function initializePostManager(containerId) {
+function initializePostManager(containerId, filterUserId = null) {
     const db = firebase.firestore();
     const auth = firebase.auth();
-    const postManager = new PostManager(db, auth, containerId);
+    const postManager = new PostManager(db, auth, containerId, filterUserId);
+
+    // Load the first batch of posts with filterUserId
+    postManager.displayPosts(filterUserId);
 
     // Add the beforeunload event listener
     window.addEventListener('beforeunload', () => {

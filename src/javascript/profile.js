@@ -530,7 +530,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
       getUserIdFromUid(user.uid).then((firestoreUserId) => {
           const postManager = initializePostManager('allPostsContainer');
-          postManager.displayPosts(firestoreUserId, firestoreUserId); // Pass the logged-in user's ID as both filterUserId and currentUserId
+          // Always filter by the current user's ID on the profile page
+          postManager.displayPosts(firestoreUserId, firestoreUserId);
       }).catch((error) => {
           console.error("Error fetching user ID:", error);
       });

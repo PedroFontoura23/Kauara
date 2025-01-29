@@ -69,7 +69,10 @@ document.addEventListener("DOMContentLoaded", function () {
         const toggleIcon = document.getElementById(toggleIconId);
 
         if (passwordInput && toggleIcon) {
-            toggleIcon.addEventListener("click", () => {
+            toggleIcon.addEventListener("click", (event) => {
+                event.preventDefault(); // Prevent default behavior (e.g., form submission)
+                event.stopPropagation(); // Stop event from bubbling up
+
                 // Toggle the input type between "password" and "text"
                 if (passwordInput.type === "password") {
                     passwordInput.type = "text";
