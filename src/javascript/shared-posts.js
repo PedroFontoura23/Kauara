@@ -15,6 +15,37 @@ class PostManager {
         this.batchSize = 2; // Number of posts to load per batch
         this.isLoading = false; // Prevent multiple simultaneous loads
         this.currentFilterUserId = filterUserId; // Store the filterUserId
+        this.currentUserId = null; // Track the current user's Firestore ID
+
+        // Listen for authentication state changes
+        this.auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                // Fetch the Firestore user ID for the logged-in user
+                try {
+                    this.currentUserId = await this.getUserIdFromUid(user.uid);
+                    console.log("Current user ID set:", this.currentUserId);
+                } catch (error) {
+                    console.error("Error fetching current user ID:", error);
+                    this.currentUserId = null;
+                }
+            } else {
+                // No user is logged in
+                this.currentUserId = null;
+            }
+        });
+    }
+
+    // Helper function to get the Firestore user ID from Firebase UID
+    async getUserIdFromUid(uid) {
+        const userQuery = await this.db.collection("users")
+            .where("firebaseUID", "==", uid)
+            .get();
+
+        if (!userQuery.empty) {
+            return userQuery.docs[0].id; // Return the Firestore user ID (e.g., "user_1")
+        } else {
+            throw new Error(`No user found for UID: ${uid}`);
+        }
     }
 
     cleanupCommentListeners() {
@@ -84,11 +115,19 @@ class PostManager {
         if (this.isLoading) return;
         this.isLoading = true;
 
+        // If currentUserId isn't provided, try to get it
+        if (!currentUserId) {
+            const user = await this.getCurrentUser();
+            if (user) {
+                currentUserId = user.firestoreUserId;
+            }
+        }
+
         // If not loading more or if filter changed, reset the view
         if (!loadMore || this.currentFilterUserId !== filterUserId) {
             this.container.innerHTML = "<p>Loading posts...</p>";
             this.lastVisiblePost = null;
-            this.currentFilterUserId = filterUserId; // Update the current filter
+            this.currentFilterUserId = filterUserId;
         }
 
         try {
@@ -137,9 +176,10 @@ class PostManager {
                 const userData = this.usersCache[postData.foreignUserId] || {};
                 const postElement = this.createPostElement(doc.id, postData, userData, currentUserId, filterUserId);
                 this.container.appendChild(postElement);
-
+        
                 const commentsContainer = postElement.querySelector(`#comments-${doc.id}`);
                 if (commentsContainer) {
+                    // Pass currentUserId to loadComments
                     this.loadComments(doc.id, commentsContainer, currentUserId);
                 }
             });
@@ -182,10 +222,11 @@ class PostManager {
     }
 
     // Create a post element with proper user ID verification
-    createPostElement(postId, postData, userData) {
+    createPostElement(postId, postData, userData, currentUserId) {
+        const isCurrentUserPost = postData.foreignUserId === currentUserId; // Check if the post belongs to the current user
         const postElement = document.createElement("div");
         postElement.className = "card mb-4";
-
+    
         const timestamp = postData.timestamp?.toDate() || new Date();
         const formattedDate = timestamp.toLocaleDateString('en-US', {
             year: 'numeric',
@@ -194,7 +235,7 @@ class PostManager {
             hour: '2-digit',
             minute: '2-digit'
         });
-
+    
         postElement.innerHTML = `
             <div class="card-header d-flex align-items-center">
                 <img src="${userData.profilePicture ? `data:image/jpeg;base64,${userData.profilePicture}` : '../images/default-profile.png'}"
@@ -224,15 +265,15 @@ class PostManager {
                 <button class="btn btn-outline-primary like-button" data-post-id="${postId}">
                     <span class="like-count">${postData.likes_count || 0}</span> Likes
                 </button>
-
+    
                 <!-- Comments Button -->
                 <button class="btn btn-outline-secondary comments-toggle-button" data-post-id="${postId}">
                     Show Comments
                 </button>
-
+    
                 <!-- Comments Container (Hidden by Default) -->
                 <div class="comments-container mt-3" id="comments-${postId}" style="display: none;"></div>
-
+    
                 <!-- Comment Input Section (Hidden by Default) -->
                 <div class="comment-input-container mt-2" id="commentInputContainer-${postId}" style="display: none;">
                     <div class="input-group">
@@ -240,9 +281,12 @@ class PostManager {
                         <button class="btn btn-outline-primary comment-submit" data-post-id="${postId}">Post</button>
                     </div>
                 </div>
+    
+                <!-- Delete Post Button (if applicable) -->
+                ${isCurrentUserPost ? `<button class="btn btn-danger mt-2 delete-post-button" data-post-id="${postId}">Delete Post</button>` : ''}
             </div>
         `;
-
+    
         // Add event listeners for profile links, comment submission, and post deletion
         const profileLinks = postElement.querySelectorAll('.user-profile-link');
         profileLinks.forEach(link => {
@@ -251,7 +295,7 @@ class PostManager {
                 window.location.href = `public-profile.html?userId=${encodeURIComponent(userId)}`;
             });
         });
-
+    
         const likeButton = postElement.querySelector('.like-button');
         likeButton.addEventListener('click', async () => {
             const user = await this.getCurrentUser();
@@ -263,18 +307,18 @@ class PostManager {
                 alert("You must be logged in to like a post.");
             }
         });
-
+    
         const commentsContainer = postElement.querySelector('.comments-container');
         const commentInputContainer = postElement.querySelector('.comment-input-container');
         const commentsToggleButton = postElement.querySelector('.comments-toggle-button');
-
+    
         // Toggle comments and comment input visibility
         commentsToggleButton.addEventListener('click', async () => {
             const isCommentsVisible = commentsContainer.style.display === "block";
             if (!isCommentsVisible) {
                 // Load comments if they haven't been loaded yet
                 if (commentsContainer.innerHTML === "") {
-                    await this.loadComments(postId, commentsContainer);
+                    await this.loadComments(postId, commentsContainer, currentUserId); // Pass currentUserId here
                 }
                 commentsContainer.style.display = "block";
                 commentInputContainer.style.display = "block"; // Show the comment input bar
@@ -285,12 +329,12 @@ class PostManager {
                 commentsToggleButton.textContent = "Show Comments";
             }
         });
-
+    
         // Handle comment submission
         const commentInput = postElement.querySelector('.comment-input');
         const commentSubmitButton = postElement.querySelector('.comment-submit');
         commentSubmitButton.addEventListener('click', () => this.submitComment(postId, commentInput, commentsContainer));
-
+    
         // Handle "Enter" key for comment submission
         commentInput.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
@@ -298,145 +342,153 @@ class PostManager {
                 this.submitComment(postId, commentInput, commentsContainer);
             }
         });
-
+    
+        // Add event listener for the delete post button (if applicable)
+        if (isCurrentUserPost) {
+            const deletePostButton = postElement.querySelector('.delete-post-button');
+            deletePostButton.addEventListener('click', () => {
+                if (confirm("Are you sure you want to delete this post and all its comments and likes?")) {
+                    this.deletePost(postId, this.currentFilterUserId); // Call the deletePost method
+                }
+            });
+        }
+    
         return postElement;
     }
 
-    // Create a comment element with proper user ID verification
-    createCommentElement(commentData, userData, currentUserId, postId, commentsContainer) {
-        const commentElement = document.createElement("div");
-        commentElement.className = "mb-3 d-flex align-items-center";
-        commentElement.setAttribute("data-comment-id", commentData.id); // Add unique identifier
+ createCommentElement(commentData, userData, currentUserId, postId, commentsContainer) {
+    const commentElement = document.createElement("div");
+    commentElement.className = "mb-3 d-flex align-items-center";
+    commentElement.setAttribute("data-comment-id", commentData.id); // Add unique identifier
 
-        // Handle the timestamp
-        let timestamp;
-        if (commentData.timestamp && typeof commentData.timestamp.toDate === 'function') {
-            // If it's a Firestore Timestamp object, convert it to a Date
-            timestamp = commentData.timestamp.toDate();
-        } else if (commentData.timestamp instanceof Date) {
-            // If it's already a Date object, use it directly
-            timestamp = commentData.timestamp;
-        } else {
-            // If no valid timestamp is provided, use the current time
-            timestamp = new Date();
-        }
-
-        // Check if the current user has liked the comment
-        const hasLiked = this.hasUserLikedComment(commentData.id, currentUserId);
-
-        // Create the comment content
-        commentElement.innerHTML = `
-            <img src="${userData.profilePicture ? `data:image/jpeg;base64,${userData.profilePicture}` : 'default-profile.png'}" 
-                 class="rounded-circle me-2 user-profile-link"
-                 style="width: 40px; height: 40px; cursor: pointer;"
-                 data-user-id="${commentData.foreignUserId}"
-                 alt="Profile Picture">
-            <div class="d-flex flex-column flex-grow-1">
-                <strong class="user-profile-link" style="cursor: pointer;" data-user-id="${commentData.foreignUserId}">
-                    ${userData.user_Name || "Unknown User"}
-                </strong>
-                <span>${commentData.content}</span>
-                <small class="text-muted">
-                    ${timestamp.toLocaleString()} <!-- Use the timestamp directly -->
-                </small>
-            </div>
-            <!-- Like Button for Comments -->
-            <button class="btn btn-outline-primary btn-sm comment-like-button" data-comment-id="${commentData.id}">
-                <span class="comment-like-count">${commentData.likes_count || 0}</span> Likes
-            </button>
-        `;
-
-        // Create the three-dots menu
-        const dotsMenu = document.createElement("span");
-        dotsMenu.innerHTML = "&#8942;"; // Three dots icon
-        dotsMenu.style.cursor = "pointer";
-        dotsMenu.style.marginLeft = "auto"; // Push the menu to the right
-
-        // Create the popup container
-        const popup = document.createElement("div");
-        popup.style.display = "none"; // Initially hidden
-        popup.style.position = "fixed"; // Use fixed positioning for the viewport
-        popup.style.backgroundColor = "white";
-        popup.style.border = "1px solid #ddd";
-        popup.style.borderRadius = "4px";
-        popup.style.boxShadow = "0 2px 5px rgba(0, 0, 0, 0.1)";
-        popup.style.padding = "8px";
-        popup.style.minWidth = "120px";
-        popup.style.zIndex = "1000"; // Ensure it's on top of other elements
-
-        // Add the delete button if the comment belongs to the current user
-        if (commentData.foreignUserId === currentUserId) {
-            const deleteButton = document.createElement("button");
-            deleteButton.innerText = "Delete Comment";
-            deleteButton.style.color = "#dc3545";
-            deleteButton.style.border = "none";
-            deleteButton.style.background = "none";
-            deleteButton.style.cursor = "pointer";
-            deleteButton.style.textAlign = "left";
-            deleteButton.style.width = "100%";
-            deleteButton.style.padding = "4px 8px";
-            deleteButton.addEventListener("click", (e) => {
-                e.stopPropagation(); // Prevent the click from bubbling up
-                this.deleteComment(commentData.id, postId, commentsContainer, currentUserId);
-            });
-            popup.appendChild(deleteButton); // Add the button to the popup
-        }
-
-        // Add click event to the three-dots menu to toggle the popup
-        dotsMenu.addEventListener("click", (e) => {
-            e.stopPropagation(); // Prevent the click from bubbling up
-
-            // Calculate the center of the screen
-            const screenWidth = window.innerWidth;
-            const screenHeight = window.innerHeight;
-            const popupWidth = popup.offsetWidth;
-            const popupHeight = popup.offsetHeight;
-
-            // Position the popup in the center
-            popup.style.left = `${(screenWidth - popupWidth) / 2}px`;
-            popup.style.top = `${(screenHeight - popupHeight) / 2}px`;
-
-            // Toggle the popup visibility
-            popup.style.display = popup.style.display === "block" ? "none" : "block";
-        });
-
-        // Close the popup when clicking outside
-        document.addEventListener("click", () => {
-            popup.style.display = "none";
-        });
-
-        // Append the three-dots menu and popup to the comment element
-        const optionsContainer = document.createElement("div");
-        optionsContainer.style.position = "relative"; // Ensure the popup is positioned correctly
-        optionsContainer.appendChild(dotsMenu);
-        optionsContainer.appendChild(popup);
-
-        // Append the options container to the comment element
-        commentElement.appendChild(optionsContainer);
-
-        // Add event listener for the comment like button
-        const likeButton = commentElement.querySelector('.comment-like-button');
-        likeButton.addEventListener('click', async () => {
-            const user = await this.getCurrentUser();
-            if (user) {
-                await this.likeComment(commentData.id, user.firestoreUserId);
-            } else {
-                alert("You must be logged in to like a comment.");
-            }
-        });
-
-        // Add click events for profile navigation
-        const profileLinks = commentElement.querySelectorAll('.user-profile-link');
-        profileLinks.forEach(link => {
-            link.addEventListener('click', () => {
-                const userId = link.getAttribute('data-user-id');
-                window.location.href = `public-profile.html?userId=${encodeURIComponent(userId)}`;
-            });
-        });
-
-        return commentElement;
+    // Handle the timestamp
+    let timestamp;
+    if (commentData.timestamp && typeof commentData.timestamp.toDate === 'function') {
+        // If it's a Firestore Timestamp object, convert it to a Date
+        timestamp = commentData.timestamp.toDate();
+    } else if (commentData.timestamp instanceof Date) {
+        // If it's already a Date object, use it directly
+        timestamp = commentData.timestamp;
+    } else {
+        // If no valid timestamp is provided, use the current time
+        timestamp = new Date();
     }
 
+    // Check if the current user has liked the comment
+    const hasLiked = this.hasUserLikedComment(commentData.id, currentUserId);
+
+    // Create the comment content
+    commentElement.innerHTML = `
+        <img src="${userData.profilePicture ? `data:image/jpeg;base64,${userData.profilePicture}` : 'default-profile.png'}" 
+             class="rounded-circle me-2 user-profile-link"
+             style="width: 40px; height: 40px; cursor: pointer;"
+             data-user-id="${commentData.foreignUserId}"
+             alt="Profile Picture">
+        <div class="d-flex flex-column flex-grow-1">
+            <strong class="user-profile-link" style="cursor: pointer;" data-user-id="${commentData.foreignUserId}">
+                ${userData.user_Name || "Unknown User"}
+            </strong>
+            <span>${commentData.content}</span>
+            <small class="text-muted">
+                ${timestamp.toLocaleString()} <!-- Use the timestamp directly -->
+            </small>
+        </div>
+        <!-- Like Button for Comments -->
+        <button class="btn btn-outline-primary btn-sm comment-like-button" data-comment-id="${commentData.id}">
+            <span class="comment-like-count">${commentData.likes_count || 0}</span> Likes
+        </button>
+    `;
+
+    // Create the three-dots menu
+    const dotsMenu = document.createElement("span");
+    dotsMenu.innerHTML = "&#8942;"; // Three dots icon
+    dotsMenu.style.cursor = "pointer";
+    dotsMenu.style.marginLeft = "auto"; // Push the menu to the right
+
+    // Create the popup container
+    const popup = document.createElement("div");
+    popup.style.display = "none"; // Initially hidden
+    popup.style.position = "fixed"; // Use fixed positioning for the viewport
+    popup.style.backgroundColor = "white";
+    popup.style.border = "1px solid #ddd";
+    popup.style.borderRadius = "4px";
+    popup.style.boxShadow = "0 2px 5px rgba(0, 0, 0, 0.1)";
+    popup.style.padding = "8px";
+    popup.style.minWidth = "120px";
+    popup.style.zIndex = "1000"; // Ensure it's on top of other elements
+
+    // Add the delete button if the comment belongs to the current user
+    if (commentData.foreignUserId === currentUserId) {
+        const deleteButton = document.createElement("button");
+        deleteButton.innerText = "Delete Comment";
+        deleteButton.style.color = "#dc3545";
+        deleteButton.style.border = "none";
+        deleteButton.style.background = "none";
+        deleteButton.style.cursor = "pointer";
+        deleteButton.style.textAlign = "left";
+        deleteButton.style.width = "100%";
+        deleteButton.style.padding = "4px 8px";
+        deleteButton.addEventListener("click", (e) => {
+            e.stopPropagation(); // Prevent the click from bubbling up
+            this.deleteComment(commentData.id, postId, commentsContainer, currentUserId);
+        });
+        popup.appendChild(deleteButton); // Add the button to the popup
+    }
+
+    // Add click event to the three-dots menu to toggle the popup
+    dotsMenu.addEventListener("click", (e) => {
+        e.stopPropagation(); // Prevent the click from bubbling up
+
+        // Calculate the center of the screen
+        const screenWidth = window.innerWidth;
+        const screenHeight = window.innerHeight;
+        const popupWidth = popup.offsetWidth;
+        const popupHeight = popup.offsetHeight;
+
+        // Position the popup in the center
+        popup.style.left = `${(screenWidth - popupWidth) / 2}px`;
+        popup.style.top = `${(screenHeight - popupHeight) / 2}px`;
+
+        // Toggle the popup visibility
+        popup.style.display = popup.style.display === "block" ? "none" : "block";
+    });
+
+    // Close the popup when clicking outside
+    document.addEventListener("click", () => {
+        popup.style.display = "none";
+    });
+
+    // Append the three-dots menu and popup to the comment element
+    const optionsContainer = document.createElement("div");
+    optionsContainer.style.position = "relative"; // Ensure the popup is positioned correctly
+    optionsContainer.appendChild(dotsMenu);
+    optionsContainer.appendChild(popup);
+
+    // Append the options container to the comment element
+    commentElement.appendChild(optionsContainer);
+
+    // Add event listener for the comment like button
+    const likeButton = commentElement.querySelector('.comment-like-button');
+    likeButton.addEventListener('click', async () => {
+        const user = await this.getCurrentUser();
+        if (user) {
+            await this.likeComment(commentData.id, user.firestoreUserId);
+        } else {
+            alert("You must be logged in to like a comment.");
+        }
+    });
+
+    // Add click events for profile navigation
+    const profileLinks = commentElement.querySelectorAll('.user-profile-link');
+    profileLinks.forEach(link => {
+        link.addEventListener('click', () => {
+            const userId = link.getAttribute('data-user-id');
+            window.location.href = `public-profile.html?userId=${encodeURIComponent(userId)}`;
+        });
+    });
+
+    return commentElement;
+}
     async likePost(postId, userId) {
         // Debounce: Prevent multiple rapid clicks
         if (this.isLiking.has(postId)) return;
@@ -912,6 +964,7 @@ class PostManager {
             alert("Failed to delete post. Please try again.");
         }
     }
+    
 }
 
 // Initialization function

@@ -59,16 +59,13 @@ async function displayPosts(userIdFromUrl) {
         return;
     }
 
-    // Initialize PostManager with userIdFromUrl
-    const postManager = initializePostManager('postsContainer', userIdFromUrl);
-
-    // Current user's ID might be used for other operations, but we're filtering by userIdFromUrl
+    // Fetch the current user's ID
     const currentUserId = await getCurrentUserId();
 
-    // Pass userIdFromUrl as the filterUserId
-    postManager.displayPosts(userIdFromUrl, currentUserId);
+    // Initialize PostManager with userIdFromUrl and currentUserId
+    const postManager = initializePostManager('postsContainer', userIdFromUrl);
+    postManager.displayPosts(userIdFromUrl, currentUserId); // Pass currentUserId here
 }
-
 
 if (userIdFromUrl) {
     db.collection("users")
@@ -122,6 +119,7 @@ if (userIdFromUrl) {
 } else {
     console.error("No user ID found in URL");
 }
+
 // Make sure to call this function with userIdFromUrl when you initialize your page
 if (userIdFromUrl) {
     displayPosts(userIdFromUrl);

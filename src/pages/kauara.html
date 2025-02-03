@@ -48,11 +48,39 @@
         body {
             padding-top: 70px; /* Adjust this value based on the height of your header */
         }
+
+        /* Dropdown menu styles */
+        .dropdown-menu {
+            position: fixed;
+            top: 60px; /* Adjust based on header height */
+            left: 0;
+            width: 250px; /* Adjust width as needed */
+            height: 100vh; /* Full height */
+            overflow-y: auto; /* Scroll if content overflows */
+            background-color: #f8f9fa; /* Match header background */
+            border-right: 1px solid #ccc; /* Add border for separation */
+            box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1); /* Optional: Add shadow */
+        }
+
+        .dropdown-menu .list-unstyled {
+            padding-left: 20px; /* Indent list items */
+        }
+
+        .dropdown-menu h5 {
+            margin-top: 20px; /* Add spacing between sections */
+        }
     </style>
 </head>
 <body>
     <header class="bg-light py-3 fixed-header">
         <div class="container d-flex justify-content-between align-items-center">
+            <!-- Dropdown Button for Footer Menu -->
+            <div>
+                <button class="btn btn-secondary" id="footerMenuButton">
+                    <i class="fas fa-bars"></i> Menu
+                </button>
+            </div>
+
             <!-- Search Bar -->
             <form class="d-flex w-50" id="searchForm">
                 <input id="searchInput" class="form-control me-2" type="search" placeholder="Search by username or email..." aria-label="Search" autocomplete="off">
@@ -64,6 +92,53 @@
             <!-- Profile Button -->
             <div>
                 <button class="btn btn-primary" id="profileButton">Login</button>
+            </div>
+        </div>
+
+        <!-- Dropdown Menu for Footer Content -->
+        <div class="dropdown-menu" id="footerDropdownMenu" style="display: none;">
+            <div class="container">
+                <div class="row">
+                    <!-- Conheça-nos Column -->
+                    <div class="col-md-12 mb-3">
+                        <h5 class="mb-3">Conheça-nos</h5>
+                        <ul class="list-unstyled">
+                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Sobre nós</a></li>
+                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Projetos</a></li>
+                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Afiliação de gráficas</a></li>
+                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Política de privacidade</a></li>
+                        </ul>
+                    </div>
+
+                    <!-- Ajuda Column -->
+                    <div class="col-md-12 mb-3">
+                        <h5 class="mb-3">Ajuda</h5>
+                        <ul class="list-unstyled">
+                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Central de ajuda</a></li>
+                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">FAQ</a></li>
+                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Tutorial</a></li>
+                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Contato</a></li>
+                        </ul>
+                    </div>
+
+                    <!-- Redes Sociais Column -->
+                    <div class="col-md-12 mb-3">
+                        <h5 class="mb-3">Redes Sociais</h5>
+                        <ul class="list-unstyled">
+                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Instagram</a></li>
+                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">LinkedIn</a></li>
+                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Twitter</a></li>
+                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">TikTok</a></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Copyright -->
+                <div class="row mt-3">
+                    <div class="col-12 text-center">
+                        <small class="text-muted">© 2025 Kauara. Todos os direitos reservados.</small>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -121,68 +196,30 @@
                 </div>
             </div>
         </div>
-                <!-- Search Results Container -->
         <div id="searchResultsContainer"></div>
     </header>
 
     <!-- Main Content -->
     <div class="container mt-4">
-
-
         <!-- Posts Container -->
         <div id="allPostsContainer">
             <!-- Posts will be dynamically loaded here -->
         </div>
     </div>
 
-    <footer class="bg-light mt-5 py-4">
-        <div class="container">
-            <div class="row">
-                <!-- Conheça-nos Column -->
-                <div class="col-md-4 mb-3">
-                    <h5 class="mb-3">Conheça-nos</h5>
-                    <ul class="list-unstyled">
-                        <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Sobre nós</a></li>
-                        <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Projetos</a></li>
-                        <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Termos de uso</a></li>
-                        <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Política de privacidade</a></li>
-                    </ul>
-                </div>
-
-                <!-- Ajuda Column -->
-                <div class="col-md-4 mb-3">
-                    <h5 class="mb-3">Ajuda</h5>
-                    <ul class="list-unstyled">
-                        <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Central de ajuda</a></li>
-                        <li class="mb-2"><a href="#" class="text-decoration-none text-dark">FAQ</a></li>
-                        <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Tutorial</a></li>
-                        <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Contato</a></li>
-                    </ul>
-                </div>
-
-                <!-- Redes Sociais Column -->
-                <div class="col-md-4 mb-3">
-                    <h5 class="mb-3">Redes Sociais</h5>
-                    <ul class="list-unstyled">
-                        <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Instagram</a></li>
-                        <li class="mb-2"><a href="#" class="text-decoration-none text-dark">LinkedIn</a></li>
-                        <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Twitter</a></li>
-                        <li class="mb-2"><a href="#" class="text-decoration-none text-dark">TikTok</a></li>
-                    </ul>
-                </div>
-            </div>
-
-            <!-- Copyright -->
-            <div class="row mt-3">
-                <div class="col-12 text-center">
-                    <small class="text-muted">© 2025 Kauara. Todos os direitos reservados.</small>
-                </div>
-            </div>
-        </div>
-    </footer>
-
     <script src="../javascript/app.js"></script>
     <script src="../javascript/shared-posts.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // JavaScript to toggle the dropdown menu
+        document.getElementById('footerMenuButton').addEventListener('click', function() {
+            const dropdownMenu = document.getElementById('footerDropdownMenu');
+            if (dropdownMenu.style.display === 'none' || dropdownMenu.style.display === '') {
+                dropdownMenu.style.display = 'block';
+            } else {
+                dropdownMenu.style.display = 'none';
+            }
+        });
+    </script>
 </body>
 </html>

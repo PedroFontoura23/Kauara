@@ -269,7 +269,8 @@ document.addEventListener("DOMContentLoaded", function () {
                         user_Bio: pendingUserData.user_Bio,
                         firebaseUID: pendingUserData.firebaseUID,
                         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        userId: userId
+                        userId: userId,
+                        artista: pendingUserData.artista // Copy the artista field
                     });
 
                     // Create contact document in "contact" collection
@@ -285,7 +286,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     await db.collection("pendingUsers").doc(userId).delete();
 
                     console.log("User data successfully transferred!");
-                    window.location.href = "profile.html"
+                    window.location.href = "profile.html";
 
                     // Remove loading message
                     removeLoadingMessage();
@@ -296,7 +297,6 @@ document.addEventListener("DOMContentLoaded", function () {
                     if (!userDoc.empty) {
                         console.log("User data found.");
                         removeLoadingMessage();
-;
                     } else {
                         removeLoadingMessage();
                         displayErrorMessage("No user data found. Please contact support.");
@@ -415,7 +415,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 userId: userId,
                 contactEmail: email,
-                contactTelephone: "N/A"
+                contactTelephone: "N/A",
+                artista: false // Add the artista field and set it to false by default
             });
 
             // Increment the users count
@@ -584,6 +585,7 @@ document.addEventListener("DOMContentLoaded", function () {
         } catch (error) {
             console.error("Error fetching current user ID:", error);
         }
+
     }
 
     async function getUserIdFromUid(uid) {
