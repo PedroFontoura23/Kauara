@@ -71,36 +71,75 @@ document.addEventListener("DOMContentLoaded", function() {
     // Ensure user is logged in (unchanged)
     auth.onAuthStateChanged(async (user) => {
         if (!user) {
-            window.location.href = "kauara.html"; // Redirect if not logged in
+            window.location.href = "kauara.html";
             return;
         }
-        
-        // Check if user is already an artist (unchanged)
+
         const firestoreUserId = await getUserIdFromUid(user.uid);
         const userDoc = await db.collection("users").doc(firestoreUserId).get();
-        
+
         if (userDoc.exists && userDoc.data().artista) {
             alert("Você já é um artista registrado na plataforma!");
             window.location.href = "profile.html";
         }
-        
-        // Attempt to pre-fill the form with existing user data (unchanged)
+
         if (userDoc.exists) {
             const userData = userDoc.data();
             if (userData.user_Name) {
                 document.getElementById("fullName").value = userData.user_Name;
             }
-            
             if (userData.phone) {
                 document.getElementById("phone").value = userData.phone;
             }
-            
             if (userData.address) {
                 document.getElementById("address").value = userData.address;
             }
         }
     });
-    
+
+    async function generateCodeChallenge() {
+        const codeVerifier = [...Array(64)].map(() => Math.random().toString(36)[2]).join("");
+        const encoder = new TextEncoder();
+        const data = encoder.encode(codeVerifier);
+        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+        const base64Hash = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)))
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
+
+        localStorage.setItem("mp_code_verifier", codeVerifier);
+        return { codeVerifier, codeChallenge: base64Hash };
+    }
+
+    connectMercadoPagoBtn.addEventListener("click", async function() {
+        const user = auth.currentUser;
+        if (!user) {
+            alert("Você precisa estar logado para continuar.");
+            return;
+        }
+
+        try {
+            const firestoreUserId = await getUserIdFromUid(user.uid);
+            const state = encodeURIComponent(btoa(firestoreUserId));
+            localStorage.setItem('mpAuthState', state);
+
+            const { codeVerifier, codeChallenge } = await generateCodeChallenge();
+            console.log("Code Verifier (stored):", codeVerifier);
+            console.log("Code Challenge (sent to MP):", codeChallenge);
+
+            const authUrl = `https://auth.mercadopago.com/authorization?client_id=${MERCADO_PAGO_CLIENT_ID}&response_type=code&platform_id=mp&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+
+            await db.collection("users").doc(firestoreUserId).update({
+                mercadoPagoConnectionAttempt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            window.location.href = authUrl;
+        } catch (error) {
+            console.error("Error connecting to Mercado Pago:", error);
+            alert("Erro ao conectar com o Mercado Pago. Tente novamente.");
+        }
+    });
+        
     // Helper function to get user ID format from Firebase UID (unchanged)
     function getUserIdFromUid(uid) {
         return db
@@ -173,58 +212,6 @@ document.addEventListener("DOMContentLoaded", function() {
         step1El.style.display = "block";
     });
 
-    async function generateCodeChallenge() {
-        const codeVerifier = [...Array(64)]
-            .map(() => Math.random().toString(36)[2])
-            .join("");
-
-        const encoder = new TextEncoder();
-        const data = encoder.encode(codeVerifier);
-        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-        const base64Hash = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)))
-            .replace(/\+/g, "-")
-            .replace(/\//g, "_")
-            .replace(/=+$/, "");
-
-        localStorage.setItem("mp_code_verifier", codeVerifier); // Store it for later use
-
-        return { codeVerifier, codeChallenge: base64Hash };
-    }
-    
-    // Mercado Pago Connection (updated to handle token exchange client-side for testing)
-    connectMercadoPagoBtn.addEventListener("click", async function() {
-        const user = auth.currentUser;  // Check if user is logged in
-        if (!user) {
-            alert("Você precisa estar logado para continuar.");
-            return;
-        }
-        
-        try {
-            const firestoreUserId = await getUserIdFromUid(user.uid);
-            
-            // Generate a secure state parameter with user ID for callback verification
-            const state = encodeURIComponent(btoa(firestoreUserId));
-            
-            // Store the state in localStorage for verification on callback
-            localStorage.setItem('mpAuthState', state);
-            
-            // Build Mercado Pago OAuth URL - note the changed response_type
-            const authUrl = `https://auth.mercadopago.com/authorization?client_id=${MERCADO_PAGO_CLIENT_ID}&response_type=code&platform_id=mp&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}`;
-            console.log("Auth URL:", authUrl);
-            
-            // Update the user's registration status
-            await db.collection("users").doc(firestoreUserId).update({
-                mercadoPagoConnectionAttempt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            // Redirect to Mercado Pago for authorization
-            window.location.href = authUrl;
-        } catch (error) {
-            console.error("Error connecting to Mercado Pago:", error);
-            alert("Ocorreu um erro ao conectar com o Mercado Pago. Por favor tente novamente.");
-        }
-    });
-
     async function connectMercadoPago() {
         try {
             console.log("Generating PKCE Code Challenge...");
@@ -266,18 +253,15 @@ document.addEventListener("DOMContentLoaded", function() {
     if (mpCode && state && source === 'mp') {
         const savedState = localStorage.getItem('mpAuthState');
         if (savedState === state) {
-            // Show loading indicator
-            step1El.style.display = "none";
-            step2El.style.display = "none";
-            document.getElementById("loadingIndicator").style.display = "block"; // Add this element to your HTML
-            
+            document.getElementById("loadingIndicator").style.display = "block";
             exchangeMercadoPagoToken(mpCode, state);
         } else {
-            console.error("State parameter mismatch. Possible CSRF attack.");
+            console.error("State parameter mismatch.");
             alert("Erro de segurança. Por favor tente novamente.");
             window.location.href = "artist-registration.html";
         }
     }
+
 
     // Function to exchange Mercado Pago token (client-side for testing)
     async function exchangeMercadoPagoToken(code, state) {
