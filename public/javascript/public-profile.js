@@ -67,6 +67,24 @@ async function displayPosts(userIdFromUrl) {
     postManager.displayPosts(userIdFromUrl, currentUserId); // Pass currentUserId here
 }
 
+// Initialize ProductsManager
+const productsContainer = document.getElementById("productsContainer");
+const productsManager = new ProductsManager(db, auth, "productsContainer", userIdFromUrl);
+
+// Function to display products
+async function displayProducts(userIdFromUrl) {
+    if (!userIdFromUrl) {
+        console.error("No user ID found in URL");
+        return;
+    }
+
+    // Fetch the current user's ID
+    const currentUserId = await getCurrentUserId();
+
+    // Display products for the user
+    productsManager.displayProducts(userIdFromUrl, currentUserId);
+}
+
 if (userIdFromUrl) {
     db.collection("users")
         .doc(userIdFromUrl)
@@ -106,6 +124,9 @@ if (userIdFromUrl) {
 
                 // Fetch and display posts
                 displayPosts(userIdFromUrl);  // Pass userIdFromUrl to display only their posts
+
+                // Fetch and display products
+                displayProducts(userIdFromUrl);  // Pass userIdFromUrl to display only their products
             } else {
                 userNameElement.textContent = "User not found";
                 userEmailElement.textContent = "";
@@ -116,13 +137,6 @@ if (userIdFromUrl) {
         .catch(error => {
             console.error("Error fetching user data:", error);
         });
-} else {
-    console.error("No user ID found in URL");
-}
-
-// Make sure to call this function with userIdFromUrl when you initialize your page
-if (userIdFromUrl) {
-    displayPosts(userIdFromUrl);
 } else {
     console.error("No user ID found in URL");
 }

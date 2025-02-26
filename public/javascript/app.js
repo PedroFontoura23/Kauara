@@ -248,68 +248,59 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     auth.onAuthStateChanged(async (user) => {
-        if (user && user.emailVerified) {
-            console.log("User is logged in and email verified. Checking pending users...");
+      if (user && user.emailVerified) {
+        console.log("User is logged in and email verified. Checking pending users...");
 
-            try {
-                const pendingUserSnapshot = await db.collection("pendingUsers")
-                    .where("firebaseUID", "==", user.uid)
-                    .get();
+        try {
+          const pendingUserSnapshot = await db.collection("pendingUsers")
+            .where("firebaseUID", "==", user.uid)
+            .get();
 
-                if (!pendingUserSnapshot.empty) {
-                    const pendingUserData = pendingUserSnapshot.docs[0].data();
-                    const userId = pendingUserData.userId;
-                    const contactId = `contact_${userId.split("_")[1]}`;
+          if (!pendingUserSnapshot.empty) {
+            const pendingUserData = pendingUserSnapshot.docs[0].data();
+            const userId = pendingUserData.userId;
+            const contactId = `contact_${userId.split("_")[1]}`;
 
-                    // Move user data to the "users" collection
-                    await db.collection("users").doc(userId).set({
-                        user_Name: pendingUserData.user_Name,
-                        user_Password: pendingUserData.user_Password,
-                        user_FullName: pendingUserData.user_FullName,
-                        user_Bio: pendingUserData.user_Bio,
-                        firebaseUID: pendingUserData.firebaseUID,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        userId: userId,
-                        artista: pendingUserData.artista // Copy the artista field
-                    });
+            // Move user data to "users" collection
+            await db.collection("users").doc(userId).set({
+              user_Name: pendingUserData.user_Name,
+              user_Password: pendingUserData.user_Password, // Avoid storing if possible
+              user_FullName: pendingUserData.user_FullName,
+              user_Bio: pendingUserData.user_Bio,
+              firebaseUID: pendingUserData.firebaseUID,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+              userId: userId,
+              artista: pendingUserData.artista
+            });
 
-                    // Create contact document in "contact" collection
-                    await db.collection("contact").doc(contactId).set({
-                        contactEmail: pendingUserData.contactEmail,
-                        contactTelephone: pendingUserData.contactTelephone,
-                        foreignUserId: userId,
-                        firebaseUID: pendingUserData.firebaseUID,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
+            // Create contact document
+            await db.collection("contact").doc(contactId).set({
+              contactEmail: pendingUserData.contactEmail,
+              contactTelephone: pendingUserData.contactTelephone,
+              foreignUserId: userId,
+              firebaseUID: pendingUserData.firebaseUID,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
 
-                    // Remove from pendingUsers collection
-                    await db.collection("pendingUsers").doc(userId).delete();
+            // Delete from pendingUsers
+            await db.collection("pendingUsers").doc(userId).delete();
 
-                    console.log("User data successfully transferred!");
-                    window.location.href = "profile.html";
-
-                    // Remove loading message
-                    removeLoadingMessage();
-                } else {
-                    // Check for user in 'users' collection if not found in pendingUsers
-                    const userDoc = await db.collection("users").where("firebaseUID", "==", user.uid).get();
-
-                    if (!userDoc.empty) {
-                        console.log("User data found.");
-                        removeLoadingMessage();
-                    } else {
-                        removeLoadingMessage();
-                        displayErrorMessage("No user data found. Please contact support.");
-                    }
-                }
-            } catch (error) {
-                console.error("Error during user verification process:", error);
-                removeLoadingMessage();
-                displayErrorMessage("An error occurred. Please try again later.");
+            console.log("User data successfully transferred!");
+            window.location.href = "profile.html";
+          } else {
+            // User might already exist in "users"
+            const userDoc = await db.collection("users").where("firebaseUID", "==", user.uid).get();
+            if (userDoc.empty) {
+              displayErrorMessage("No user data found. Please contact support.");
             }
-        } else {
-            console.log("No verified user logged in.");
+          }
+        } catch (error) {
+          console.error("Error during user verification process:", error);
+          displayErrorMessage("An error occurred. Please try again later.");
         }
+      } else {
+        console.log("No verified user logged in.");
+      }
     });
 
     // Helper function to show a loading message
@@ -342,108 +333,118 @@ document.addEventListener("DOMContentLoaded", function () {
 
     //register function
     registerSubmitButton.addEventListener("click", async () => {
-        const email = registerEmail.value.trim();
-        const password = registerPassword.value.trim();
-        const confirmPassword = registerConfirmPassword.value.trim();
-        const name = registerName.value.trim();
+      const email = registerEmail.value.trim();
+      const password = registerPassword.value.trim();
+      const confirmPassword = registerConfirmPassword.value.trim();
+      const name = registerName.value.trim();
 
-        clearErrorMessage();
+      console.log("Registration started with:", { email, name });
 
-        if (!email || !password || !confirmPassword || !name) {
-            displayErrorMessage("All fields are required.");
-            return;
+      clearErrorMessage();
+
+      if (!email || !password || !confirmPassword || !name) {
+        displayErrorMessage("All fields are required.");
+        console.log("Validation failed: Missing fields");
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        displayErrorMessage("Passwords do not match.");
+        console.log("Validation failed: Passwords do not match");
+        return;
+      }
+
+      if (password.length < 6) {
+        displayErrorMessage("Password must be at least 6 characters.");
+        console.log("Validation failed: Password too short");
+        return;
+      }
+
+      try {
+        // Check if user already exists in pendingUsers
+        console.log("Checking for existing pendingUsers with email:", email);
+        const existingUser = await db.collection("pendingUsers")
+          .where("contactEmail", "==", email)
+          .get();
+
+        if (!existingUser.empty) {
+          console.log("Existing pending user found:", existingUser.docs[0].data());
+          const user = await auth.signInWithEmailAndPassword(email, password).then(cred => cred.user);
+          await user.sendEmailVerification();
+          displayErrorMessage("A verification email has been resent. Please check your inbox.");
+          console.log("Verification email resent for existing user");
+          await auth.signOut();
+          return;
         }
 
-        if (password !== confirmPassword) {
-            displayErrorMessage("Passwords do not match.");
-            return;
+        // Create new user
+        console.log("Creating new user with email:", email);
+        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+        const user = userCredential.user;
+        console.log("User created successfully. UID:", user.uid);
+
+        // Send verification email
+        console.log("Sending verification email to:", email);
+        await user.sendEmailVerification();
+        alert(`Verification email sent to ${email}. Please verify your email before logging in.`);
+        console.log("Verification email sent");
+
+        // Fetch user count for unique ID
+        console.log("Fetching usersCount...");
+        const countDoc = await db.collection("usersCount").doc("count").get();
+        if (!countDoc.exists) {
+          throw new Error("Could not fetch user count.");
         }
+        let count = countDoc.data().count;
+        const userId = `user_${count + 1}`;
+        const contactId = `contact_${count + 1}`;
+        console.log("Generated userId:", userId, "and contactId:", contactId);
 
-        if (password.length < 6) {
-            displayErrorMessage("Password must be at least 6 characters.");
-            return;
+        // Store user data in pendingUsers
+        console.log("Writing to pendingUsers with userId:", userId);
+        await db.collection("pendingUsers").doc(userId).set({
+          user_Name: name,
+          user_Password: password, // Consider removing this for security
+          user_FullName: name,
+          user_Bio: "---",
+          firebaseUID: user.uid,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          userId: userId,
+          contactEmail: email,
+          contactTelephone: "N/A",
+          artista: false
+        });
+        console.log("Successfully wrote to pendingUsers");
+
+        // Increment usersCount
+        console.log("Incrementing usersCount from:", count);
+        await db.collection("usersCount").doc("count").update({
+          count: count + 1
+        });
+        console.log("usersCount incremented to:", count + 1);
+
+        // Sign out and redirect
+        console.log("Signing out user...");
+        await auth.signOut();
+        console.log("User signed out. Redirecting to kauara.html");
+        window.location.href = "kauara.html";
+
+      } catch (error) {
+        console.error("Registration error:", error);
+        switch (error.code) {
+          case "auth/email-already-in-use":
+            displayErrorMessage("This email is already registered. Please check your inbox to verify.");
+            break;
+          case "auth/invalid-email":
+            displayErrorMessage("Please enter a valid email address.");
+            break;
+          case "auth/weak-password":
+            displayErrorMessage("Please choose a stronger password.");
+            break;
+          default:
+            displayErrorMessage("Registration failed. Please try again.");
         }
-
-        try {
-            // Check if the user already exists in pending users collection
-            const existingUser = await db.collection("pendingUsers").where("contactEmail", "==", email).get();
-
-            if (!existingUser.empty) {
-                const pendingUserData = existingUser.docs[0].data();
-                const firebaseUID = pendingUserData.firebaseUID;
-
-                // Get the Firebase user object
-                const user = await auth.signInWithEmailAndPassword(email, password)
-                    .then((userCredential) => userCredential.user)
-                    .catch((error) => {
-                        console.error("Error signing in:", error);
-                        throw error;
-                    });
-
-                // Resend the verification email
-                await user.sendEmailVerification();
-                displayErrorMessage("A verification email has been resent. Please check your inbox.");
-                await auth.signOut(); // Sign out the user after resending the email
-                return;
-            }
-
-            // If the email is not in pendingUsers, proceed with registration
-            const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-            const user = userCredential.user;
-
-            // Fetch current user count for unique ID generation
-            const countDoc = await db.collection("usersCount").doc("count").get();
-            if (!countDoc.exists) {
-                throw new Error("Could not fetch user count.");
-            }
-
-            let count = countDoc.data().count;
-            const userId = `user_${count + 1}`;
-            const contactId = `contact_${count + 1}`;
-
-            // Send verification email
-            await user.sendEmailVerification();
-            alert(`Verification email sent to ${email}. Please verify your email before logging in.`);
-
-            // Store user data in the temporary pendingUsers collection
-            await db.collection("pendingUsers").doc(userId).set({
-                user_Name: name,
-                user_Password: password,
-                user_FullName: name,
-                user_Bio: "---",
-                firebaseUID: user.uid,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                userId: userId,
-                contactEmail: email,
-                contactTelephone: "N/A",
-                artista: false // Add the artista field and set it to false by default
-            });
-
-            // Increment the users count
-            await db.collection("usersCount").doc("count").update({
-                count: count + 1
-            });
-
-            // Sign the user out after registration to force email verification first
-            await auth.signOut();
-            window.location.href = "kauara.html";
-
-        } catch (error) {
-            console.error("Account creation error:", error);
-            switch (error.code) {
-                case "auth/email-already-in-use":
-                    displayErrorMessage("This email is already registered. Please check your inbox to verify.");
-                    break;
-                case "auth/invalid-email":
-                    displayErrorMessage("Please enter a valid email address.");
-                    break;
-                case "auth/weak-password":
-                    displayErrorMessage("Please choose a stronger password.");
-                    break;
-                default:
-                    displayErrorMessage("Registration failed. Please try again.");
-            }
-        }
+      }
     });
 
 
@@ -602,21 +603,46 @@ document.addEventListener("DOMContentLoaded", function () {
 
 
 });
-    function initializePosts() {
-        console.log("Initializing posts display");
+function initializePostManager(containerId) {
+    // Create a new PostManager instance
+    return new PostManager(db, auth, containerId);
+}
 
-        // Initialize Firebase if not already initialized
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
+function initializePosts() {
+    console.log("Initializing posts display");
 
-        const auth = firebase.auth();
-        const db = firebase.firestore();
-
-        // Initialize PostManager and display posts
-        const postManager = initializePostManager('allPostsContainer');
-        postManager.displayPosts(); // Load posts without requiring a logged-in user
+    // Initialize Firebase if not already initialized
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
     }
-    // At the end of app.js
-    initializePosts();
+
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    // Initialize PostManager and display posts
+    const postManager = initializePostManager('allPostsContainer');
+    postManager.displayPosts(); // Load posts without requiring a logged-in user
+}
+// At the end of app.js, after initializing Firebase and other components
+function initializeProducts() {
+    console.log("Initializing products display");
+
+    // Initialize Firebase if not already initialized
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    // Initialize ProductsManager and display products
+    const productsManager = new ProductsManager(db, auth, 'productsContainer');
+    productsManager.displayProducts(); // Load products without requiring a logged-in user
+}
+
+// Call the initializeProducts function to load products when the page loads
+initializeProducts();
+
+// At the end of app.js
+initializePosts();
 });
