@@ -48,13 +48,13 @@
 
             // Initialize Firebase
             const firebaseConfig = {
-                apiKey: "AIzaSyBcBmuXY9ulETrbn2PmzjsDZ7JKRcehqGo",
-                authDomain: "kauara1.firebaseapp.com",
-                projectId: "kauara1",
-                storageBucket: "kauara1.firebasestorage.app",
-                messagingSenderId: "651139031771",
-                appId: "1:651139031771:web:8c73a3e1fff2d5cf2ae2fe",
-                measurementId: "G-KL18R1CJ6S",
+                apiKey: "YOUR_API_KEY",
+                authDomain: "YOUR_AUTH_DOMAIN",
+                projectId: "YOUR_PROJECT_ID",
+                storageBucket: "YOUR_STORAGE_BUCKET",
+                messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+                appId: "YOUR_APP_ID",
+                measurementId: "YOUR_MEASUREMENT_ID",
             };
             if (!firebase.apps.length) {
                 firebase.initializeApp(firebaseConfig);
@@ -74,7 +74,7 @@
                 console.error("Mercado Pago Error:", error, errorDescription);
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('error').style.display = 'block';
-                document.getElementById('errorMessage').textContent = 
+                document.getElementById('errorMessage').textContent =
                     `Error: ${error}. ${errorDescription || 'Authorization was denied or an error occurred.'}`;
                 document.getElementById('retryButton').addEventListener('click', function() {
                     window.location.href = '/pages/artist-registration.html';
@@ -90,6 +90,17 @@
                 document.getElementById('errorMessage').textContent = "Missing required parameters for authentication.";
                 return;
             }
+
+            // Log out from Mercado Pago to ensure a fresh login
+            function logoutMercadoPago() {
+                // Implement the logout logic for Mercado Pago
+                // This could involve clearing cookies or calling a logout API
+                console.log("Logging out from Mercado Pago...");
+                // Example: Clear MP cookies or session data
+            }
+
+            // Call logoutMercadoPago before redirecting
+            logoutMercadoPago();
 
             // Build redirect URL dynamically
             let redirectUrl = window.location.origin + '/pages/artistRegistration.html?';
@@ -108,6 +119,7 @@
                 window.location.replace(redirectUrl.toString());
             }, 1500);
         });
+
     </script>
 
 </body>

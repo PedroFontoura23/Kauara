@@ -1,5 +1,5 @@
 document.addEventListener("DOMContentLoaded", function() {
-    // Initialize Firebase
+    // Firebase Configuration
     const firebaseConfig = {
         apiKey: "AIzaSyBcBmuXY9ulETrbn2PmzjsDZ7JKRcehqGo",
         authDomain: "kauara1.firebaseapp.com",
@@ -10,7 +10,6 @@ document.addEventListener("DOMContentLoaded", function() {
         measurementId: "G-KL18R1CJ6S",
     };
     
-    // Check if Firebase is already initialized
     if (!firebase.apps.length) {
         firebase.initializeApp(firebaseConfig);
     }
@@ -19,56 +18,44 @@ document.addEventListener("DOMContentLoaded", function() {
     const db = firebase.firestore();
     
     // Constants
-    const MERCADO_PAGO_CLIENT_ID = "8000562204726523"; // Use your actual client ID
-    const PRINTFUL_CLIENT_ID = "app-5311675"; // Use your actual client ID
+    const MERCADO_PAGO_CLIENT_ID = "8000562204726523";
+    const PRINTFUL_CLIENT_ID = "app-5311675";
     const REDIRECT_URI = "https://kauara1.web.app/pages/artist-callback.html";
-    const ENCRYPTION_SECRET = "your-encryption-secret"; // This should be stored securely
 
-    // Initialize the Mercado Pago SDK
+    // Initialize Mercado Pago SDK
     let mp;
     try {
-        mp = new MercadoPago('APP_USR-66e8e79a-0f3e-46d6-9e97-b15bb1320890', {
-            locale: 'es-AR' // The locale of your preference
-        });
+        mp = new MercadoPago('APP_USR-66e8e79a-0f3e-46d6-9e97-b15bb1320890', { locale: 'es-AR' });
         console.log("MercadoPago SDK initialized successfully");
-
-
     } catch (error) {
         console.error("Error initializing MercadoPago:", error);
     }
     
     // Elements
-    const step1El = document.getElementById("step1");
-    const step2El = document.getElementById("step2");
-    const step3El = document.getElementById("step3");
-    const step4El = document.getElementById("step4");
-    const continueToStep2Btn = document.getElementById("continueToStep2");
-    const backToStep1Btn = document.getElementById("backToStep1");
-    const connectMercadoPagoBtn = document.getElementById("connectMercadoPago");
-    const connectPrintfulBtn = document.getElementById("connectPrintful");
-    const goToProfileBtn = document.getElementById("goToProfile");
+    const fullNameInput = document.getElementById("fullName");
     const cpfCnpjInput = document.getElementById("cpfCnpj");
-    
-    // Form validation for CPF/CNPJ (unchanged)
+    const addressInput = document.getElementById("address");
+    const phoneInput = document.getElementById("phone");
+    const editInfoBtn = document.getElementById("editInfoBtn");
+    const saveInfoBtn = document.getElementById("saveInfoBtn");
+    const connectMercadoPagoBtn = document.getElementById("connectMercadoPago");
+    const logoutMercadoPagoBtn = document.getElementById("logoutMercadoPago");
+    const connectPrintfulBtn = document.getElementById("connectPrintful");
+    const mpConnectionStatus = document.getElementById("mpConnectionStatus");
+    const printfulConnectionStatus = document.getElementById("printfulConnectionStatus");
+
+    // CPF/CNPJ Input Masking
     cpfCnpjInput.addEventListener('input', function(e) {
         let value = e.target.value.replace(/\D/g, '');
-        
-        // Apply mask based on length (CPF or CNPJ)
         if (value.length <= 11) {
-            value = value.replace(/(\d{3})(\d)/, "$1.$2");
-            value = value.replace(/(\d{3})(\d)/, "$1.$2");
-            value = value.replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+            value = value.replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2");
         } else {
-            value = value.replace(/^(\d{2})(\d)/, "$1.$2");
-            value = value.replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3");
-            value = value.replace(/\.(\d{3})(\d)/, ".$1/$2");
-            value = value.replace(/(\d{4})(\d)/, "$1-$2");
+            value = value.replace(/^(\d{2})(\d)/, "$1.$2").replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3").replace(/\.(\d{3})(\d)/, ".$1/$2").replace(/(\d{4})(\d)/, "$1-$2");
         }
-        
         e.target.value = value;
     });
-    
-    // Ensure user is logged in (unchanged)
+
+    // Check Authentication and Load Data
     auth.onAuthStateChanged(async (user) => {
         if (!user) {
             window.location.href = "kauara.html";
@@ -78,177 +65,168 @@ document.addEventListener("DOMContentLoaded", function() {
         const firestoreUserId = await getUserIdFromUid(user.uid);
         const userDoc = await db.collection("users").doc(firestoreUserId).get();
 
-        if (userDoc.exists && userDoc.data().artista) {
-            alert("Você já é um artista registrado na plataforma!");
-            window.location.href = "profile.html";
+        if (!userDoc.exists) {
+            alert("User data not found.");
+            return;
         }
 
-        if (userDoc.exists) {
-            const userData = userDoc.data();
-            if (userData.user_Name) {
-                document.getElementById("fullName").value = userData.user_Name;
-            }
-            if (userData.phone) {
-                document.getElementById("phone").value = userData.phone;
-            }
-            if (userData.address) {
-                document.getElementById("address").value = userData.address;
-            }
+        const userData = userDoc.data();
+        fullNameInput.value = userData.fullLegalName || userData.user_Name || '';
+        cpfCnpjInput.value = userData.cpfCnpj || '';
+        addressInput.value = userData.address || '';
+        
+        const contactId = `contact_${firestoreUserId.split("_")[1]}`;
+        const contactDoc = await db.collection("contact").doc(contactId).get();
+        if (contactDoc.exists) {
+            phoneInput.value = contactDoc.data().contactTelephone || '';
+        }
+
+        // Check Mercado Pago Connection
+        if (userData.mercadoPagoConnected) {
+            mpConnectionStatus.textContent = "Connected";
+            connectMercadoPagoBtn.style.display = "none";
+            logoutMercadoPagoBtn.style.display = "inline-block";
+        }
+
+        // Check Printful Connection (placeholder logic)
+        if (userData.printfulConnected) {
+            printfulConnectionStatus.textContent = "Connected";
+            connectPrintfulBtn.style.display = "none";
         }
     });
 
+    // Helper Function to Get User ID
+    function getUserIdFromUid(uid) {
+        return db.collection("users").where("firebaseUID", "==", uid).get()
+            .then((querySnapshot) => {
+                if (!querySnapshot.empty) {
+                    return querySnapshot.docs[0].id;
+                }
+                throw new Error(`No user found for UID: ${uid}`);
+            });
+    }
+
+    // Edit/Save Information
+    editInfoBtn.addEventListener("click", () => {
+        fullNameInput.removeAttribute("readonly");
+        cpfCnpjInput.removeAttribute("readonly");
+        addressInput.removeAttribute("readonly");
+        phoneInput.removeAttribute("readonly");
+        editInfoBtn.style.display = "none";
+        saveInfoBtn.style.display = "inline-block";
+    });
+
+    saveInfoBtn.addEventListener("click", async () => {
+        const user = auth.currentUser;
+        if (!user) return;
+
+        const cpfCnpj = cpfCnpjInput.value.replace(/\D/g, '');
+        if (!validateCpfCnpj(cpfCnpj)) {
+            alert("Invalid CPF/CNPJ.");
+            return;
+        }
+
+        const firestoreUserId = await getUserIdFromUid(user.uid);
+        await db.collection("users").doc(firestoreUserId).update({
+            fullLegalName: fullNameInput.value,
+            cpfCnpj: cpfCnpj,
+            address: addressInput.value,
+            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        const contactId = `contact_${firestoreUserId.split("_")[1]}`;
+        await db.collection("contact").doc(contactId).set({
+            contactTelephone: phoneInput.value,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        fullNameInput.setAttribute("readonly", true);
+        cpfCnpjInput.setAttribute("readonly", true);
+        addressInput.setAttribute("readonly", true);
+        phoneInput.setAttribute("readonly", true);
+        editInfoBtn.style.display = "inline-block";
+        saveInfoBtn.style.display = "none";
+        alert("Information updated successfully!");
+    });
+
+    // Mercado Pago Connection
+    connectMercadoPagoBtn.addEventListener("click", async () => {
+        const user = auth.currentUser;
+        if (!user) return;
+
+        const firestoreUserId = await getUserIdFromUid(user.uid);
+        const state = encodeURIComponent(btoa(firestoreUserId));
+        localStorage.setItem('mpAuthState', state);
+
+        const { codeVerifier, codeChallenge } = await generateCodeChallenge();
+        const authUrl = `https://auth.mercadopago.com/authorization?client_id=${MERCADO_PAGO_CLIENT_ID}&response_type=code&platform_id=mp&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+
+        window.location.href = authUrl;
+    });
+
+    // Disconnect from Mercado Pago
+    logoutMercadoPagoBtn.addEventListener("click", async () => {
+        const user = auth.currentUser;
+        if (!user) {
+            alert("Você precisa estar logado para desconectar.");
+            return;
+        }
+
+        try {
+            document.getElementById("loadingIndicator").style.display = "block";
+            const firestoreUserId = await getUserIdFromUid(user.uid);
+
+            await db.collection("users").doc(firestoreUserId).update({
+                mercadoPagoConnected: false,
+                mercadoPagoUserId: null,
+                mercadoPagoTokenRef: null,
+                mercadoPagoDisconnectedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log("Mercado Pago connection cleared in Firestore.");
+
+            mpConnectionStatus.textContent = "Not Connected";
+            connectMercadoPagoBtn.style.display = "inline-block";
+            logoutMercadoPagoBtn.style.display = "none";
+
+            localStorage.removeItem("mp_code_verifier");
+            localStorage.removeItem("mpAuthState");
+
+            document.getElementById("loadingIndicator").style.display = "none";
+
+            alert("Você será redirecionado ao site do Mercado Pago, desconecte-se lá.");
+            const mercadoPagoLogoutUrl = "https://www.mercadopago.com.br";
+            const returnUrl = encodeURIComponent(window.location.href);
+            window.location.href = `${mercadoPagoLogoutUrl}?redirect=${returnUrl}`;
+        } catch (error) {
+            console.error("Error disconnecting from Mercado Pago:", error);
+            document.getElementById("loadingIndicator").style.display = "none";
+            alert("Erro ao desconectar: " + error.message);
+        }
+    });
+
+    // Printful Connection (Placeholder)
+    connectPrintfulBtn.addEventListener("click", async () => {
+        alert("Printful connection not fully implemented in this example.");
+        // Add Printful OAuth logic here
+    });
+
+    // PKCE Code Challenge Generation
     async function generateCodeChallenge() {
         const codeVerifier = [...Array(64)].map(() => Math.random().toString(36)[2]).join("");
         const encoder = new TextEncoder();
         const data = encoder.encode(codeVerifier);
         const hashBuffer = await crypto.subtle.digest("SHA-256", data);
         const base64Hash = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)))
-            .replace(/\+/g, "-")
-            .replace(/\//g, "_")
-            .replace(/=+$/, "");
-
+            .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
         localStorage.setItem("mp_code_verifier", codeVerifier);
         return { codeVerifier, codeChallenge: base64Hash };
     }
 
-    connectMercadoPagoBtn.addEventListener("click", async function() {
-        const user = auth.currentUser;
-        if (!user) {
-            alert("Você precisa estar logado para continuar.");
-            return;
-        }
-
-        try {
-            const firestoreUserId = await getUserIdFromUid(user.uid);
-            const state = encodeURIComponent(btoa(firestoreUserId));
-            localStorage.setItem('mpAuthState', state);
-
-            const { codeVerifier, codeChallenge } = await generateCodeChallenge();
-            console.log("Code Verifier (stored):", codeVerifier);
-            console.log("Code Challenge (sent to MP):", codeChallenge);
-
-            const authUrl = `https://auth.mercadopago.com/authorization?client_id=${MERCADO_PAGO_CLIENT_ID}&response_type=code&platform_id=mp&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
-
-            await db.collection("users").doc(firestoreUserId).update({
-                mercadoPagoConnectionAttempt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-
-            window.location.href = authUrl;
-        } catch (error) {
-            console.error("Error connecting to Mercado Pago:", error);
-            alert("Erro ao conectar com o Mercado Pago. Tente novamente.");
-        }
-    });
-        
-    // Helper function to get user ID format from Firebase UID (unchanged)
-    function getUserIdFromUid(uid) {
-        return db
-            .collection("users")
-            .where("firebaseUID", "==", uid)
-            .get()
-            .then((querySnapshot) => {
-                if (!querySnapshot.empty) {
-                    return querySnapshot.docs[0].id; // Return the user_(number)
-                } else {
-                    throw new Error(`No user found for UID: ${uid}`);
-                }
-            });
-    }
-    
-    // Navigation between steps (unchanged)
-    continueToStep2Btn.addEventListener("click", async function() {
-        const form = document.getElementById("artistInfoForm");
-        if (!form.checkValidity()) {
-            form.reportValidity();
-            return;
-        }
-        
-        const user = auth.currentUser;
-        if (!user) {
-            alert("Você precisa estar logado para continuar.");
-            return;
-        }
-        
-        // Validate CPF/CNPJ format and digits (unchanged)
-        const cpfCnpj = cpfCnpjInput.value.replace(/\D/g, '');
-        if (!validateCpfCnpj(cpfCnpj)) {
-            alert("CPF/CNPJ inválido. Por favor verifique os dados.");
-            return;
-        }
-        
-        try {
-            // Save initial artist information (unchanged)
-            const firestoreUserId = await getUserIdFromUid(user.uid);
-            await db.collection("users").doc(firestoreUserId).update({
-                artistRegistrationStatus: "in_progress",
-                fullLegalName: document.getElementById("fullName").value,
-                cpfCnpj: cpfCnpj,
-                address: document.getElementById("address").value,
-                termsAccepted: true,
-                registrationStartedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-
-            await db.collection("contact").doc(`contact_${firestoreUserId}`).set({
-                contactTelephone: document.getElementById("phone").value,
-                foreignUserId: firestoreUserId,
-                firebaseUID: auth.currentUser.uid,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-
-            await db.collection("users").doc(firestoreUserId).update({
-                lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
-            });
-            // Move to Mercado Pago step
-            step1El.style.display = "none";
-            step2El.style.display = "block";
-        } catch (error) {
-            console.error("Error saving artist information:", error);
-            alert("Ocorreu um erro ao salvar suas informações. Por favor tente novamente.");
-        }
-    });
-    
-    backToStep1Btn.addEventListener("click", function() {
-        step2El.style.display = "none";
-        step1El.style.display = "block";
-    });
-
-    async function connectMercadoPago() {
-        try {
-            console.log("Generating PKCE Code Challenge...");
-            const { codeVerifier, codeChallenge } = await generateCodeChallenge();
-
-            console.log("Code Verifier (stored):", codeVerifier);
-            console.log("Code Challenge (sent to Mercado Pago):", codeChallenge);
-
-            const state = encodeURIComponent(btoa("user_1"));
-            const authUrl = `https://auth.mercadopago.com/authorization?client_id=${MERCADO_PAGO_CLIENT_ID}
-                &response_type=code
-                &platform_id=mp
-                &redirect_uri=${encodeURIComponent(REDIRECT_URI)}
-                &state=${state}
-                &code_challenge=${codeChallenge}
-                &code_challenge_method=S256`;
-
-            console.log("Auth URL:", authUrl);
-            window.location.href = authUrl;
-        } catch (error) {
-            console.error("Error generating PKCE parameters:", error);
-            alert("Failed to initiate Mercado Pago connection. Please try again.");
-        }
-    }
-
-    // Check for callback parameters from OAuth redirects (updated)
+    // Handle Mercado Pago Callback
     const urlParams = new URLSearchParams(window.location.search);
-    console.log("URL Params in artist-registration.html:", urlParams.toString());
-
     const mpCode = urlParams.get('code');
     const state = urlParams.get('state');
     const source = urlParams.get('source');
-
-    console.log("Received Mercado Pago Code:", mpCode);
-    console.log("Received State:", state);
-    console.log("Received Source:", source);
-
 
     if (mpCode && state && source === 'mp') {
         const savedState = localStorage.getItem('mpAuthState');
@@ -256,213 +234,80 @@ document.addEventListener("DOMContentLoaded", function() {
             document.getElementById("loadingIndicator").style.display = "block";
             exchangeMercadoPagoToken(mpCode, state);
         } else {
-            console.error("State parameter mismatch.");
-            alert("Erro de segurança. Por favor tente novamente.");
-            window.location.href = "artist-registration.html";
+            alert("Security error. Please try again.");
+            window.location.href = "artist-page.html";
         }
     }
 
-
-    // Function to exchange Mercado Pago token (client-side for testing)
     async function exchangeMercadoPagoToken(code, state) {
         try {
-            console.log("Starting token exchange with code:", code.substring(0, 5) + "...");
             const firestoreUserId = atob(decodeURIComponent(state));
-            console.log("User ID from state:", firestoreUserId);
-
-            // Retrieve the code_verifier from localStorage
             const codeVerifier = localStorage.getItem("mp_code_verifier");
-            if (!codeVerifier) {
-                console.error("🚨 ERROR: code_verifier is missing from localStorage!");
-                console.log("localStorage contents:", JSON.stringify(localStorage));
-                throw new Error("Missing code_verifier. Cannot exchange token.");
-            }
-            console.log("Using code_verifier:", codeVerifier);
-
-            // Make the token exchange request
-            console.log("Making request to Mercado Pago API...");
             const response = await fetch('https://api.mercadopago.com/oauth/token', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Accept': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
                 body: new URLSearchParams({
                     'client_id': MERCADO_PAGO_CLIENT_ID,
                     'client_secret': 'EQhcpoRF4HIg8wvwE3udiQgK0f8kfAsR',
                     'grant_type': 'authorization_code',
                     'code': code,
                     'redirect_uri': REDIRECT_URI,
-                    'code_verifier': codeVerifier // REQUIRED for PKCE flow
+                    'code_verifier': codeVerifier
                 })
             });
 
-            console.log("MP API Response Status:", response.status);
-            const responseText = await response.text();
-            console.log("MP API Response Text:", responseText);
-
-            // Parse the JSON response (if possible)
-            let result;
-            try {
-                result = JSON.parse(responseText);
-            } catch (e) {
-                console.error("Failed to parse response as JSON:", e);
-                throw new Error("Invalid response format from Mercado Pago");
-            }
-
-            if (!response.ok) {
-                throw new Error(`Mercado Pago API error: ${result.message || response.statusText}`);
-            }
-
+            const result = await response.json();
             if (result.access_token) {
-                console.log("Access token received successfully!");
-
-                // Try updating Firestore
-                console.log("Updating Firestore for user:", firestoreUserId);
-                try {
-                    await db.collection("users").doc(firestoreUserId).update({
-                        mercadoPagoConnected: true,
-                        mercadoPagoUserId: result.user_id,
-                        mercadoPagoTokenRef: result.access_token,
-                        mercadoPagoConnectedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        artistRegistrationStatus: "mp_connected" // Add this to track progress
-                    });
-                    console.log("Firestore update successful!");
-                } catch (firestoreError) {
-                    console.error("Firestore update failed:", firestoreError);
-                    // Check if document exists
-                    const docRef = db.collection("users").doc(firestoreUserId);
-                    const docSnapshot = await docRef.get();
-                    console.log("Document exists:", docSnapshot.exists);
-                    if (docSnapshot.exists) {
-                        console.log("Current document data:", docSnapshot.data());
-                    }
-                    throw firestoreError;
-                }
-
-                // Move to next step after successful connection
+                await db.collection("users").doc(firestoreUserId).update({
+                    mercadoPagoConnected: true,
+                    mercadoPagoUserId: result.user_id,
+                    mercadoPagoTokenRef: result.access_token,
+                    mercadoPagoConnectedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                mpConnectionStatus.textContent = "Connected";
+                connectMercadoPagoBtn.style.display = "none";
+                logoutMercadoPagoBtn.style.display = "inline-block";
                 alert("Mercado Pago connected successfully!");
-                document.getElementById("loadingIndicator").style.display = "none"; 
-                step2El.style.display = "none";
-                step3El.style.display = "block";
-            } else {
-                throw new Error('OAuth response missing access token');
             }
+            document.getElementById("loadingIndicator").style.display = "none";
         } catch (error) {
             console.error("Error exchanging Mercado Pago token:", error);
-            alert("Erro ao conectar com o Mercado Pago: " + error.message);
-            
+            alert("Error connecting Mercado Pago: " + error.message);
             document.getElementById("loadingIndicator").style.display = "none";
-            step1El.style.display = "none";
-            step2El.style.display = "block";
-            step3El.style.display = "none";
         }
     }
 
-
-    // Validation functions (unchanged)
+    // Validation Functions
     function validateCpfCnpj(value) {
-        const valueClean = value.replace(/[^\d]+/g, '');
-        
-        if (valueClean.length === 11) {
-            return validateCpf(valueClean);
-        }
-        
-        if (valueClean.length === 14) {
-            return validateCnpj(valueClean);
-        }
-        
-        return false;
+        const valueClean = value.replace(/\D/g, '');
+        return valueClean.length === 11 ? validateCpf(valueClean) : valueClean.length === 14 ? validateCnpj(valueClean) : false;
     }
-    
-    // Basic CPF validation
+
     function validateCpf(cpf) {
-        // Check for known invalid patterns
-        if (
-            cpf === "00000000000" ||
-            cpf === "11111111111" ||
-            cpf === "22222222222" ||
-            cpf === "33333333333" ||
-            cpf === "44444444444" ||
-            cpf === "55555555555" ||
-            cpf === "66666666666" ||
-            cpf === "77777777777" ||
-            cpf === "88888888888" ||
-            cpf === "99999999999"
-        ) {
-            return false;
-        }
-        
-        // Validation using check digits
-        let sum = 0;
-        let remainder;
-        
-        for (let i = 1; i <= 9; i++) {
-            sum += parseInt(cpf.substring(i - 1, i)) * (11 - i);
-        }
-        
-        remainder = (sum * 10) % 11;
-        if (remainder === 10 || remainder === 11) remainder = 0;
-        if (remainder !== parseInt(cpf.substring(9, 10))) return false;
-        
+        if (/^(\d)\1{10}$/.test(cpf)) return false;
+        let sum = 0, remainder;
+        for (let i = 1; i <= 9; i++) sum += parseInt(cpf[i-1]) * (11 - i);
+        remainder = (sum * 10) % 11; if (remainder > 9) remainder = 0;
+        if (remainder !== parseInt(cpf[9])) return false;
         sum = 0;
-        for (let i = 1; i <= 10; i++) {
-            sum += parseInt(cpf.substring(i - 1, i)) * (12 - i);
-        }
-        
-        remainder = (sum * 10) % 11;
-        if (remainder === 10 || remainder === 11) remainder = 0;
-        if (remainder !== parseInt(cpf.substring(10, 11))) return false;
-        
-        return true;
+        for (let i = 1; i <= 10; i++) sum += parseInt(cpf[i-1]) * (12 - i);
+        remainder = (sum * 10) % 11; if (remainder > 9) remainder = 0;
+        return remainder === parseInt(cpf[10]);
     }
-    
-    // Basic CNPJ validation
+
     function validateCnpj(cnpj) {
-        // Check for known invalid patterns
-        if (
-            cnpj === "00000000000000" ||
-            cnpj === "11111111111111" ||
-            cnpj === "22222222222222" ||
-            cnpj === "33333333333333" ||
-            cnpj === "44444444444444" ||
-            cnpj === "55555555555555" ||
-            cnpj === "66666666666666" ||
-            cnpj === "77777777777777" ||
-            cnpj === "88888888888888" ||
-            cnpj === "99999999999999"
-        ) {
-            return false;
+        if (/^(\d)\1{13}$/.test(cnpj)) return false;
+        let size = 12, numbers = cnpj.substring(0, size), digits = cnpj.substring(size), sum = 0, pos = 5;
+        for (let i = 0; i < size; i++) {
+            sum += numbers[i] * (pos + (i < 4 ? 1 : 0)); pos = pos === 2 ? 9 : pos - 1;
         }
-        
-        // Validation using check digits
-        let size = cnpj.length - 2;
-        let numbers = cnpj.substring(0, size);
-        let digits = cnpj.substring(size);
-        let sum = 0;
-        let pos = size - 7;
-        
-        for (let i = size; i >= 1; i--) {
-            sum += numbers.charAt(size - i) * pos--;
-            if (pos < 2) pos = 9;
-        }
-        
         let result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
-        if (result !== parseInt(digits.charAt(0))) return false;
-        
-        size += 1;
-        numbers = cnpj.substring(0, size);
-        sum = 0;
-        pos = size - 7;
-        
-        for (let i = size; i >= 1; i--) {
-            sum += numbers.charAt(size - i) * pos--;
-            if (pos < 2) pos = 9;
+        if (result !== parseInt(digits[0])) return false;
+        size++; numbers = cnpj.substring(0, size); sum = 0; pos = 6;
+        for (let i = 0; i < size; i++) {
+            sum += numbers[i] * (pos + (i < 5 ? 1 : 0)); pos = pos === 2 ? 9 : pos - 1;
         }
-        
         result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
-        if (result !== parseInt(digits.charAt(1))) return false;
-        
-        return true;
+        return result === parseInt(digits[1]);
     }
 });

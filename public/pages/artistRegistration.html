@@ -3,20 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kauara - Artist Connection</title>
+    <title>Kauara - Artist Page</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase.js"></script>
-    <!-- Add the MercadoPago SDK -->
     <script src="https://sdk.mercadopago.com/js/v2"></script>
 </head>
 <body>
     <header class="text-center py-4 bg-light">
         <div class="container d-flex justify-content-between align-items-center">
-            <div>
-                <button onclick="history.back()" class="btn btn-secondary">← Voltar</button>
-            </div>
-            <h1 class="h3 mb-0">Seja um Artista</h1>
-            <div class="invisible"><!-- Empty div for flex spacing --></div>
+            <button onclick="window.location.href='profile.html'" class="btn btn-secondary">← Back to Profile</button>
+            <h1 class="h3 mb-0">Artist Page</h1>
+            <div class="invisible"></div>
         </div>
     </header>
 
@@ -25,91 +22,65 @@
             <div class="col-lg-8">
                 <div class="card shadow">
                     <div class="card-body p-4">
-                        <h2 class="card-title text-center mb-4">Torne-se um Artista na Plataforma</h2>
-                        
+                        <h2 class="card-title text-center mb-4">Your Artist Profile</h2>
+
+                        <!-- Artist Benefits -->
                         <div class="alert alert-info">
-                            <h5>Benefícios para Artistas:</h5>
+                            <h5>Artist Benefits:</h5>
                             <ul>
-                                <li>Venda seus designs em produtos usando a Printful</li>
-                                <li>Receba pagamentos diretamente via Mercado Pago</li>
-                                <li>Ganhe 90% do valor de cada venda (10% para a plataforma)</li>
-                                <li>Acesso a estatísticas e relatórios de vendas</li>
+                                <li>Sell your designs on products using Printful</li>
+                                <li>Receive payments directly via Mercado Pago</li>
+                                <li>Earn 90% of each sale (10% platform fee)</li>
+                                <li>Access sales statistics and reports</li>
                             </ul>
                         </div>
 
-                        <div id="registrationSteps">
-                            <!-- Step 1: Initial Form -->
-                            <div id="step1" class="registration-step">
-                                <h3 class="h5 mb-3">Informações para cadastro:</h3>
-                                <form id="artistInfoForm">
-                                    <div class="mb-3">
-                                        <label for="fullName" class="form-label">Nome Completo</label>
-                                        <input type="text" class="form-control" id="fullName" required>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label for="cpfCnpj" class="form-label">CPF/CNPJ</label>
-                                        <input type="text" class="form-control" id="cpfCnpj" required>
-                                        <div class="form-text">Necessário para fins fiscais e pagamentos.</div>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label for="address" class="form-label">Endereço Completo</label>
-                                        <textarea class="form-control" id="address" rows="3" required></textarea>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label for="phone" class="form-label">Telefone</label>
-                                        <input type="tel" class="form-control" id="phone" required>
-                                    </div>
-                                    <div class="form-check mb-3">
-                                        <input class="form-check-input" type="checkbox" id="termsAccepted" required>
-                                        <label class="form-check-label" for="termsAccepted">
-                                            Concordo com os <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal">Termos e Condições</a>
-                                        </label>
-                                    </div>
-                                    <button type="button" id="continueToStep2" class="btn btn-primary w-100">Continuar</button>
-                                </form>
-                            </div>
+                        <!-- Artist Information -->
+                        <div id="artistInfo" class="mb-4">
+                            <h3 class="h5 mb-3">Your Information</h3>
+                            <form id="artistInfoForm">
+                                <div class="mb-3">
+                                    <label for="fullName" class="form-label">Full Name</label>
+                                    <input type="text" class="form-control" id="fullName" readonly>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="cpfCnpj" class="form-label">CPF/CNPJ</label>
+                                    <input type="text" class="form-control" id="cpfCnpj" readonly>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="address" class="form-label">Full Address</label>
+                                    <textarea class="form-control" id="address" rows="3" readonly></textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="phone" class="form-label">Phone</label>
+                                    <input type="tel" class="form-control" id="phone" readonly>
+                                </div>
+                                <button type="button" id="editInfoBtn" class="btn btn-outline-primary">Edit Information</button>
+                                <button type="button" id="saveInfoBtn" class="btn btn-primary" style="display:none">Save Changes</button>
+                            </form>
+                        </div>
 
-                            <!-- Step 2: Mercado Pago Integration -->
-                            <div id="step2" class="registration-step" style="display:none">
-                                <h3 class="h5 mb-3">Integração com Mercado Pago</h3>
-                                <p>Para receber pagamentos, precisamos conectar sua conta ao Mercado Pago.</p>
-                                <div class="d-grid gap-2">
-                                    <button id="connectMercadoPago" class="btn btn-success">
-                                        <img src="../images/mercado-pago-logo.png" alt="Mercado Pago" height="24" class="me-2">
-                                        Conectar ao Mercado Pago
-                                    </button>
-                                    <button type="button" id="backToStep1" class="btn btn-outline-secondary mt-2">Voltar</button>
-                                </div>
-                            </div>
+                        <!-- Mercado Pago Integration -->
+                        <div id="mercadoPagoSection" class="mb-4">
+                            <h3 class="h5 mb-3">Mercado Pago Connection</h3>
+                            <p id="mpStatus" class="mb-2">Status: <span id="mpConnectionStatus">Not Connected</span></p>
+                            <button id="connectMercadoPago" class="btn btn-success">
+                                <img src="../images/mercado-pago-logo.png" alt="Mercado Pago" height="24" class="me-2">
+                                Connect to Mercado Pago
+                            </button>
+                            <button id="logoutMercadoPago" class="btn btn-warning mt-2" style="display:none">
+                                Disconnect Mercado Pago
+                            </button>
+                        </div>
 
-                            <!-- Step 3: Printful Integration -->
-                            <div id="step3" class="registration-step" style="display:none">
-                                <h3 class="h5 mb-3">Integração com Printful</h3>
-                                <p>Agora vamos conectar você à Printful para criar e gerenciar seus produtos.</p>
-                                <div class="d-grid gap-2">
-                                    <button id="connectPrintful" class="btn btn-primary">
-                                        <img src="../images/printful-logo.png" alt="Printful" height="24" class="me-2">
-                                        Conectar à Printful
-                                    </button>
-                                </div>
-                                <div class="alert alert-warning mt-3">
-                                    <small>Nota: Não feche seu navegador durante o processo de autorização.</small>
-                                </div>
-                            </div>
-
-                            <!-- Step 4: Registration Complete -->
-                            <div id="step4" class="registration-step" style="display:none">
-                                <div class="text-center py-4">
-                                    <div class="mb-4">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="currentColor" class="bi bi-check-circle-fill text-success" viewBox="0 0 16 16">
-                                            <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/>
-                                        </svg>
-                                    </div>
-                                    <h3 class="h4 mb-3">Parabéns! Você agora é um Artista!</h3>
-                                    <p>Sua conta foi atualizada com sucesso. Agora você pode criar e vender produtos com seus designs.</p>
-                                    <button id="goToProfile" class="btn btn-primary mt-3">Voltar ao Perfil</button>
-                                </div>
-                            </div>
+                        <!-- Printful Integration -->
+                        <div id="printfulSection">
+                            <h3 class="h5 mb-3">Printful Connection</h3>
+                            <p id="printfulStatus" class="mb-2">Status: <span id="printfulConnectionStatus">Not Connected</span></p>
+                            <button id="connectPrintful" class="btn btn-primary">
+                                <img src="../images/printful-logo.png" alt="Printful" height="24" class="me-2">
+                                Connect to Printful
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -117,39 +88,11 @@
         </div>
     </main>
 
-    <!-- Terms and Conditions Modal -->
-    <div class="modal fade" id="termsModal" tabindex="-1" aria-labelledby="termsModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="termsModalLabel">Termos e Condições para Artistas</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <!-- Terms content -->
-                    <h6>1. Comissões e Pagamentos</h6>
-                    <p>A plataforma retém 10% de comissão sobre cada venda. Os pagamentos são processados via Mercado Pago...</p>
-                    
-                    <h6>2. Conteúdo e Propriedade Intelectual</h6>
-                    <p>Você mantém os direitos autorais de seus designs, mas concede licença à plataforma para...</p>
-                    
-                    <h6>3. Responsabilidades</h6>
-                    <p>Como artista, você é responsável por...</p>
-                    
-                    <!-- Additional terms here -->
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- loading indicator -->
+    <!-- Loading Indicator -->
     <div id="loadingIndicator" style="display: none;">
         <div style="text-align: center; padding: 20px;">
             <div style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 2s linear infinite; margin: 0 auto;"></div>
-            <p>Connecting to Mercado Pago...</p>
+            <p>Processing...</p>
         </div>
         <style>
             @keyframes spin {
@@ -158,7 +101,7 @@
             }
         </style>
     </div>
-    <script src="https://sdk.mercadopago.com/js/v2"></script>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script src="../javascript/artist-registration.js"></script>
 </body>
