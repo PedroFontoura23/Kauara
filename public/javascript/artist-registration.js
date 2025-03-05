@@ -155,15 +155,14 @@ document.addEventListener("DOMContentLoaded", function() {
         if (!user) return;
 
         const firestoreUserId = await getUserIdFromUid(user.uid);
-        const state = encodeURIComponent(btoa(firestoreUserId));
-        localStorage.setItem('mpAuthState', state);
+        const state = firestoreUserId; // Use raw firestoreUserId as state (no btoa)
+        localStorage.setItem('mpAuthState', state); // Store raw state
 
         const { codeVerifier, codeChallenge } = await generateCodeChallenge();
-        const authUrl = `https://auth.mercadopago.com/authorization?client_id=${MERCADO_PAGO_CLIENT_ID}&response_type=code&platform_id=mp&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+        const authUrl = `https://auth.mercadopago.com/authorization?client_id=${MERCADO_PAGO_CLIENT_ID}&response_type=code&platform_id=mp&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${encodeURIComponent(state)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
 
         window.location.href = authUrl;
     });
-
     // Disconnect from Mercado Pago
     logoutMercadoPagoBtn.addEventListener("click", async () => {
         const user = auth.currentUser;
@@ -230,18 +229,21 @@ document.addEventListener("DOMContentLoaded", function() {
 
     if (mpCode && state && source === 'mp') {
         const savedState = localStorage.getItem('mpAuthState');
-        if (savedState === state) {
+        const decodedState = decodeURIComponent(state); // Decode the returned state
+        
+        if (savedState === decodedState) { // Compare decoded state with stored state
             document.getElementById("loadingIndicator").style.display = "block";
-            exchangeMercadoPagoToken(mpCode, state);
+            exchangeMercadoPagoToken(mpCode, decodedState); // Pass decoded state
         } else {
-            alert("Security error. Please try again.");
+            console.error("State mismatch:", { savedState, returnedState: decodedState });
+            alert("Security error. State mismatch detected. Please try again.");
             window.location.href = "artist-page.html";
         }
     }
 
     async function exchangeMercadoPagoToken(code, state) {
         try {
-            const firestoreUserId = atob(decodeURIComponent(state));
+            const firestoreUserId = state; // State is already the firestoreUserId
             const codeVerifier = localStorage.getItem("mp_code_verifier");
             const response = await fetch('https://api.mercadopago.com/oauth/token', {
                 method: 'POST',

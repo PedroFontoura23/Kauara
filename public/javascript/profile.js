@@ -515,25 +515,10 @@ document.addEventListener("DOMContentLoaded", function () {
   // Log Out Functionality
   document.getElementById('logoutButton').addEventListener('click', async () => {
       try {
-          // Sign out from Firebase
+          // Sign out from Firebaslog out
           await auth.signOut();
           console.log("User signed out from Firebase");
-
-          // Prompt user to log out of Mercado Pago as a security measure
-          const confirmLogout = confirm(
-              "Para sua segurança, recomendamos que você também saia do Mercado Pago. Deseja fazer isso agora?"
-          );
-
-          if (confirmLogout) {
-              // Redirect to Mercado Pago logout page
-              const mercadoPagoLogoutUrl = "https://www.mercadopago.com.br/home"; // Adjust for your region if needed
-              window.location.href = mercadoPagoLogoutUrl;
-
-              // Note: After logging out of Mercado Pago, the user will need to manually navigate back to your site.
-          } else {
-              // If user declines, redirect to the homepage
-              window.location.href = "kauara.html";
-          }
+          window.location.href = "kauara.html";
       } catch (error) {
           console.error("Error during logout:", error);
           alert("Erro ao fazer logout. Tente novamente.");
