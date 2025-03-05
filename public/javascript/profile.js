@@ -227,18 +227,22 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
   // Helper function to get user ID format (e.g., "user_1", "user_2")
-  function getUserIdFromUid(uid) {
-    return db
-      .collection("users")
-      .where("firebaseUID", "==", uid)
-      .get()
-      .then((querySnapshot) => {
-        if (!querySnapshot.empty) {
-          return querySnapshot.docs[0].id; // Return the user_(number)
-        } else {
-          throw new Error(`No user found for UID: ${uid}`);
-        }
+  async function getUserIdFromUid(uid) {
+    console.log("Fetching Firestore user ID for UID:", uid);
+    const querySnapshot = await db.collection("users").where("firebaseUID", "==", uid).get();
+    console.log(`Query result: ${querySnapshot.size} documents found`);
+    
+    if (!querySnapshot.empty) {
+      const doc = querySnapshot.docs[0];
+      console.log("User document found:", {
+        id: doc.id,
+        data: doc.data()
       });
+      return doc.id;
+    } else {
+      console.error("No user document found for UID:", uid);
+      throw new Error(`No user found for UID: ${uid}`);
+    }
   }
 
   // Check if user is logged in
@@ -543,140 +547,187 @@ document.addEventListener("DOMContentLoaded", function () {
   // Function to delete the user account and all their posts, comments
   async function deleteUserAccountAndPosts(user) {
     try {
-      // Get the user's Firestore ID
+      console.log("=== Starting Account Deletion Process ===");
+      console.log("Current User:", {
+        uid: user.uid,
+        email: user.email,
+        providerData: user.providerData,
+        lastSignInTime: user.metadata.lastSignInTime
+      });
+
+      // Step 0: Reauthenticate the user
+      console.log("Step 0: Initiating reauthentication...");
+      await reauthenticateUser(user);
+      console.log("Reauthentication successful!");
+
+      // Step 1: Get Firestore user ID
+      console.log("Step 1: Fetching Firestore user ID for UID:", user.uid);
       const firestoreUserId = await getUserIdFromUid(user.uid);
-      console.log("Starting deletion for user:", firestoreUserId);
-      
-      // Helper function to safely delete collection documents
+      console.log("Firestore User ID retrieved:", firestoreUserId);
+      console.log("User object after reauthentication:", {
+        uid: user.uid,
+        email: user.email
+      });
+
+      // Helper function to safely delete collection documents with detailed logging
       async function safeDeleteCollection(collectionName, fieldName, fieldValue) {
-        try {
-          console.log(`Attempting to delete from ${collectionName} where ${fieldName} = ${fieldValue}`);
-          const snapshot = await db.collection(collectionName).where(fieldName, "==", fieldValue).get();
-          
-          if (snapshot.empty) {
-            console.log(`No documents found in ${collectionName}`);
-            return;
-          }
-          
-          // Use batched writes (max 500 per batch)
-          const batchSize = 100;
-          const batches = [];
-          let currentBatch = db.batch();
-          let operationCount = 0;
-          
-          snapshot.docs.forEach(doc => {
-            currentBatch.delete(doc.ref);
-            operationCount++;
-            
-            if (operationCount >= batchSize) {
-              batches.push(currentBatch.commit());
-              currentBatch = db.batch();
-              operationCount = 0;
-            }
-          });
-          
-          if (operationCount > 0) {
-            batches.push(currentBatch.commit());
-          }
-          
-          await Promise.all(batches);
-          console.log(`Successfully deleted ${snapshot.size} documents from ${collectionName}`);
-        } catch (error) {
-          console.error(`Error deleting from ${collectionName}:`, error);
-          throw new Error(`Permission error in ${collectionName}: ${error.message}`);
+        console.log(`Attempting to delete from collection '${collectionName}' where ${fieldName} = ${fieldValue}`);
+        const snapshot = await db.collection(collectionName).where(fieldName, "==", fieldValue).get();
+        console.log(`Query result for '${collectionName}': ${snapshot.size} documents found`);
+        
+        if (snapshot.empty) {
+          console.log(`No documents to delete in '${collectionName}'`);
+          return 0;
         }
+
+        console.log(`Documents to delete from '${collectionName}':`, snapshot.docs.map(doc => ({
+          id: doc.id,
+          data: doc.data()
+        })));
+
+        const batch = db.batch();
+        snapshot.docs.forEach(doc => {
+          console.log(`Adding delete operation for document ${doc.id} in '${collectionName}'`);
+          batch.delete(doc.ref);
+        });
+
+        console.log(`Committing batch delete for ${snapshot.size} documents in '${collectionName}'`);
+        await batch.commit();
+        console.log(`Successfully deleted ${snapshot.size} documents from '${collectionName}'`);
+        return snapshot.size;
       }
-      
-      // Step 1: Delete user's comments and likes first
-      console.log("Step 1: Deleting user's comments and likes");
-      await safeDeleteCollection("comment_likes", "foreignUserId", firestoreUserId);
-      await safeDeleteCollection("comments", "foreignUserId", firestoreUserId);
-      await safeDeleteCollection("likes", "foreignUserId", firestoreUserId);
-      
-      // Step 2: Delete products and ratings
-      console.log("Step 2: Deleting products and ratings");
-      await safeDeleteCollection("product_ratings", "RaterForeignUserId", firestoreUserId);
-      await safeDeleteCollection("ratings", "raterUid", user.uid);
-      await safeDeleteCollection("products", "userId", firestoreUserId);
-      
-      // Step 3: Handle posts and their dependent objects
-      console.log("Step 3: Fetching user's posts");
+
+      // Step 2: Delete user's comments and likes
+      console.log("Step 2: Deleting user's comments and likes...");
+      const commentLikesDeleted = await safeDeleteCollection("comment_likes", "foreignUserId", firestoreUserId);
+      const commentsDeleted = await safeDeleteCollection("comments", "foreignUserId", firestoreUserId);
+      const likesDeleted = await safeDeleteCollection("likes", "foreignUserId", firestoreUserId);
+      console.log("Summary of Step 2:", {
+        commentLikesDeleted,
+        commentsDeleted,
+        likesDeleted
+      });
+
+      // Step 3: Delete products and ratings
+      console.log("Step 3: Deleting products and ratings...");
+      const productRatingsDeleted = await safeDeleteCollection("product_ratings", "RaterForeignUserId", firestoreUserId);
+      const ratingsDeleted = await safeDeleteCollection("ratings", "raterUid", user.uid);
+      const productsDeleted = await safeDeleteCollection("products", "userId", firestoreUserId);
+      console.log("Summary of Step 3:", {
+        productRatingsDeleted,
+        ratingsDeleted,
+        productsDeleted
+      });
+
+      // Step 4: Handle posts and their dependent objects
+      console.log("Step 4: Fetching and deleting user's posts...");
       const postsSnapshot = await db.collection("posts").where("foreignUserId", "==", firestoreUserId).get();
+      console.log(`Found ${postsSnapshot.size} posts to delete`);
       
       if (!postsSnapshot.empty) {
-        console.log(`Found ${postsSnapshot.size} posts to delete`);
         for (const postDoc of postsSnapshot.docs) {
           const postId = postDoc.id;
-          
-          // Delete comments on this post
-          try {
-            console.log(`Deleting comments for post ${postId}`);
-            await safeDeleteCollection("comments", "foreignPostId", postId);
-          } catch (error) {
-            console.error(`Error deleting comments for post ${postId}:`, error);
-          }
-          
-          // Delete likes on this post
-          try {
-            console.log(`Deleting likes for post ${postId}`);
-            await safeDeleteCollection("likes", "postId", postId);
-          } catch (error) {
-            console.error(`Error deleting likes for post ${postId}:`, error);
-          }
-          
-          // Delete the post itself
-          try {
-            console.log(`Deleting post ${postId}`);
-            await postDoc.ref.delete();
-          } catch (error) {
-            console.error(`Error deleting post ${postId}:`, error);
-          }
+          console.log(`Processing post ${postId}:`, postDoc.data());
+
+          console.log(`Deleting comments for post ${postId}`);
+          const postCommentsDeleted = await safeDeleteCollection("comments", "foreignPostId", postId);
+          console.log(`Deleted ${postCommentsDeleted} comments for post ${postId}`);
+
+          console.log(`Deleting likes for post ${postId}`);
+          const postLikesDeleted = await safeDeleteCollection("likes", "postId", postId);
+          console.log(`Deleted ${postLikesDeleted} likes for post ${postId}`);
+
+          console.log(`Deleting post ${postId} itself`);
+          await postDoc.ref.delete();
+          console.log(`Post ${postId} deleted successfully`);
         }
+      } else {
+        console.log("No posts found to delete");
       }
-      
-      // Step 4: Delete contacts
-      console.log("Step 4: Deleting contact");
-      try {
-        const contactId = firestoreUserId.replace('user', 'contact');
-        const contactDoc = await db.collection("Contact").doc(contactId).get();
-        if (contactDoc.exists) {
-          await contactDoc.ref.delete();
-          console.log("Successfully deleted contact document");
-        } else {
-          console.log("Contact document not found");
-        }
-      } catch (error) {
-        console.error("Error deleting contact document:", error);
+
+      // Step 5: Delete contact
+      console.log("Step 5: Deleting contact document...");
+      const contactId = `contact_${firestoreUserId.split('_')[1]}`;
+      console.log("Generated contact ID:", contactId);
+      const contactDoc = await db.collection("contact").doc(contactId).get();
+      if (contactDoc.exists) {
+        console.log("Contact document found:", contactDoc.data());
+        await db.collection("contact").doc(contactId).delete();
+        console.log(`Contact document ${contactId} deleted successfully`);
+      } else {
+        console.log(`Contact document ${contactId} not found`);
       }
-      
-      // Step 5: Finally delete the user document
-      console.log("Step 5: Deleting user document");
-      try {
-        const userDoc = await db.collection("users").doc(firestoreUserId).get();
-        if (userDoc.exists) {
-          await userDoc.ref.delete();
-          console.log("Successfully deleted user document");
-        } else {
-          console.log("User document not found");
-        }
-      } catch (error) {
-        console.error("Error deleting user document:", error);
-        throw error; // This is critical, so re-throw
+
+      // Step 6: Delete user document
+      console.log("Step 6: Deleting user document...");
+      const userDoc = await db.collection("users").doc(firestoreUserId).get();
+      if (userDoc.exists) {
+        console.log("User document found:", userDoc.data());
+        await db.collection("users").doc(firestoreUserId).delete();
+        console.log(`User document ${firestoreUserId} deleted successfully`);
+      } else {
+        console.log(`User document ${firestoreUserId} not found`);
       }
-      
-      // Step 6: Delete the user's authentication
-      console.log("Step 6: Deleting authentication");
+
+      // Step 7: Delete authentication
+      console.log("Step 7: Deleting Firebase Authentication record...");
+      console.log("User object before deletion:", {
+        uid: user.uid,
+        email: user.email
+      });
       await user.delete();
-      console.log("Authentication deleted successfully");
-      
-      // Step 7: Log out and redirect
+      console.log("Firebase Authentication record deleted successfully");
+
+      // Step 8: Log out and redirect
+      console.log("Step 8: Signing out and redirecting...");
       await auth.signOut();
+      console.log("User signed out successfully");
       alert("Your account and all associated data have been deleted.");
-      window.location.href = "kauara.html"; // Redirect to login page
-      
+      console.log("Redirecting to kauara.html");
+      window.location.href = "kauara.html";
+
+      console.log("=== Account Deletion Process Completed Successfully ===");
     } catch (error) {
-      console.error("Error during account deletion:", error);
+      console.error("=== Error During Account Deletion ===");
+      console.error("Error details:", {
+        message: error.message,
+        code: error.code,
+        stack: error.stack
+      });
+      console.error("User state at error:", {
+        uid: user?.uid,
+        email: user?.email
+      });
       alert("Failed to delete account and associated data: " + error.message);
+      throw error; // Re-throw to allow further debugging if needed
+    }
+  }
+
+  // Reauthentication helper with logging
+  async function reauthenticateUser(user) {
+    console.log("Reauthentication started for user:", {
+      uid: user.uid,
+      email: user.email
+    });
+    const providerId = user.providerData[0]?.providerId;
+    console.log("Detected provider ID:", providerId);
+
+    if (providerId === "password") {
+      const email = user.email;
+      console.log("Prompting user to re-enter password for email:", email);
+      const password = prompt("Please re-enter your password to confirm account deletion:");
+      if (!password) {
+        console.log("User canceled reauthentication by not providing a password");
+        throw new Error("Reauthentication canceled by user.");
+      }
+      console.log("Password provided; creating credential...");
+      const credential = firebase.auth.EmailAuthProvider.credential(email, password);
+      console.log("Reauthenticating with credential...");
+      await user.reauthenticateWithCredential(credential);
+      console.log("Reauthentication completed successfully");
+    } else {
+      console.log("Unsupported provider detected:", providerId);
+      throw new Error("Reauthentication for this provider is not implemented.");
     }
   }
 
