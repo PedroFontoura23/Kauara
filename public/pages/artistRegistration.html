@@ -68,9 +68,6 @@
                                 <img src="../images/mercado-pago-logo.png" alt="Mercado Pago" height="24" class="me-2">
                                 Connect to Mercado Pago
                             </button>
-                            <button id="logoutMercadoPago" class="btn btn-warning mt-2" style="display:none">
-                                Disconnect Mercado Pago
-                            </button>
                         </div>
 
                         <!-- Printful Integration -->
@@ -87,6 +84,24 @@
             </div>
         </div>
     </main>
+    <!-- Mercado Pago Disconnect Modal -->
+    <div class="modal fade" id="mpDisconnectModal" tabindex="-1" aria-labelledby="mpDisconnectModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="mpDisconnectModalLabel">Aviso sobre Mercado Pago</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    Para continuar, você precisa deslogar de qualquer sessão atual do Mercado Pago no navegador. Você pode desconectar agora ou continuar sem desconectar (usará a conta já logada, se houver).
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="mpContinueBtn">Continuar sem desconectar</button>
+                    <button type="button" class="btn btn-primary" id="mpDisconnectBtn">Desconectar</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Loading Indicator -->
     <div id="loadingIndicator" style="display: none;">
