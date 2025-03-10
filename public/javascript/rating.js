@@ -108,57 +108,63 @@ class RatingSystem {
                 batch.set(newRatingRef, {
                     foreignUserId: this.userId,
                     raterForeignUserId: this.currentUser.foreignUserId,
+                    raterUid: this.currentUser.uid, // Add raterUid to match security rules
+                    firebaseUID: this.currentUser.uid, // Add firebaseUID as a fallback
                     ratingValue: value,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
             }
 
-            // Update user document with new rating statistics
-            const userRef = this.db.collection('users').doc(this.userId);
-            const userDoc = await userRef.get();
-            const userData = userDoc.data();
+            // Here's the fix: Use a separate transaction for the user document update
+            // instead of including it in the batch
+            await batch.commit(); // Commit the rating update/creation first
             
-            const currentTotal = userData.totalRatings || 0;
-            const currentSum = (userData.averageRating || 0) * currentTotal;
-            
-            let newTotal, newSum;
-            if (oldRatingValue === 0) {
-                // New rating
-                newTotal = currentTotal + 1;
-                newSum = currentSum + value;
-            } else {
-                // Updated rating
-                newTotal = currentTotal;
-                newSum = currentSum - oldRatingValue + value;
-            }
+            // Now update the user document using a transaction
+            await this.db.runTransaction(async (transaction) => {
+                const userRef = this.db.collection('users').doc(this.userId);
+                const userDoc = await transaction.get(userRef);
+                const userData = userDoc.data();
+                
+                const currentTotal = userData.totalRatings || 0;
+                const currentSum = (userData.averageRating || 0) * currentTotal;
+                
+                let newTotal, newSum;
+                if (oldRatingValue === 0) {
+                    // New rating
+                    newTotal = currentTotal + 1;
+                    newSum = currentSum + value;
+                } else {
+                    // Updated rating
+                    newTotal = currentTotal;
+                    newSum = currentSum - oldRatingValue + value;
+                }
 
-            const newAverage = newSum / newTotal;
+                const newAverage = newSum / newTotal;
 
-            batch.update(userRef, {
-                averageRating: newAverage,
-                totalRatings: newTotal
+                transaction.update(userRef, {
+                    averageRating: newAverage,
+                    totalRatings: newTotal
+                });
             });
 
-            await batch.commit();
             await this.loadRatings();
             this.render();
 
-            // 🔄 Force update of the product's rating section
-            const ratingContainer = document.getElementById(`rating-${this.productId}`);
-            if (ratingContainer) {
-                console.log(`Forcing UI update for product ${this.productId}`);
+            // Fix the product reference if it exists
+            if (this.productId) {
+                const ratingContainer = document.getElementById(`rating-${this.productId}`);
+                if (ratingContainer) {
+                    console.log(`Forcing UI update for product ${this.productId}`);
 
-                // Reinitialize the rating system for this product
-                window.productRatingSystems[this.productId] = new ProductRatingSystem(
-                    this.productId, ratingContainer, this.db, this.currentUserId
-                );
+                    // Reinitialize the rating system for this product
+                    window.productRatingSystems[this.productId] = new ProductRatingSystem(
+                        this.productId, ratingContainer, this.db, this.currentUser.foreignUserId
+                    );
+                }
             }
-
-
-
         } catch (error) {
             console.error("Error submitting rating:", error);
-            alert('Failed to submit rating');
+            alert('Failed to submit rating: ' + error.message);
         }
     }
 
