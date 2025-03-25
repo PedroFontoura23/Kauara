@@ -89,6 +89,18 @@
                 <ul id="searchResults" class="list-group"></ul>
             </form>
 
+            <div class="position-relative">
+                <button class="btn btn-warning position-relative" id="notificationButton">
+                    <i class="fas fa-bell"></i>
+                </button>
+                
+                <div id="notificationDropdown" class="dropdown-menu position-absolute end-0" 
+                    style="display: none; width: 300px; background-color: white; border: 1px solid #ccc; box-shadow: 2px 2px 10px rgba(0,0,0,0.2);">
+                    <div class="dropdown-header">Notifications</div>
+                    <div id="notificationList" class="list-group"></div>
+                </div>
+            </div>
+
             <!-- Profile Button -->
             <div>
                 <button class="btn btn-primary" id="profileButton">Login</button>
@@ -201,12 +213,6 @@
 
     <!-- Main Content -->
     <div class="container mt-4">
-        <div class="container mt-4">
-            <!-- Products Container -->
-            <div id="productsContainer"></div>
-                <!-- Products will be dynamically loaded here -->
-            </div>
-        </div>
         <!-- Posts Container -->
         <div id="allPostsContainer">
             <!-- Posts will be dynamically loaded here -->

@@ -1,5 +1,5 @@
 document.addEventListener("DOMContentLoaded", function() {
-    // Firebase Configuration
+    // Firebase Configuration (unchanged)
     const firebaseConfig = {
         apiKey: "AIzaSyBcBmuXY9ulETrbn2PmzjsDZ7JKRcehqGo",
         authDomain: "kauara1.firebaseapp.com",
@@ -21,8 +21,9 @@ document.addEventListener("DOMContentLoaded", function() {
     const MERCADO_PAGO_CLIENT_ID = "8000562204726523";
     const PRINTFUL_CLIENT_ID = "app-5311675";
     const REDIRECT_URI = "https://kauara1.web.app/pages/artist-callback.html";
+    const APP_URL = window.location.href; // Current page URL for redirect after logout
 
-    // Initialize Mercado Pago SDK
+    // Initialize Mercado Pago SDK (unchanged)
     let mp;
     try {
         mp = new MercadoPago('APP_USR-66e8e79a-0f3e-46d6-9e97-b15bb1320890', { locale: 'es-AR' });
@@ -31,7 +32,7 @@ document.addEventListener("DOMContentLoaded", function() {
         console.error("Error initializing MercadoPago:", error);
     }
     
-    // Elements
+    // Elements (unchanged)
     const fullNameInput = document.getElementById("fullName");
     const cpfCnpjInput = document.getElementById("cpfCnpj");
     const addressInput = document.getElementById("address");
@@ -39,12 +40,10 @@ document.addEventListener("DOMContentLoaded", function() {
     const editInfoBtn = document.getElementById("editInfoBtn");
     const saveInfoBtn = document.getElementById("saveInfoBtn");
     const connectMercadoPagoBtn = document.getElementById("connectMercadoPago");
-    const logoutMercadoPagoBtn = document.getElementById("logoutMercadoPago");
-    const connectPrintfulBtn = document.getElementById("connectPrintful");
     const mpConnectionStatus = document.getElementById("mpConnectionStatus");
     const printfulConnectionStatus = document.getElementById("printfulConnectionStatus");
 
-    // CPF/CNPJ Input Masking
+    // CPF/CNPJ Input Masking (unchanged)
     cpfCnpjInput.addEventListener('input', function(e) {
         let value = e.target.value.replace(/\D/g, '');
         if (value.length <= 11) {
@@ -55,7 +54,7 @@ document.addEventListener("DOMContentLoaded", function() {
         e.target.value = value;
     });
 
-    // Check Authentication and Load Data
+    // Check Authentication and Load Data (unchanged, already async)
     auth.onAuthStateChanged(async (user) => {
         if (!user) {
             window.location.href = "kauara.html";
@@ -84,29 +83,33 @@ document.addEventListener("DOMContentLoaded", function() {
         // Check Mercado Pago Connection
         if (userData.mercadoPagoConnected) {
             mpConnectionStatus.textContent = "Connected";
-            connectMercadoPagoBtn.style.display = "none";
-            logoutMercadoPagoBtn.style.display = "inline-block";
+            connectMercadoPagoBtn.textContent = "Mudar conta Mercado Pago";
+            connectMercadoPagoBtn.classList.remove("btn-success");
+            connectMercadoPagoBtn.classList.add("btn-outline-success");
+        } else {
+            mpConnectionStatus.textContent = "Not Connected";
+            connectMercadoPagoBtn.textContent = "Connect to Mercado Pago";
+            connectMercadoPagoBtn.classList.add("btn-success");
+            connectMercadoPagoBtn.classList.remove("btn-outline-success");
         }
 
-        // Check Printful Connection (placeholder logic)
+        // Check Printful Connection (unchanged)
         if (userData.printfulConnected) {
             printfulConnectionStatus.textContent = "Connected";
             connectPrintfulBtn.style.display = "none";
         }
     });
 
-    // Helper Function to Get User ID
-    function getUserIdFromUid(uid) {
-        return db.collection("users").where("firebaseUID", "==", uid).get()
-            .then((querySnapshot) => {
-                if (!querySnapshot.empty) {
-                    return querySnapshot.docs[0].id;
-                }
-                throw new Error(`No user found for UID: ${uid}`);
-            });
+    // Helper Function to Get User ID (unchanged, already async)
+    async function getUserIdFromUid(uid) {
+        const querySnapshot = await db.collection("users").where("firebaseUID", "==", uid).get();
+        if (!querySnapshot.empty) {
+            return querySnapshot.docs[0].id;
+        }
+        throw new Error(`No user found for UID: ${uid}`);
     }
 
-    // Edit/Save Information
+    // Edit/Save Information (unchanged)
     editInfoBtn.addEventListener("click", () => {
         fullNameInput.removeAttribute("readonly");
         cpfCnpjInput.removeAttribute("readonly");
@@ -149,68 +152,56 @@ document.addEventListener("DOMContentLoaded", function() {
         alert("Information updated successfully!");
     });
 
-    // Mercado Pago Connection
-    connectMercadoPagoBtn.addEventListener("click", async () => {
+    // Mercado Pago Connection with UI Warning (Fixed: Added async)
+    connectMercadoPagoBtn.addEventListener("click", async () => { // Added async here
         const user = auth.currentUser;
         if (!user) return;
 
         const firestoreUserId = await getUserIdFromUid(user.uid);
-        const state = encodeURIComponent(btoa(firestoreUserId));
+        const state = firestoreUserId;
         localStorage.setItem('mpAuthState', state);
 
         const { codeVerifier, codeChallenge } = await generateCodeChallenge();
-        const authUrl = `https://auth.mercadopago.com/authorization?client_id=${MERCADO_PAGO_CLIENT_ID}&response_type=code&platform_id=mp&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+        const authUrl = `https://auth.mercadopago.com/authorization?client_id=${MERCADO_PAGO_CLIENT_ID}&response_type=code&platform_id=mp&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${encodeURIComponent(state)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
 
-        window.location.href = authUrl;
-    });
+        // Show alert with options
+        const proceed = confirm("Para continuar, você precisa deslogar de qualquer sessão atual do Mercado Pago no navegador.\n\nClique 'OK' para ser redirecionado ao Mercado Pago e desconectar, ou 'Cancelar' para continuar sem desconectar (usará a conta já logada, se houver).");
+        
+        document.getElementById("loadingIndicator").style.display = "block";
 
-    // Disconnect from Mercado Pago
-    logoutMercadoPagoBtn.addEventListener("click", async () => {
-        const user = auth.currentUser;
-        if (!user) {
-            alert("Você precisa estar logado para desconectar.");
-            return;
-        }
-
-        try {
-            document.getElementById("loadingIndicator").style.display = "block";
-            const firestoreUserId = await getUserIdFromUid(user.uid);
-
-            await db.collection("users").doc(firestoreUserId).update({
-                mercadoPagoConnected: false,
-                mercadoPagoUserId: null,
-                mercadoPagoTokenRef: null,
-                mercadoPagoDisconnectedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            console.log("Mercado Pago connection cleared in Firestore.");
-
-            mpConnectionStatus.textContent = "Not Connected";
-            connectMercadoPagoBtn.style.display = "inline-block";
-            logoutMercadoPagoBtn.style.display = "none";
-
-            localStorage.removeItem("mp_code_verifier");
-            localStorage.removeItem("mpAuthState");
-
-            document.getElementById("loadingIndicator").style.display = "none";
-
-            alert("Você será redirecionado ao site do Mercado Pago, desconecte-se lá.");
-            const mercadoPagoLogoutUrl = "https://www.mercadopago.com.br";
-            const returnUrl = encodeURIComponent(window.location.href);
-            window.location.href = `${mercadoPagoLogoutUrl}?redirect=${returnUrl}`;
-        } catch (error) {
-            console.error("Error disconnecting from Mercado Pago:", error);
-            document.getElementById("loadingIndicator").style.display = "none";
-            alert("Erro ao desconectar: " + error.message);
+        if (proceed) {
+            // Redirect to Mercado Pago logout page, then back to start OAuth
+            const logoutUrl = `https://www.mercadopago.com.br`;
+            window.location.href = logoutUrl;
+        } else {
+            // Proceed directly to OAuth flow (may reuse existing session)
+            window.location.href = authUrl;
         }
     });
 
-    // Printful Connection (Placeholder)
+    // Check for redirect back from logout and start OAuth (Fixed: Wrapped in async IIFE)
+    (async () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('startMpAuth') === 'true') {
+            const user = auth.currentUser;
+            if (user) {
+                const firestoreUserId = await getUserIdFromUid(user.uid);
+                const state = firestoreUserId;
+                localStorage.setItem('mpAuthState', state);
+
+                const { codeVerifier, codeChallenge } = await generateCodeChallenge();
+                const authUrl = `https://auth.mercadopago.com/authorization?client_id=${MERCADO_PAGO_CLIENT_ID}&response_type=code&platform_id=mp&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${encodeURIComponent(state)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+                window.location.href = authUrl;
+            }
+        }
+    })();
+
+    // Printful Connection (unchanged)
     connectPrintfulBtn.addEventListener("click", async () => {
         alert("Printful connection not fully implemented in this example.");
-        // Add Printful OAuth logic here
     });
 
-    // PKCE Code Challenge Generation
+    // PKCE Code Challenge Generation (unchanged)
     async function generateCodeChallenge() {
         const codeVerifier = [...Array(64)].map(() => Math.random().toString(36)[2]).join("");
         const encoder = new TextEncoder();
@@ -222,26 +213,31 @@ document.addEventListener("DOMContentLoaded", function() {
         return { codeVerifier, codeChallenge: base64Hash };
     }
 
-    // Handle Mercado Pago Callback
-    const urlParams = new URLSearchParams(window.location.search);
-    const mpCode = urlParams.get('code');
-    const state = urlParams.get('state');
-    const source = urlParams.get('source');
+    // Handle Mercado Pago Callback (Fixed: Wrapped in async IIFE)
+    (async () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const mpCode = urlParams.get('code');
+        const state = urlParams.get('state');
+        const source = urlParams.get('source');
 
-    if (mpCode && state && source === 'mp') {
-        const savedState = localStorage.getItem('mpAuthState');
-        if (savedState === state) {
-            document.getElementById("loadingIndicator").style.display = "block";
-            exchangeMercadoPagoToken(mpCode, state);
-        } else {
-            alert("Security error. Please try again.");
-            window.location.href = "artist-page.html";
+        if (mpCode && state && source === 'mp') {
+            const savedState = localStorage.getItem('mpAuthState');
+            const decodedState = decodeURIComponent(state);
+            
+            if (savedState === decodedState) {
+                document.getElementById("loadingIndicator").style.display = "block";
+                await exchangeMercadoPagoToken(mpCode, decodedState);
+            } else {
+                console.error("State mismatch:", { savedState, returnedState: decodedState });
+                alert("Security error. State mismatch detected. Please try again.");
+                window.location.href = "artist-page.html";
+            }
         }
-    }
+    })();
 
     async function exchangeMercadoPagoToken(code, state) {
         try {
-            const firestoreUserId = atob(decodeURIComponent(state));
+            const firestoreUserId = state;
             const codeVerifier = localStorage.getItem("mp_code_verifier");
             const response = await fetch('https://api.mercadopago.com/oauth/token', {
                 method: 'POST',
@@ -265,8 +261,9 @@ document.addEventListener("DOMContentLoaded", function() {
                     mercadoPagoConnectedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
                 mpConnectionStatus.textContent = "Connected";
-                connectMercadoPagoBtn.style.display = "none";
-                logoutMercadoPagoBtn.style.display = "inline-block";
+                connectMercadoPagoBtn.textContent = "Mudar conta Mercado Pago";
+                connectMercadoPagoBtn.classList.remove("btn-success");
+                connectMercadoPagoBtn.classList.add("btn-outline-success");
                 alert("Mercado Pago connected successfully!");
             }
             document.getElementById("loadingIndicator").style.display = "none";
@@ -277,7 +274,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    // Validation Functions
+    // Validation Functions (unchanged)
     function validateCpfCnpj(value) {
         const valueClean = value.replace(/\D/g, '');
         return valueClean.length === 11 ? validateCpf(valueClean) : valueClean.length === 14 ? validateCnpj(valueClean) : false;

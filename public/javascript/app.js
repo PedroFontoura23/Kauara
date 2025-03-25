@@ -50,6 +50,18 @@ document.addEventListener("DOMContentLoaded", function () {
         errorMessage.style.display = "block";
     }
 
+    async function getUserIdFromUid(uid) {
+        const userQuery = await db.collection("users")
+            .where("firebaseUID", "==", uid)
+            .get();
+
+        if (!userQuery.empty) {
+            return userQuery.docs[0].id; // Return the Firestore user ID
+        } else {
+            throw new Error(`No user found for UID: ${uid}`);
+        }
+    }
+
     function clearErrorMessage() {
         errorMessage.textContent = "";
         errorMessage.style.display = "none";
@@ -129,10 +141,262 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    // Check authentication state on page load
-    auth.onAuthStateChanged(user => {
-        updateProfileButtonBehavior(user);
+    const notificationButton = document.getElementById("notificationButton");
+    const notificationDropdown = document.getElementById("notificationDropdown");
+
+    if (!notificationButton || !notificationDropdown) {
+        console.error("Notification button or dropdown not found in DOM.");
+        return;
+    }
+
+    // Replace the notificationButton click handler in app.js with this:
+    notificationButton.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const dropdown = notificationDropdown;
+        
+        if (dropdown.style.display === "none" || dropdown.style.display === "") {
+            dropdown.style.display = "block";
+            
+            try {
+                const user = auth.currentUser;
+                if (user) {
+                    const userId = await getUserIdFromUid(user.uid);
+                    const notificationsRef = db.collection('notifications')
+                        .where('toUserId', '==', userId)
+                        .orderBy('timestamp', 'desc')
+                        .limit(50);
+
+                    const snapshot = await notificationsRef.get();
+                    const notificationList = document.getElementById('notificationList');
+                    notificationList.innerHTML = '';
+                    
+                    const unreadNotificationIds = [];
+                    const batch = db.batch();
+
+                    // Debugging: Log notification count
+                    console.log(`Found ${snapshot.size} notifications`);
+
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        const isUnread = !data.read;
+                        
+                        // Debugging: Log individual notification data
+                        console.log("Processing notification:", {
+                            id: doc.id,
+                            type: data.type,
+                            hasUsername: !!data.fromUsername,
+                            hasImage: !!data.fromUserProfilePic,
+                            message: data.message
+                        });
+
+                        // Track unread notifications
+                        if (isUnread) {
+                            unreadNotificationIds.push(doc.id);
+                            const notificationRef = db.collection('notifications').doc(doc.id);
+                            batch.update(notificationRef, { 
+                                read: true,
+                                readAt: firebase.firestore.FieldValue.serverTimestamp() 
+                            });
+                        }
+
+                        // Safely get username with fallback
+                        const username = data.fromUsername || "User";
+                        
+                        // Determine notification action text
+                        let actionText;
+                        if (data.type === 'like') {
+                            actionText = 'liked your ' + (data.commentId ? 'comment' : 'post');
+                        } else if (data.type === 'comment') {
+                            const commentText = data.message.includes(':') 
+                                              ? data.message.split(':').slice(1).join(':').trim()
+                                              : data.message;
+                            actionText = 'commented: ' + commentText;
+                        } else {
+                            actionText = data.message || 'interacted with your content';
+                        }
+
+                        // Create notification element
+                        const notificationItem = document.createElement('a');
+                        notificationItem.href = data.postId ? `post.html?postId=${data.postId}` : '#';
+                        notificationItem.className = `list-group-item list-group-item-action ${isUnread ? 'unread-notification' : ''}`;
+                        
+                        notificationItem.innerHTML = `
+                            <div class="d-flex align-items-center">
+                                <img src="${data.fromUserProfilePic 
+                                          ? `data:image/jpeg;base64,${data.fromUserProfilePic}` 
+                                          : '../images/default-profile.png'}"
+                                     class="rounded-circle me-2"
+                                     width="32" height="32"
+                                     style="object-fit: cover;"
+                                     onerror="this.onerror=null; this.src='../images/default-profile.png'"
+                                     alt="${username}'s profile">
+                                <div class="flex-grow-1">
+                                    <div class="notification-message">
+                                        <strong>${username}</strong> ${actionText}
+                                    </div>
+                                    <small class="text-muted">${formatTimestamp(data.timestamp)}</small>
+                                </div>
+                                ${isUnread ? '<span class="unread-dot bg-primary rounded-circle" style="width: 8px; height: 8px;"></span>' : ''}
+                            </div>
+                        `;
+                        
+                        notificationList.appendChild(notificationItem);
+                    });
+
+                    // Mark notifications as read if needed
+                    if (unreadNotificationIds.length > 0) {
+                        try {
+                            await batch.commit();
+                            console.log(`Marked ${unreadNotificationIds.length} notifications as read`);
+                            
+                            // Update UI to reflect read status
+                            document.querySelectorAll('.unread-notification').forEach(el => {
+                                el.classList.remove('unread-notification');
+                            });
+                            document.querySelectorAll('.unread-dot').forEach(el => {
+                                el.remove();
+                            });
+                            
+                            updateNotificationBadge();
+                        } catch (batchError) {
+                            console.error("Error marking notifications as read:", batchError);
+                        }
+                    }
+
+                    // Handle empty state
+                    if (snapshot.empty) {
+                        notificationList.innerHTML = '<li class="list-group-item text-muted">No notifications yet</li>';
+                    }
+                }
+            } catch (error) {
+                console.error("Error loading notifications:", error);
+                const notificationList = document.getElementById('notificationList');
+                notificationList.innerHTML = '<li class="list-group-item text-danger">Error loading notifications</li>';
+            }
+        } else {
+            dropdown.style.display = "none";
+        }
     });
+    
+    function getNotificationAction(data) {
+        if (data.type === 'like') {
+            return 'liked your ' + (data.commentId ? 'comment' : 'post');
+        } else if (data.type === 'comment') {
+            return 'commented: ' + data.message.split(':').slice(1).join(':').trim();
+        }
+        return data.message;
+    }
+    // Add this function to update the notification badge
+    async function updateNotificationBadge() {
+        const user = auth.currentUser;
+        if (!user) {
+            removeNotificationBadge();
+            return;
+        }
+
+        try {
+            const userId = await getUserIdFromUid(user.uid);
+            const snapshot = await db.collection('notifications')
+                .where('toUserId', '==', userId)
+                .where('read', '==', false)
+                .get();
+                
+            removeNotificationBadge();
+            
+            if (snapshot.size > 0) {
+                const badge = document.createElement('span');
+                badge.className = 'position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger';
+                badge.style.fontSize = '0.6rem';
+                badge.style.padding = '3px 6px';
+                badge.textContent = snapshot.size;
+                notificationButton.appendChild(badge);
+                notificationButton.style.position = 'relative';
+            }
+        } catch (error) {
+            console.error("Error updating notification badge:", error);
+            // Don't show badge if there was an error checking
+            removeNotificationBadge();
+        }
+    }
+
+    function removeNotificationBadge() {
+        const existingBadge = notificationButton.querySelector('.badge');
+        if (existingBadge) {
+            notificationButton.removeChild(existingBadge);
+        }
+    }
+
+    let notificationListener = null;
+
+    auth.onAuthStateChanged(user => {
+        // Clean up previous listener if it exists
+        if (notificationListener) {
+            notificationListener();
+        }
+        
+        if (user) {
+            updateNotificationBadge();
+            
+            try {
+                getUserIdFromUid(user.uid).then(userId => {
+                    notificationListener = db.collection('notifications')
+                        .where('toUserId', '==', userId)
+                        .where('read', '==', false)
+                        .onSnapshot(
+                            snapshot => {
+                                if (notificationDropdown.style.display === 'none') {
+                                    updateNotificationBadge();
+                                }
+                            },
+                            error => {
+                                console.error("Notification listener error:", error);
+                            }
+                        );
+                });
+            } catch (error) {
+                console.error("Error setting up notification listener:", error);
+            }
+        } else {
+            removeNotificationBadge();
+        }
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener("click", (event) => {
+        if (!notificationButton.contains(event.target) && !notificationDropdown.contains(event.target)) {
+            notificationDropdown.style.display = "none";
+        }
+    });
+
+    // Helper function to format timestamp
+    function formatTimestamp(timestamp) {
+        if (!timestamp) return '';
+        
+        const date = timestamp.toDate();
+        const now = new Date();
+        const diffInHours = Math.abs(now - date) / 36e5;
+        
+        if (diffInHours < 24) {
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } else {
+            return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        }
+    }
+
+    // Improved markAsRead function
+    async function markAsRead(notificationId) {
+        try {
+            await db.collection('notifications').doc(notificationId).update({ 
+                read: true,
+                readAt: firebase.firestore.FieldValue.serverTimestamp() 
+            });
+            console.log(`Notification ${notificationId} marked as read`);
+            return true;
+        } catch (error) {
+            console.error("Error marking notification as read:", error);
+            return false;
+        }
+    }
 
     // Handle profile button click
     profileButton.addEventListener("click", function (event) {
@@ -246,6 +510,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 displayErrorMessage("Invalid email or password.");
             });
     });
+
 
     auth.onAuthStateChanged(async (user) => {
       if (user && user.emailVerified) {
@@ -587,18 +852,6 @@ document.addEventListener("DOMContentLoaded", function () {
             console.error("Error fetching current user ID:", error);
         }
 
-    }
-
-    async function getUserIdFromUid(uid) {
-        const userQuery = await db.collection("users")
-            .where("firebaseUID", "==", uid)
-            .get();
-
-        if (!userQuery.empty) {
-            return userQuery.docs[0].id; // Return the Firestore user ID
-        } else {
-            throw new Error(`No user found for UID: ${uid}`);
-        }
     }
 
 

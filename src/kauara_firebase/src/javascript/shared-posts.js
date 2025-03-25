@@ -495,66 +495,89 @@ class PostManager {
 
         return commentElement;
     }
-async likePost(postId, userId) {
-      if (this.isLiking.has(postId)) {
-        console.log("Like operation already in progress for post:", postId);
-        return;
-      }
-      this.isLiking.add(postId);
+    async likePost(postId, userId) {
+        if (this.isLiking.has(postId)) {
+            console.log("Like operation already in progress for post:", postId);
+            return;
+        }
+        this.isLiking.add(postId);
 
-      const likeButton = document.querySelector(`.like-button[data-post-id="${postId}"]`);
-      const likeCountElement = likeButton?.querySelector('.like-count');
-      const currentLikes = parseInt(likeCountElement?.textContent || 0);
+        const likeButton = document.querySelector(`.like-button[data-post-id="${postId}"]`);
+        const likeCountElement = likeButton?.querySelector('.like-count');
+        const currentLikes = parseInt(likeCountElement?.textContent || 0);
 
-      const likeRef = this.db.collection("likes").doc(`${postId}_${userId}`);
-      const likeDocSnapshot = await likeRef.get();
-      const hasLiked = likeDocSnapshot.exists;
+        const likeRef = this.db.collection("likes").doc(`${postId}_${userId}`);
+        const likeDocSnapshot = await likeRef.get();
+        const hasLiked = likeDocSnapshot.exists;
 
-      if (likeCountElement) {
-        likeCountElement.textContent = hasLiked ? currentLikes - 1 : currentLikes + 1;
-      }
+        if (likeCountElement) {
+            likeCountElement.textContent = hasLiked ? currentLikes - 1 : currentLikes + 1;
+        }
 
         try {
             const batch = this.db.batch();
             const postRef = this.db.collection("posts").doc(postId);
 
             if (hasLiked) {
-              console.log("Unliking post:", postId, "by user:", userId);
-              batch.delete(likeRef);
-              batch.update(postRef, {
-                likes_count: firebase.firestore.FieldValue.increment(-1)
-              });
-              this.likesCache.get(postId)?.delete(userId);
+                console.log("Unliking post:", postId, "by user:", userId);
+                batch.delete(likeRef);
+                batch.update(postRef, {
+                    likes_count: firebase.firestore.FieldValue.increment(-1)
+                });
+                this.likesCache.get(postId)?.delete(userId);
             } else {
-              console.log("Liking post:", postId, "by user:", userId);
-              batch.set(likeRef, {
-                foreignUserId: userId,
-                foreignPostId: postId,
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
-              });
-              batch.update(postRef, {
-                likes_count: firebase.firestore.FieldValue.increment(1)
-              });
-              if (!this.likesCache.has(postId)) {
-                this.likesCache.set(postId, new Set());
-              }
-              this.likesCache.get(postId).add(userId);
+                console.log("Liking post:", postId, "by user:", userId);
+                batch.set(likeRef, {
+                    foreignUserId: userId,
+                    foreignPostId: postId,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                batch.update(postRef, {
+                    likes_count: firebase.firestore.FieldValue.increment(1)
+                });
+                if (!this.likesCache.has(postId)) {
+                    this.likesCache.set(postId, new Set());
+                }
+                this.likesCache.get(postId).add(userId);
+
+                // 🔥 Add a notification for the post owner (NEW)
+                const postDoc = await postRef.get();
+                if (postDoc.exists) {
+                    const postOwner = postDoc.data().foreignUserId;
+                    if (postOwner !== userId) { // Prevent self-notifications
+                    const likerUsername = this.usersCache[userId]?.user_Name || await this.ensureUsernameInCache(userId);
+                    const profilePic = this.usersCache[userId]?.profilePicture? `data:image/jpeg;base64,${this.usersCache[userId].profilePicture}`: '../images/default-profile.png';
+                        await this.db.collection("notifications").add({
+                            toUserId: postOwner,
+                            fromUserId: userId,                  // Add who triggered the notification
+                            fromUsername: likerUsername,         // Add their username
+                            type: "like",
+                            message: `${likerUsername} liked your post`, // Now includes username
+                            postId: postId,
+                            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                            read: false,
+                            // Optional: Add profile picture if available
+                            fromUserProfilePic: this.usersCache[userId]?.profilePicture || null
+                        });
+                    }
+                }
             }
 
             // Commit the batch
-        console.log("Committing batch for post:", postId);
-        await batch.commit();
-        console.log("Like updated successfully for post:", postId);
-      } catch (error) {
-        console.error("Error updating like:", error);
-        if (likeCountElement) {
-          likeCountElement.textContent = currentLikes;
+            console.log("Committing batch for post:", postId);
+            await batch.commit();
+            console.log("Like updated successfully for post:", postId);
+        } catch (error) {
+            console.error("Error updating like:", error);
+            if (likeCountElement) {
+                likeCountElement.textContent = currentLikes;
+            }
+            alert("Failed to update like. Please try again.");
+        } finally {
+            this.isLiking.delete(postId);
         }
-        alert("Failed to update like. Please try again.");
-      } finally {
-        this.isLiking.delete(postId);
-      }
     }
+
 
     // Load likes for a post and cache them locally
     async loadLikes(postId) {
@@ -752,7 +775,7 @@ async likePost(postId, userId) {
 
         try {
             // Save the comment to Firestore with a default likes_count of 0
-            await this.db.collection("comments").add({
+            const commentRef = await this.db.collection("comments").add({
                 foreignUserId: user.firestoreUserId,
                 foreignPostId: postId,
                 content: commentText,
@@ -761,6 +784,28 @@ async likePost(postId, userId) {
             });
 
             console.log("Comment submitted successfully.");
+
+            // 🔥 Add a notification for the post owner (NEW)
+            const postDoc = await this.db.collection("posts").doc(postId).get();
+            const postOwner = postDoc.data().foreignUserId;
+            if (postOwner !== user.firestoreUserId) { // Prevent self-notifications
+                // Get the commenter's username from cache or fetch it
+                const commenterUsername = this.usersCache[user.firestoreUserId]?.user_Name || await this.ensureUsernameInCache(user.firestoreUserId);
+                const profilePic = this.usersCache[user.firestoreUserId]?.profilePicture? `data:image/jpeg;base64,${this.usersCache[user.firestoreUserId].profilePicture}`: '../images/default-profile.png';
+
+                await this.db.collection("notifications").add({
+                    toUserId: postOwner,
+                    fromUserId: user.firestoreUserId,     // Add commenter's user ID
+                    fromUsername: commenterUsername,     // Add their username
+                    type: "comment",
+                    message: `${commenterUsername} commented: \"${commentText}\"`, // Now includes username
+                    postId: postId,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    read: false,
+                    // Optional: Add profile picture if available
+                    fromUserProfilePic: this.usersCache[user.firestoreUserId]?.profilePicture || null // ✅ Use user.firestoreUserId
+                });
+            }
 
             // Clear input field after successful submission
             commentInput.value = "";
@@ -788,6 +833,24 @@ async likePost(postId, userId) {
 
             this.isSubmitting = false;
         }
+    }
+
+    // Add this method to the PostManager class
+    async ensureUsernameInCache(userId) {
+        if (!this.usersCache[userId]) {
+            try {
+                const userQuery = await this.db.collection("users")
+                    .where("userId", "==", userId)
+                    .get();
+                
+                if (!userQuery.empty) {
+                    this.usersCache[userId] = userQuery.docs[0].data();
+                }
+            } catch (error) {
+                console.error("Error fetching user data:", error);
+            }
+        }
+        return this.usersCache[userId]?.user_Name || "Someone";
     }
 
     // Helper function to fetch user data
