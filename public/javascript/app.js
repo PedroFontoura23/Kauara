@@ -130,14 +130,20 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // Function to update the profile button behavior
     function updateProfileButtonBehavior(user) {
-        if (user && user.emailVerified) {
-            // User is logged in and email is verified
-            profileButton.textContent = "Profile";
-            profileButton.href = "profile.html"; // Set href to profile page
+        const profileButton = document.getElementById('profileButton'); // Adiciona a referência ao botão
+
+        if (profileButton) {
+            if (user && user.emailVerified) {
+                // Usuário logado e email verificado
+                profileButton.textContent = "Profile";
+                profileButton.href = "profile.html";
+            } else {
+                // Usuário não logado ou email não verificado
+                profileButton.textContent = "Log In / Register";
+                profileButton.removeAttribute("href");
+            }
         } else {
-            // User is not logged in or email is not verified
-            profileButton.textContent = "Log In / Register";
-            profileButton.removeAttribute("href"); // Remove href to prevent redirect
+            console.error("Botão de perfil não encontrado!");
         }
     }
 
@@ -329,6 +335,7 @@ document.addEventListener("DOMContentLoaded", function () {
     let notificationListener = null;
 
     auth.onAuthStateChanged(user => {
+        updateProfileButtonBehavior(user);
         // Clean up previous listener if it exists
         if (notificationListener) {
             notificationListener();
