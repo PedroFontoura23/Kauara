@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow read access to everyone (no rules here for reads)
+    match /{document=**} {
+      allow read: if true;  // No restriction for reading, open for all
+      allow write: if request.auth != null;  // Only authenticated users can modify/write
+    }
+  }
+}
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Match all files in the storage bucket
+    match /{allPaths=**} {
+      allow read: if true;  // No restriction for reading, open for all
+      allow write: if request.auth != null;  // Only authenticated users can upload or modify files
+    }
+  }
+}

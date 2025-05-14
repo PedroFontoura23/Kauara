@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "kauara1"
+  },
+  "targets": {
+    "kauara1": {
+      "hosting": {
+        "kauara1": [
+          "kauara1"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

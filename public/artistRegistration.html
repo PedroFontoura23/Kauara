@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kauara - Artist Page</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase.js"></script>
+    <script src="https://sdk.mercadopago.com/js/v2"></script>
+    <style>
+    #mpConnectionStatus {
+        padding: 3px 8px;
+        border-radius: 4px;
+    }
+    #mpConnectionStatus[data-status="connected"] {
+        background-color: #d4edda;
+        color: #155724;
+    }
+    #mpConnectionStatus[data-status="disconnected"] {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+    .btn.disabled {
+        opacity: 0.65;
+        pointer-events: none;
+    }
+    </style>
+</head>
+<body>
+    <header class="text-center py-4 bg-light">
+        <div class="container d-flex justify-content-between align-items-center">
+            <button onclick="window.location.href='profile.html'" class="btn btn-secondary">← Back to Profile</button>
+            <h1 class="h3 mb-0">Artist Page</h1>
+            <div class="invisible"></div>
+        </div>
+    </header>
+
+    <main class="container my-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card shadow">
+                    <div class="card-body p-4">
+                        <h2 class="card-title text-center mb-4">Your Artist Profile</h2>
+
+                        <!-- Artist Benefits -->
+                        <div class="alert alert-info">
+                            <h5>Artist Benefits:</h5>
+                            <ul>
+                                <li>Sell your designs on products using Printful</li>
+                                <li>Receive payments directly via Mercado Pago</li>
+                                <li>Earn 90% of each sale (10% platform fee)</li>
+                                <li>Access sales statistics and reports</li>
+                            </ul>
+                        </div>
+
+                        <!-- Artist Information -->
+                        <div id="artistInfo" class="mb-4">
+                            <h3 class="h5 mb-3">Your Information</h3>
+                            <form id="artistInfoForm">
+                                <div class="mb-3">
+                                    <label for="fullName" class="form-label">Full Name</label>
+                                    <input type="text" class="form-control" id="fullName" readonly>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="cpfCnpj" class="form-label">CPF/CNPJ</label>
+                                    <input type="text" class="form-control" id="cpfCnpj" readonly>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="address" class="form-label">Full Address</label>
+                                    <textarea class="form-control" id="address" rows="3" readonly></textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="phone" class="form-label">Phone</label>
+                                    <input type="tel" class="form-control" id="phone" readonly>
+                                </div>
+                                <button type="button" id="editInfoBtn" class="btn btn-outline-primary">Edit Information</button>
+                                <button type="button" id="saveInfoBtn" class="btn btn-primary" style="display:none">Save Changes</button>
+                            </form>
+                        </div>
+
+                        <!-- Mercado Pago Integration -->
+                        <div id="mercadoPagoSection" class="mb-4">
+                            <h3 class="h5 mb-3">Mercado Pago Connection</h3>
+                            <div id="mpRequirements" class="alert alert-warning" style="display: none;">
+                                Termine de salvar a sua informação antes de registrar sua conta Mercado Pago.
+                            </div>
+                            <p id="mpStatus" class="mb-2">Status: <span id="mpConnectionStatus">Not Connected</span></p>
+                            <button id="connectMercadoPago" class="btn btn-success disabled">
+                                <img src="/images/mercado-pago-logo.png" alt="Mercado Pago" height="24" class="me-2">
+                                Connect to Mercado Pago
+                            </button>
+                        </div>
+
+                        <!-- Printful Integration -->
+                        <div id="printfulSection">
+                            <h3 class="h5 mb-3">Printful Connection</h3>
+                            <p id="printfulStatus" class="mb-2">Status: <span id="printfulConnectionStatus">Not Connected</span></p>
+                            <button id="connectPrintful" class="btn btn-primary">
+                                <img src="/images/printful-logo.png" alt="Printful" height="24" class="me-2">
+                                Connect to Printful
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Loading Indicator -->
+    <div id="loadingIndicator" style="display: none;">
+        <div style="text-align: center; padding: 20px;">
+            <div style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 2s linear infinite; margin: 0 auto;"></div>
+            <p>Processing...</p>
+        </div>
+        <style>
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        </style>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/javascript/artist-registration.js"></script>
+</body>
+</html>
