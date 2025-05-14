@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Processando conexão...</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background-color: #f5f5f5;
+    }
+    .container {
+      background-color: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      max-width: 500px;
+      width: 100%;
+      text-align: center;
+    }
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #009ee3;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Processando sua conexão</h2>
+    <div class="spinner"></div>
+    <p>Aguarde um momento, estamos finalizando...</p>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+  
+  <script>
+    // Initialize Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyBcBmuXY9ulETrbn2PmzjsDZ7JKRcehqGo",
+      authDomain: "kauara1.firebaseapp.com",
+      projectId: "kauara1",
+      storageBucket: "kauara1.firebasestorage.app",
+      messagingSenderId: "651139031771",
+      appId: "1:651139031771:web:8c73a3e1fff2d5cf2ae2fe",
+      measurementId: "G-KL18R1CJ6S",
+    };
+    
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    
+    const auth = firebase.auth();
+    
+    // Handle the OAuth callback
+    document.addEventListener('DOMContentLoaded', function() {
+      auth.onAuthStateChanged(function(user) {
+        if (user) {
+          // User is signed in, proceed with the authorization code flow
+          handleAuthCallback(user);
+        } else {
+          // User is not signed in, redirect to login
+          redirectWithError('Você precisa estar logado para conectar sua conta do Mercado Pago');
+        }
+      });
+    });
+    
+    function handleAuthCallback(user) {
+        // Extract code from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const error = urlParams.get('error');
+        
+        // Handle errors from Mercado Pago
+        if (error) {
+            const errorDesc = urlParams.get('error_description') || 'Erro desconhecido';
+            redirectWithError(error, errorDesc);
+            return;
+        }
+        
+        // Validate code exists
+        if (!code) {
+            redirectWithError('Código de autorização não encontrado');
+            return;
+        }
+        
+        // Get code verifier from storage
+        const codeVerifier = localStorage.getItem('mp_code_verifier');
+        if (!codeVerifier) {
+            redirectWithError('Code verifier não encontrado. Por favor, tente novamente.');
+            return;
+        }
+        
+        // Exchange code for token with Firebase UID
+        exchangeCodeForToken(code, codeVerifier, user.uid);
+    }
+
+    function redirectWithError(error, description = '') {
+        // Clean up code verifier on error
+        localStorage.removeItem('mp_code_verifier');
+        
+        window.location.href = '/pages/artistRegistration.html?' + 
+            'error=' + encodeURIComponent(error) + 
+            (description ? '&error_description=' + encodeURIComponent(description) : '');
+    }
+
+    function exchangeCodeForToken(code, codeVerifier, uid) {
+        fetch('https://us-central1-kauara1.cloudfunctions.net/authMercadoPago', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                code: code,
+                code_verifier: codeVerifier,
+                uid: uid  // Pass Firebase user ID to the backend
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Falha na requisição: ' + response.status);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                // Store only user_id in localStorage (tokens are now stored in Firestore)
+                localStorage.setItem('mp_user_id', data.user_id);
+                
+                console.log('Authentication successful - user information stored in Firestore');
+                
+                // Clean up code verifier
+                localStorage.removeItem('mp_code_verifier');
+                
+                // Redirect to success page
+                window.location.href = '/pages/artistRegistration.html?success=true';
+            } else {
+                // Handle error
+                redirectWithError(data.error || 'Falha na autenticação');
+            }
+        })
+        .catch(error => {
+            console.error('Token exchange error:', error);
+            redirectWithError('Erro de conexão', error.message);
+        });
+    }
+  </script>
+</body>
+</html>

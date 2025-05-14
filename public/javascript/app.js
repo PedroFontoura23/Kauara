@@ -698,8 +698,8 @@ document.addEventListener("DOMContentLoaded", function () {
         // Sign out and redirect
         console.log("Signing out user...");
         await auth.signOut();
-        console.log("User signed out. Redirecting to kauara.html");
-        window.location.href = "kauara.html";
+        console.log("User signed out. Redirecting to inicio.html");
+        window.location.href = "inicio.html";
 
       } catch (error) {
         console.error("Registration error:", error);

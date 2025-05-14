@@ -4,12 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Redirecting...</title>
+    <meta http-equiv="refresh" content="0;url=inicio.html">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .redirect-container {
+            text-align: center;
+        }
+    </style>
     <script>
-        // Absolute URL to break the loop and preserve query parameters
-        window.location.href = "https://kauara1.web.app/pages/kauara.html" + window.location.search;
+        // Immediate JavaScript redirect
+        window.location.href = 'inicio.html';
     </script>
 </head>
 <body>
-    <p>If you are not redirected, <a href="https://kauara1.web.app/pages/kauara.html">click here</a>.</p>
+    <div class="redirect-container">
+        <h1>Redirecting to Inicio...</h1>
+        <p>If you are not redirected automatically, please <a href="inicio.html">click here</a>.</p>
+    </div>
 </body>
 </html>

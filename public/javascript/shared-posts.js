@@ -974,61 +974,106 @@ class PostManager {
     }
 
 
-    // Delete a post and its associated comments and likes
+        // Delete a post and its associated comments and likes
     async deletePost(postId, filterUserId) {
+        console.log("[deletePost] Confirming deletion...");
         if (!confirm("Are you sure you want to delete this post and all its comments and likes?")) {
+            console.log("[deletePost] Deletion canceled by user.");
             return;
         }
 
         try {
-            // Create a Firestore batch for atomic operations
-            const batch = this.db.batch();
-
-            // 1. Delete the post
+            console.log(`[deletePost] Fetching post: ${postId}`);
             const postRef = this.db.collection("posts").doc(postId);
-            batch.delete(postRef);
+            const postDoc = await postRef.get();
 
-            // 2. Delete all comments associated with the post
+            if (!postDoc.exists) {
+                console.error("[deletePost] Post does not exist.");
+                throw new Error("Post doesn't exist");
+            }
+
+            const currentUser = await this.getCurrentUser();
+            console.log("[deletePost] Current user:", currentUser);
+
+            const postOwnerUserId = postDoc.data().foreignUserId;
+            console.log("[deletePost] Post owner (foreignUserId):", postOwnerUserId);
+
+            if (!currentUser || currentUser.firestoreUserId !== postOwnerUserId) {
+                console.error("[deletePost] Unauthorized: user is not the owner of the post.");
+                throw new Error("You can only delete your own posts");
+            }
+
+            console.log("[deletePost] Starting batch1 (post + post likes + comments)...");
+            const batch1 = this.db.batch();
+
+            // Delete post
+            console.log("[deletePost] Adding post to batch delete");
+            batch1.delete(postRef);
+
+            // Delete likes on the post
+            console.log("[deletePost] Fetching post likes...");
+            const postLikesSnapshot = await this.db.collection("likes")
+                .where("foreignPostId", "==", postId)
+                .get();
+            console.log(`[deletePost] Found ${postLikesSnapshot.size} post likes.`);
+
+            postLikesSnapshot.forEach(doc => {
+                console.log(`[deletePost] Deleting post like: ${doc.id}`);
+                batch1.delete(doc.ref);
+            });
+
+            // Delete comments
+            console.log("[deletePost] Fetching comments...");
             const commentsSnapshot = await this.db.collection("comments")
                 .where("foreignPostId", "==", postId)
                 .get();
+            console.log(`[deletePost] Found ${commentsSnapshot.size} comments.`);
 
+            const commentIds = commentsSnapshot.docs.map(doc => doc.id);
             commentsSnapshot.forEach(doc => {
-                const commentRef = this.db.collection("comments").doc(doc.id);
-                batch.delete(commentRef);
+                console.log(`[deletePost] Deleting comment: ${doc.id}`);
+                batch1.delete(doc.ref);
+            });
 
-                // 3. Delete all likes associated with each comment
-                const commentLikesQuery = this.db.collection("comment_likes")
-                    .where("foreignCommentId", "==", doc.id);
-                commentLikesQuery.get().then(likesSnapshot => {
-                    likesSnapshot.forEach(likeDoc => {
-                        const likeRef = this.db.collection("comment_likes").doc(likeDoc.id);
-                        batch.delete(likeRef);
+            // Commit first batch
+            console.log("[deletePost] Committing batch1...");
+            await batch1.commit();
+            console.log("[deletePost] Batch1 committed successfully.");
+
+            // Now delete comment likes in a second batch
+            if (commentIds.length > 0) {
+                console.log("[deletePost] Starting batch2 (comment likes)...");
+                const batch2 = this.db.batch();
+
+                for (const commentId of commentIds) {
+                    console.log(`[deletePost] Fetching likes for comment: ${commentId}`);
+                    const commentLikesSnapshot = await this.db.collection("comment_likes")
+                        .where("foreignCommentId", "==", commentId)
+                        .get();
+
+                    console.log(`[deletePost] Found ${commentLikesSnapshot.size} likes for comment ${commentId}`);
+
+                    commentLikesSnapshot.forEach(doc => {
+                        console.log(`[deletePost] Deleting comment like: ${doc.id}`);
+                        batch2.delete(doc.ref);
                     });
-                });
-            });
+                }
 
-            // 4. Delete all likes associated with the post
-            const postLikesQuery = this.db.collection("likes")
-                .where("foreignPostId", "==", postId);
-            const postLikesSnapshot = await postLikesQuery.get();
-            postLikesSnapshot.forEach(doc => {
-                const likeRef = this.db.collection("likes").doc(doc.id);
-                batch.delete(likeRef);
-            });
+                console.log("[deletePost] Committing batch2...");
+                await batch2.commit();
+                console.log("[deletePost] Batch2 committed successfully.");
+            }
 
-            // Commit the batch
-            await batch.commit();
-
-            // Refresh the posts after deletion
+            console.log("[deletePost] All deletions completed. Refreshing posts...");
+            alert("Post and all associated content deleted successfully.");
             this.displayPosts(filterUserId);
 
-            alert("Post, comments, and associated likes deleted successfully.");
         } catch (error) {
-            console.error("Error deleting post:", error);
-            alert("Failed to delete post. Please try again.");
+            console.error("[deletePost] Error during deletion:", error);
+            alert(`Failed to delete post: ${error.message}`);
         }
     }
+
     
 }
 

@@ -51,6 +51,51 @@ async function getCurrentUserId() {
     }
 }
 
+document.getElementById('pixPayBtn').addEventListener('click', async () => {
+    const currentUserId = await getCurrentUserId();
+    if (!currentUserId || !userIdFromUrl) {
+        alert("Você precisa estar logado para doar.");
+        return;
+    }
+
+    const amountInput = document.getElementById('pixAmount');
+    const amount = parseFloat(amountInput.value);
+
+    if (!amount || amount < 1) {
+        alert("Informe um valor válido (mínimo R$1,00)");
+        return;
+    }
+
+    try {
+        const response = await fetch('https://us-central1-kauara1.cloudfunctions.net/createPixPayment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                payerId: currentUserId,
+                receiverId: userIdFromUrl,
+                amount: amount
+            })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            document.getElementById('pixQrCode').innerHTML = `
+                <p><strong>Escaneie o QR Code com seu app de banco:</strong></p>
+                <img src="data:image/png;base64,${data.qr_code_base64}" alt="PIX QR Code" style="max-width: 300px; margin: 10px 0;" />
+                <p><strong>Código copia e cola:</strong></p>
+                <code style="word-wrap: break-word; white-space: normal;">${data.qr_code}</code>
+            `;
+        } else {
+            alert("Erro: " + data.error);
+        }
+    } catch (err) {
+        console.error(err);
+        alert("Erro ao iniciar pagamento PIX.");
+    }
+});
+
+
+
 // Function to display posts
 async function displayPosts(userIdFromUrl) {
     const postsContainer = document.getElementById("postsContainer");

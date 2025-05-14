@@ -68,7 +68,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const CLIENT_ID = "8000562204726523";
 
     // Gera a URL para o usuário autenticar no Mercado Pago
-    const authUrl = `/pages/artistRegistration.html`;
+    const authUrl = `/artistRegistration.html`;
 
     window.location.href = authUrl; // Redireciona o usuário
   });
@@ -522,7 +522,7 @@ document.addEventListener("DOMContentLoaded", function () {
           // Sign out from Firebaslog out
           await auth.signOut();
           console.log("User signed out from Firebase");
-          window.location.href = "kauara.html";
+          window.location.href = "inicio.html";
       } catch (error) {
           console.error("Error during logout:", error);
           alert("Erro ao fazer logout. Tente novamente.");
@@ -683,8 +683,8 @@ document.addEventListener("DOMContentLoaded", function () {
       await auth.signOut();
       console.log("User signed out successfully");
       alert("Your account and all associated data have been deleted.");
-      console.log("Redirecting to kauara.html");
-      window.location.href = "kauara.html";
+      console.log("Redirecting to inicio.html");
+      window.location.href = "inicio.html";
 
       console.log("=== Account Deletion Process Completed Successfully ===");
     } catch (error) {
@@ -774,7 +774,30 @@ document.addEventListener("DOMContentLoaded", function () {
       }
   });
 
+  document.getElementById("donateButton").addEventListener("click", async () => {
+      const amount = prompt("Enter donation amount (e.g. 5.00):");
+      if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+          alert("Invalid amount.");
+          return;
+      }
 
+      const donorName = prompt("Enter your name (optional):");
+
+      try {
+          const result = await firebase.functions().httpsCallable("createDonationPreference")({
+              artistUserId: userIdFromUrl,
+              amount: parseFloat(amount),
+              donorName: donorName || null
+          });
+
+          // Redirect to Mercado Pago Checkout
+          window.location.href = result.data.init_point;
+      } catch (error) {
+          console.error("Donation error:", error);
+          alert("Failed to create donation. Please try again.");
+      }
+  });
+  
   // Handle "Create Product" button click
   addProductButton.addEventListener("click", () => {
       productModal.show(); // Open the product creation modal

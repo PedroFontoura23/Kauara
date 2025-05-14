@@ -7,6 +7,24 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase.js"></script>
     <script src="https://sdk.mercadopago.com/js/v2"></script>
+    <style>
+    #mpConnectionStatus {
+        padding: 3px 8px;
+        border-radius: 4px;
+    }
+    #mpConnectionStatus[data-status="connected"] {
+        background-color: #d4edda;
+        color: #155724;
+    }
+    #mpConnectionStatus[data-status="disconnected"] {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+    .btn.disabled {
+        opacity: 0.65;
+        pointer-events: none;
+    }
+    </style>
 </head>
 <body>
     <header class="text-center py-4 bg-light">
@@ -63,9 +81,12 @@
                         <!-- Mercado Pago Integration -->
                         <div id="mercadoPagoSection" class="mb-4">
                             <h3 class="h5 mb-3">Mercado Pago Connection</h3>
+                            <div id="mpRequirements" class="alert alert-warning" style="display: none;">
+                                Termine de salvar a sua informação antes de registrar sua conta Mercado Pago.
+                            </div>
                             <p id="mpStatus" class="mb-2">Status: <span id="mpConnectionStatus">Not Connected</span></p>
-                            <button id="connectMercadoPago" class="btn btn-success">
-                                <img src="../images/mercado-pago-logo.png" alt="Mercado Pago" height="24" class="me-2">
+                            <button id="connectMercadoPago" class="btn btn-success disabled">
+                                <img src="/images/mercado-pago-logo.png" alt="Mercado Pago" height="24" class="me-2">
                                 Connect to Mercado Pago
                             </button>
                         </div>
@@ -75,7 +96,7 @@
                             <h3 class="h5 mb-3">Printful Connection</h3>
                             <p id="printfulStatus" class="mb-2">Status: <span id="printfulConnectionStatus">Not Connected</span></p>
                             <button id="connectPrintful" class="btn btn-primary">
-                                <img src="../images/printful-logo.png" alt="Printful" height="24" class="me-2">
+                                <img src="/images/printful-logo.png" alt="Printful" height="24" class="me-2">
                                 Connect to Printful
                             </button>
                         </div>
@@ -84,24 +105,6 @@
             </div>
         </div>
     </main>
-    <!-- Mercado Pago Disconnect Modal -->
-    <div class="modal fade" id="mpDisconnectModal" tabindex="-1" aria-labelledby="mpDisconnectModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="mpDisconnectModalLabel">Aviso sobre Mercado Pago</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    Para continuar, você precisa deslogar de qualquer sessão atual do Mercado Pago no navegador. Você pode desconectar agora ou continuar sem desconectar (usará a conta já logada, se houver).
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" id="mpContinueBtn">Continuar sem desconectar</button>
-                    <button type="button" class="btn btn-primary" id="mpDisconnectBtn">Desconectar</button>
-                </div>
-            </div>
-        </div>
-    </div>
 
     <!-- Loading Indicator -->
     <div id="loadingIndicator" style="display: none;">
@@ -118,6 +121,6 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="../javascript/artist-registration.js"></script>
+    <script src="/javascript/artist-registration.js"></script>
 </body>
 </html>
