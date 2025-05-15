@@ -113,7 +113,7 @@
         // Clean up code verifier on error
         localStorage.removeItem('mp_code_verifier');
         
-        window.location.href = '/pages/artistRegistration.html?' + 
+        window.location.href = '/artistRegistration.html?' + 
             'error=' + encodeURIComponent(error) + 
             (description ? '&error_description=' + encodeURIComponent(description) : '');
     }
@@ -147,7 +147,7 @@
                 localStorage.removeItem('mp_code_verifier');
                 
                 // Redirect to success page
-                window.location.href = '/pages/artistRegistration.html?success=true';
+                window.location.href = '/artistRegistration.html?success=true';
             } else {
                 // Handle error
                 redirectWithError(data.error || 'Falha na autenticação');

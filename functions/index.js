@@ -37,7 +37,7 @@ exports.authMercadoPago = functions.https.onRequest((req, res) => {
       params.append('client_secret', config.client_secret);
       params.append('grant_type', 'authorization_code');
       params.append('code', code);
-      params.append('redirect_uri', 'https://kauara1.web.app/pages/artist-callback.html');
+      params.append('redirect_uri', 'https://kauara1.web.app/artist-callback.html');
       params.append('code_verifier', code_verifier);
 
       const tokenResponse = await axios.post(
@@ -85,7 +85,7 @@ exports.authMercadoPago = functions.https.onRequest((req, res) => {
         last_updated: admin.firestore.FieldValue.serverTimestamp()
       };
 
-      // 6. Update user document with mercadopago_info
+      // 6. Update user document with mercadopago_info and set artista: true
       const userQuery = await db.collection("users")
         .where("firebaseUID", "==", uid)
         .limit(1)
@@ -95,8 +95,12 @@ exports.authMercadoPago = functions.https.onRequest((req, res) => {
         throw new Error('User not found');
       }
 
-      await userQuery.docs[0].ref.update({
-        mercadopago_info: mercadopagoInfo
+      const userDoc = userQuery.docs[0];
+      
+      await userDoc.ref.update({
+        mercadopago_info: mercadopagoInfo,
+        artista: true,  // Set artist status to true
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
       });
 
       // 7. Return success

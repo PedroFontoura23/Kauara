@@ -20,7 +20,7 @@ document.addEventListener("DOMContentLoaded", function() {
     // Constants
     const MERCADO_PAGO_CLIENT_ID = "8000562204726523";
     const PRINTFUL_CLIENT_ID = "app-5311675";
-    const REDIRECT_URI = "https://kauara1.web.app/pages/artist-callback.html";
+    const REDIRECT_URI = "https://kauara1.web.app/artist-callback.html";
 
     // Initialize Mercado Pago SDK
     let mp;
