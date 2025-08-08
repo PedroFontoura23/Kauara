@@ -25,7 +25,6 @@ const userBioElement = document.getElementById("userBio");
 const profilePictureElement = document.getElementById("profilePicture");
 const ratingContainer = document.getElementById("ratingContainer");
 const donationSection = document.getElementById("donationSection");
-const donateButton = document.getElementById("donateButton");
 const pixPayBtn = document.getElementById("pixPayBtn");
 const pixQrCode = document.getElementById("pixQrCode");
 
@@ -44,13 +43,6 @@ async function getCurrentUserId() {
         console.error("Error fetching current user ID:", error);
         return null;
     }
-}
-
-function setupDonationButton() {
-    donateButton.addEventListener('click', () => {
-        // Implement Mercado Pago donation flow
-        alert("Redirecting to Mercado Pago donation...");
-    });
 }
 
 function setupPixButton() {
@@ -182,7 +174,6 @@ function showError(message) {
 
 // Initialize the page
 document.addEventListener('DOMContentLoaded', () => {
-    setupDonationButton();
     setupPixButton();
     loadProfileData();
 });

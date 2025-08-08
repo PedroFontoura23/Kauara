@@ -1,8 +1,22 @@
 const functions = require('firebase-functions');
 const axios = require('axios');
-const cors = require('cors')({ origin: ['https://kauara1.web.app', 'https://www.kauara1.web.app'] })
+const cors = require('cors')({ 
+  origin: [
+    'https://kauara1.web.app', 
+    'https://www.kauara1.web.app', 
+    'https://kauava.com',
+    'https://www.kauava.com'
+  ],
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+})
 const admin = require('firebase-admin');
 const { v4: uuidv4 } = require('uuid');
+
+const printfunctions = require('./printfunctions');
+exports.getProducts = printfunctions.getProducts;
+exports.getFlatLay = printfunctions.getFlatLay;
+exports.checkMockupStatus = printfunctions.checkMockupStatus;
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -37,7 +51,7 @@ exports.authMercadoPago = functions.https.onRequest((req, res) => {
       params.append('client_secret', config.client_secret);
       params.append('grant_type', 'authorization_code');
       params.append('code', code);
-      params.append('redirect_uri', 'https://kauara1.web.app/artist-callback.html');
+      params.append('redirect_uri', 'https://kauara1.web.app/pages/artist-callback.html');
       params.append('code_verifier', code_verifier);
 
       const tokenResponse = await axios.post(
@@ -85,7 +99,7 @@ exports.authMercadoPago = functions.https.onRequest((req, res) => {
         last_updated: admin.firestore.FieldValue.serverTimestamp()
       };
 
-      // 6. Update user document with mercadopago_info and set artista: true
+      // 6. Update user document with mercadopago_info
       const userQuery = await db.collection("users")
         .where("firebaseUID", "==", uid)
         .limit(1)
@@ -95,12 +109,8 @@ exports.authMercadoPago = functions.https.onRequest((req, res) => {
         throw new Error('User not found');
       }
 
-      const userDoc = userQuery.docs[0];
-      
-      await userDoc.ref.update({
-        mercadopago_info: mercadopagoInfo,
-        artista: true,  // Set artist status to true
-        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+      await userQuery.docs[0].ref.update({
+        mercadopago_info: mercadopagoInfo
       });
 
       // 7. Return success

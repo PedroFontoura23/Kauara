@@ -883,26 +883,5 @@ function initializePosts() {
     const postManager = initializePostManager('allPostsContainer');
     postManager.displayPosts(); // Load posts without requiring a logged-in user
 }
-// At the end of app.js, after initializing Firebase and other components
-function initializeProducts() {
-    console.log("Initializing products display");
-
-    // Initialize Firebase if not already initialized
-    if (!firebase.apps.length) {
-        firebase.initializeApp(firebaseConfig);
-    }
-
-    const auth = firebase.auth();
-    const db = firebase.firestore();
-
-    // Initialize ProductsManager and display products
-    const productsManager = new ProductsManager(db, auth, 'productsContainer');
-    productsManager.displayProducts(); // Load products without requiring a logged-in user
-}
-
-// Call the initializeProducts function to load products when the page loads
-initializeProducts();
-
-// At the end of app.js
 initializePosts();
 });
