@@ -1,395 +1,274 @@
-// Replace with your Firebase Cloud Function URLs
+const $ = id => document.getElementById(id);
+const toggle = (el, show) => el.style.display = show ? '' : 'none';
+
 const CLOUD_FUNCTION_URL = 'https://us-central1-kauara1.cloudfunctions.net/getProducts';
-let currentProducts = [];
-let isLoading = false;
 
-// Create a data URL placeholder image
-const PLACEHOLDER_IMAGE = 'data:image/svg+xml;base64,' + btoa(`
-<svg width="200" height="200" xmlns="http://www.w3.org/2000/svg">
-  <rect width="200" height="200" fill="#f0f0f0"/>
-  <text x="100" y="100" text-anchor="middle" dy=".3em" fill="#999" font-family="Arial, sans-serif" font-size="14">No Image</text>
-</svg>
-`);
+const loadingEl = $('loading'), errorEl = $('error'), productsEl = $('products'), productCountEl = $('product-count');
+const refreshBtn = $('refresh-btn'), modalEl = $('variant-modal'), closeBtn = modalEl.querySelector('.close-modal');
+const confirmBtn = $('confirm-variant'), variantSelectionEl = $('variant-selection'), selectedColorsEl = $('selected-colors');
+const canvas = $('flatlay-canvas'), ctx = canvas.getContext('2d');
 
-// DOM Elements
-const loadingEl = document.getElementById('loading');
-const errorEl = document.getElementById('error');
-const productsEl = document.getElementById('products');
-const statsEl = document.getElementById('stats');
-const productCountEl = document.getElementById('product-count');
+let products = [], selectedProduct, selectedColors = [], baseImage = new Image(), loading = false;
+let hoverTimeout = null;
 
-// Performance optimized rendering
-function renderProducts(products) {
-    if (!products || products.length === 0) {
-        productsEl.innerHTML = '<div class="error">No products found</div>';
+const escapeHtml = t => { const d = document.createElement('div'); d.textContent = t || ''; return d.innerHTML; };
+
+sessionStorage.removeItem('creationMode');
+// Load products from backend
+async function loadProducts() {
+  if (loading) return; loading = true;
+  toggle(loadingEl, true); toggle(errorEl, false); productsEl.innerHTML = '';
+  try {
+    const res = await fetch(CLOUD_FUNCTION_URL);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.message);
+    products = data.products || [];
+    productCountEl.textContent = products.length + (data.cached ? ' (cached)' : '');
+    renderProducts();
+  } catch (e) {
+    errorEl.textContent = `Failed to load products: ${e.message}`;
+    toggle(errorEl, true);
+  } finally {
+    toggle(loadingEl, false);
+    loading = false;
+  }
+}
+
+// Render product cards
+function renderProducts() {
+  productsEl.innerHTML = products.map(p => `
+    <div class="product-card" data-id="${p.id}">
+      <img src="${p.image}" alt="${escapeHtml(p.title)}" class="product-image">
+      <div class="product-title">${escapeHtml(p.title)}</div>
+      <div class="product-info">${escapeHtml(p.type_name)} â€¢ ${p.variant_count} variants</div>
+    </div>`).join('');
+}
+
+// Load overlay image
+function loadBaseOverlay(productId) {
+  return new Promise((resolve, reject) => {
+    baseImage.onload = () => {
+      canvas.width = baseImage.width;
+      canvas.height = baseImage.height;
+      resolve();
+    };
+    baseImage.onerror = reject;
+    baseImage.src = `images/flatlays/${productId}-base-front.png`;
+  });
+}
+
+// Draw shirt with selected color
+function renderShirtColor(hex) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = hex;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(baseImage, 0, 0);
+}
+
+// Show modal with variants
+function showVariantModal(product) {
+  selectedProduct = product;
+  selectedColors = [];
+  confirmBtn.disabled = true;
+  
+  // Update modal title
+  modalEl.querySelector('h3').textContent = `Choose colors for ${escapeHtml(product.title)}`;
+  
+  loadBaseOverlay(product.id).then(() => renderShirtColor('#ffffff')); // default white
+
+  const colors = new Set(product.variants.map(v => v.color || 'N/A'));
+  colors.add('White');
+  const colorArray = [...colors];
+
+  variantSelectionEl.innerHTML = `
+    <div class="variant-section">
+      <div class="section-title">Available Colors</div>
+      <div class="variant-selection-grid" data-type="color">
+        ${colorArray.map(c => {
+          const v = product.variants.find(vv => (vv.color||'N/A') === c);
+          const hex = v?.color_code || (c.toLowerCase() === 'white' ? '#ffffff' : '#cccccc');
+          return `<div class="variant-option" 
+                    data-color="${escapeHtml(c)}" 
+                    data-hex="${hex}"
+                    onmouseenter="handleColorHover('${hex}')"
+                    onmouseleave="handleColorHoverEnd()">
+                    <div class="color-dot" style="background:${hex}"></div>
+                    <div>${escapeHtml(c)}</div>
+                  </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+
+  updateSelectedColors();
+  modalEl.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+}
+
+// Handle color hover with delay
+function handleColorHover(hex) {
+  clearTimeout(hoverTimeout);
+  hoverTimeout = setTimeout(() => {
+    renderShirtColor(hex);
+  }, 200);
+}
+
+function handleColorHoverEnd() {
+  clearTimeout(hoverTimeout);
+  if (selectedColors.length > 0) {
+    // Show last selected color
+    renderShirtColor(selectedColors[selectedColors.length - 1].hex);
+  } else {
+    // Show default white
+    renderShirtColor('#ffffff');
+  }
+}
+
+// Update selected colors display
+function updateSelectedColors() {
+  selectedColorsEl.innerHTML = selectedColors.map((color, index) => `
+    <div class="selected-color">
+      <div class="selected-color-dot" style="background:${color.hex}"></div>
+      <span>${escapeHtml(color.name)}</span>
+      <span class="remove-color" onclick="removeSelectedColor(${index})">&times;</span>
+    </div>
+  `).join('') || '<div style="color:#999;font-size:0.9rem">No colors selected yet</div>';
+
+  confirmBtn.disabled = selectedColors.length === 0;
+}
+
+// Add color to selection
+function addSelectedColor(colorName, hex) {
+  if (!selectedColors.some(c => c.name === colorName)) {
+    selectedColors.push({ name: colorName, hex });
+    updateSelectedColors();
+    renderShirtColor(hex);
+  }
+}
+
+// create art button
+const createArtBtn = $('create-art-btn');
+
+// Add this event listener with the others
+createArtBtn.addEventListener('click', () => {
+  // Get Firestore user ID
+  const firestoreUserId = sessionStorage.getItem('designerFirestoreUserId') || 
+                         sessionStorage.getItem('currentFirestoreUserId');
+  
+  if (!firestoreUserId) {
+    alert('Please log in to create art');
+    window.location.href = 'profile.html';
+    return;
+  }
+  
+  // Store that we're in art creation mode
+  sessionStorage.setItem('creationMode', 'art');
+  window.location.href = 'canvas.html';
+});
+
+// Remove color from selection
+function removeSelectedColor(index) {
+  selectedColors.splice(index, 1);
+  updateSelectedColors();
+  if (selectedColors.length > 0) {
+    renderShirtColor(selectedColors[selectedColors.length - 1].hex);
+  } else {
+    renderShirtColor('#ffffff');
+  }
+}
+
+function closeModal() {
+  modalEl.style.display = 'none';
+  document.body.style.overflow = '';
+  selectedProduct = null;
+  selectedColors = [];
+}
+
+// Event listeners
+productsEl.addEventListener('click', e => {
+  const card = e.target.closest('.product-card');
+  if (card) showVariantModal(products.find(p => p.id == card.dataset.id));
+});
+
+variantSelectionEl.addEventListener('click', e => {
+  const opt = e.target.closest('.variant-option');
+  if (!opt) return;
+  
+  const colorName = opt.dataset.color;
+  const hex = opt.dataset.hex;
+  
+  if (opt.classList.contains('selected')) {
+    // Deselect color
+    opt.classList.remove('selected');
+    const index = selectedColors.findIndex(c => c.name === colorName);
+    if (index !== -1) {
+      removeSelectedColor(index);
+    }
+  } else {
+    // Select color
+    opt.classList.add('selected');
+    addSelectedColor(colorName, hex);
+  }
+});
+
+// SIMPLIFIED CONFIRM BUTTON - ONLY FIRESTORE USER ID
+confirmBtn.addEventListener('click', () => {
+    if (!selectedProduct || selectedColors.length === 0) return;
+        // Clear art mode when selecting a product
+    sessionStorage.removeItem('creationMode');
+    // Find variants for all selected colors
+    const variants = selectedColors.map(color => {
+        return selectedProduct.variants.find(v => (v.color||'N/A') === color.name) || {};
+    });
+
+    // Get ONLY Firestore user ID from session storage
+    const firestoreUserId = sessionStorage.getItem('designerFirestoreUserId') || 
+                           sessionStorage.getItem('currentFirestoreUserId');
+    
+    console.log("Firestore User ID for product creation:", firestoreUserId);
+    
+    if (!firestoreUserId) {
+        alert('User information not found. Please log in again.');
+        window.location.href = 'profile.html';
         return;
     }
-
-    // Use DocumentFragment for efficient DOM manipulation
-    const fragment = document.createDocumentFragment();
     
-    products.forEach(product => {
-        const productCard = document.createElement('div');
-        productCard.className = 'product-card';
-        productCard.innerHTML = createProductHTML(product);
-        fragment.appendChild(productCard);
-    });
+    // Store product and variant data
+    sessionStorage.setItem('selectedProduct', JSON.stringify(selectedProduct));
+    sessionStorage.setItem('selectedVariants', JSON.stringify(variants));
     
-    // Single DOM update
-    productsEl.innerHTML = '';
-    productsEl.appendChild(fragment);
-}
-
-// Optimized HTML generation
-function createProductHTML(product) {
-    return `
-        <img src="${product.image || PLACEHOLDER_IMAGE}" 
-             alt="${escapeHtml(product.title)}" 
-             class="product-image"
-             loading="lazy"
-             onerror="this.src='${PLACEHOLDER_IMAGE}'">
-        
-        <div class="product-title">${escapeHtml(product.title)}</div>
-        
-        <div class="product-info">
-            <span>ID: ${product.id}</span>
-            <span>Type: ${escapeHtml(product.type_name)}</span>
-            ${product.brand ? `<span>Brand: ${escapeHtml(product.brand)}</span>` : ''}
-            ${product.model ? `<span>Model: ${escapeHtml(product.model)}</span>` : ''}
-            <span>Variants: ${product.variant_count || 0}</span>
-        </div>
-
-        ${createVariantsHTML(product)}
-        ${createMockupsHTML(product)}
-    `;
-}
-
-function createVariantsHTML(product) {
-    if (!product.variants || product.variants.length === 0) return '';
+    // Store ONLY the Firestore user ID (both keys for compatibility)
+    sessionStorage.setItem('designerFirestoreUserId', firestoreUserId);
+    sessionStorage.setItem('currentFirestoreUserId', firestoreUserId);
     
-    const visibleVariants = product.variants.slice(0, 12);
-    const remainingCount = Math.max(0, product.variants.length - 12);
+    console.log("Navigating to canvas with Firestore User ID:", firestoreUserId);
     
-    return `
-        <div class="variants-section">
-            <div class="section-title">Available Variants (${product.variants.length})</div>
-            <div class="variants-grid">
-                ${visibleVariants.map(variant => `
-                    <div class="variant-item">
-                        ${variant.color_code ? `<span class="color-dot" style="background-color: ${variant.color_code}"></span>` : ''}
-                        <div>${escapeHtml(variant.color || 'N/A')}</div>
-                        <div>${escapeHtml(variant.size || 'One Size')}</div>
-                        <div class="availability-status">
-                            ${escapeHtml(variant.availability_status || 'Unknown')}
-                        </div>
-                    </div>
-                `).join('')}
-                ${remainingCount > 0 ? `<div class="variant-item more-variants">+${remainingCount} more</div>` : ''}
-            </div>
-        </div>
-    `;
-}
+    closeModal();
+    window.location.href = 'canvas.html';
+});
 
-function createMockupsHTML(product) {
-    if (!product.mockups || product.mockups.length === 0) return '';
-    
-    return `
-        <div class="mockups-section">
-            <div class="section-title">Mockup Images (${product.mockups.length})</div>
-            <div class="mockups-grid">
-                ${product.mockups.map(mockupUrl => `
-                    <img src="${mockupUrl}" 
-                         alt="Product mockup" 
-                         class="mockup-image"
-                         loading="lazy"
-                         onerror="this.src='${PLACEHOLDER_IMAGE}'">
-                `).join('')}
-            </div>
-        </div>
-    `;
-}
-
-// Utility function for HTML escaping
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-// Show/hide elements
-function showLoading() {
-    loadingEl.style.display = 'block';
-    errorEl.style.display = 'none';
-    productsEl.innerHTML = '';
-    statsEl.style.display = 'none';
-}
-
-function hideLoading() {
-    loadingEl.style.display = 'none';
-}
-
-function showError(message) {
-    errorEl.innerHTML = `<h3>Error</h3><p>${message}</p>`;
-    errorEl.style.display = 'block';
-    hideLoading();
-}
-
-function showStats(count, cached = false) {
-    productCountEl.innerHTML = `${count} ${cached ? '<span style="color: #27ae60;">(cached)</span>' : ''}`;
-    statsEl.style.display = 'block';
-}
-
-// Optimized product loading with retry logic
-async function loadProducts(retryCount = 0) {
-    if (isLoading) return;
-    
-    isLoading = true;
-    showLoading();
-    
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-        
-        const response = await fetch(CLOUD_FUNCTION_URL, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        
-        if (!data.success) {
-            throw new Error(data.message || 'Failed to fetch products');
-        }
-
-        currentProducts = data.products || [];
-        renderProducts(currentProducts);
-        showStats(currentProducts.length, data.cached);
-        
-        console.log(`Loaded ${currentProducts.length} products successfully`);
-        
-    } catch (error) {
-        console.error('Error loading products:', error);
-        
-        // Retry logic for transient failures
-        if (retryCount < 2 && (error.name === 'AbortError' || error.message.includes('network'))) {
-            console.log(`Retrying... (${retryCount + 1}/3)`);
-            setTimeout(() => loadProducts(retryCount + 1), 2000);
-            return;
-        }
-        
-        showError(`Failed to load products: ${error.message}`);
-    } finally {
-        isLoading = false;
-        hideLoading();
-    }
-}
-
-function setupProductSelection() {
-    // Create modal elements
-    const modal = document.createElement('div');
-    modal.id = 'variant-modal';
-    modal.className = 'modal';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <span class="close-modal">&times;</span>
-            <h3>Select Variant</h3>
-            <div id="variant-selection" class="variant-selection-grid"></div>
-            <button id="confirm-variant" class="confirm-button">Continue to Canvas</button>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    
-    // Style the modal (add to your CSS)
-    const style = document.createElement('style');
-    style.textContent = `
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0,0,0,0.7);
-        }
-        
-        .modal-content {
-            background-color: #fff;
-            margin: 10% auto;
-            padding: 20px;
-            border-radius: 12px;
-            width: 80%;
-            max-width: 600px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-        }
-        
-        .close-modal {
-            color: #aaa;
-            float: right;
-            font-size: 28px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-        
-        .close-modal:hover {
-            color: #333;
-        }
-        
-        .variant-selection-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-            gap: 10px;
-            margin: 20px 0;
-            max-height: 400px;
-            overflow-y: auto;
-        }
-        
-        .variant-option {
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        
-        .variant-option:hover {
-            background-color: #f0f0f0;
-        }
-        
-        .variant-option.selected {
-            background-color: #e3f2fd;
-            border-color: #2196F3;
-        }
-        
-        .confirm-button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 12px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 16px;
-            width: 100%;
-            margin-top: 20px;
-        }
-        
-        .confirm-button:disabled {
-            background: #cccccc;
-            cursor: not-allowed;
-        }
-    `;
-    document.head.appendChild(style);
-    
-    // Modal functionality
-    const modalEl = document.getElementById('variant-modal');
-    const closeBtn = modalEl.querySelector('.close-modal');
-    const confirmBtn = document.getElementById('confirm-variant');
-    let selectedProduct = null;
-    let selectedVariant = null;
-    
-    // Close modal when clicking X or outside
-    closeBtn.addEventListener('click', () => modalEl.style.display = 'none');
-    window.addEventListener('click', (e) => {
-        if (e.target === modalEl) modalEl.style.display = 'none';
-    });
-    
-    // Handle variant selection
-    document.addEventListener('click', (e) => {
-        const variantOption = e.target.closest('.variant-option');
-        if (variantOption) {
-            document.querySelectorAll('.variant-option').forEach(el => 
-                el.classList.remove('selected'));
-            variantOption.classList.add('selected');
-            selectedVariant = JSON.parse(variantOption.dataset.variant);
-            confirmBtn.disabled = false;
-        }
-    });
-    
-    // Handle confirm button click
-    confirmBtn.addEventListener('click', () => {
-        if (selectedProduct && selectedVariant) {
-            // Store selection in sessionStorage
-            sessionStorage.setItem('selectedProduct', JSON.stringify(selectedProduct));
-            sessionStorage.setItem('selectedVariant', JSON.stringify(selectedVariant));
-            
-            // Redirect to canvas page
-            window.location.href = 'canvas.html';
-        }
-    });
-    
-    // Expose function to show modal
-    window.showVariantModal = (product) => {
-        selectedProduct = product;
-        selectedVariant = null;
-        confirmBtn.disabled = true;
-        
-        const selectionGrid = document.getElementById('variant-selection');
-        selectionGrid.innerHTML = '';
-        
-        if (product.variants && product.variants.length > 0) {
-            product.variants.forEach(variant => {
-                const option = document.createElement('div');
-                option.className = 'variant-option';
-                option.dataset.variant = JSON.stringify(variant);
-                option.innerHTML = `
-                    ${variant.color_code ? `<span class="color-dot" style="background-color: ${variant.color_code}"></span>` : ''}
-                    <div><strong>${escapeHtml(variant.color || 'N/A')}</strong></div>
-                    <div>${escapeHtml(variant.size || 'One Size')}</div>
-                    <div class="availability-status">
-                        ${escapeHtml(variant.availability_status || 'Unknown')}
-                    </div>
-                `;
-                selectionGrid.appendChild(option);
-            });
-        } else {
-            selectionGrid.innerHTML = '<div class="no-variants">No variants available for this product</div>';
-        }
-        
-        modalEl.style.display = 'block';
-    };
-}
-
-function addProductClickHandlers() {
-    document.addEventListener('click', (e) => {
-        const productCard = e.target.closest('.product-card');
-        if (productCard) {
-            const productId = parseInt(productCard.querySelector('.product-info span').textContent.replace('ID: ', ''));
-            const product = currentProducts.find(p => p.id === productId);
-            if (product) {
-                showVariantModal(product);
-            }
-        }
-    });
-}
-
-// Initialize these when DOM is ready
+//show user id
 document.addEventListener('DOMContentLoaded', () => {
-    setupProductSelection();
-    addProductClickHandlers();
+    // Check both possible locations for the user ID
+    const firestoreUserId = sessionStorage.getItem('designerFirestoreUserId') || 
+                           sessionStorage.getItem('currentFirestoreUserId');
+    
+    console.log("Checking authentication - Firestore User ID:", firestoreUserId);
+    
+    if (firestoreUserId) {
+        console.log("User authenticated with Firestore ID:", firestoreUserId);
+        // User is logged in, proceed with loading products
+        loadProducts();
+    }
 });
 
-// Preload products immediately when DOM is ready
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded, starting product load...');
-    loadProducts();
-});
+closeBtn.addEventListener('click', closeModal);
+window.addEventListener('click', e => e.target === modalEl && closeModal());
+document.addEventListener('keydown', e => e.key === 'Escape' && modalEl.style.display === 'block' && closeModal());
+refreshBtn.addEventListener('click', () => loadProducts());
+document.addEventListener('DOMContentLoaded', loadProducts);
 
-// Preload on script load if DOM is already ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', loadProducts);
-} else {
-    loadProducts();
-}
-
-// Expose functions to global scope
-window.loadProducts = loadProducts;
+// Expose functions to global scope for HTML event handlers
+window.handleColorHover = handleColorHover;
+window.handleColorHoverEnd = handleColorHoverEnd;
+window.removeSelectedColor = removeSelectedColor;

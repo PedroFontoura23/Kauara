@@ -17,7 +17,9 @@ const printfunctions = require('./printfunctions');
 exports.getProducts = printfunctions.getProducts;
 exports.getFlatLay = printfunctions.getFlatLay;
 exports.checkMockupStatus = printfunctions.checkMockupStatus;
-
+exports.getPrintAreas = printfunctions.getPrintAreas;
+exports.saveProduct = printfunctions.saveProduct;
+exports.saveArt = printfunctions.saveArt;
 // Initialize Firebase Admin
 if (!admin.apps.length) {
   admin.initializeApp();

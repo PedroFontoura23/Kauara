@@ -9,69 +9,105 @@ document.addEventListener("DOMContentLoaded", function () {
     appId: "1:651139031771:web:8c73a3e1fff2d5cf2ae2fe",
     measurementId: "G-KL18R1CJ6S",
   };
-  firebase.initializeApp(firebaseConfig);
+  
+  // Check if Firebase is already initialized
+  if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+  }
 
   const auth = firebase.auth();
   const db = firebase.firestore();
 
-  // Elements
+  // Elements - defined after DOM is loaded
   const userNameElement = document.getElementById("userName");
   const userEmailElement = document.getElementById("userEmail");
   const userBioElement = document.getElementById("userBio");
   const profilePictureElement = document.getElementById("profilePicture");
-  const cropModal = new bootstrap.Modal(document.getElementById("cropModal"));
-  const cropImage = document.getElementById("cropImage");
-  const cropButton = document.getElementById("cropButton");
   const uploadPictureButton = document.getElementById("uploadPictureButton");
-  // Post elements
+  const artistaBadge = document.getElementById("artistaBadge");
   const addPostButton = document.getElementById("addPostButton");
-  const postModal = new bootstrap.Modal(document.getElementById("postModal"));
+  const createProductButton = document.getElementById("createProductButton");
+  
+  // Modal elements - initialized safely after DOM is loaded
+  let cropModal, postModal, postCropModal;
+  
+  // Initialize modals safely
+  setTimeout(() => {
+    try {
+      const cropModalEl = document.getElementById("cropModal");
+      const postModalEl = document.getElementById("postModal");
+      const postCropModalEl = document.getElementById("cropPostModal");
+
+      if (cropModalEl && typeof bootstrap !== 'undefined') cropModal = new bootstrap.Modal(cropModalEl);
+      if (postModalEl && typeof bootstrap !== 'undefined') postModal = new bootstrap.Modal(postModalEl);
+      if (postCropModalEl && typeof bootstrap !== 'undefined') postCropModal = new bootstrap.Modal(postCropModalEl);
+      
+      console.log("Modals initialized successfully");
+    } catch (modalError) {
+      console.error("Error initializing modals:", modalError);
+    }
+  }, 100);
+
+  // Post elements
   const postText = document.getElementById("postText");
   const postImageInput = document.getElementById("postImageInput");
   const postImagePreview = document.getElementById("postImagePreview");
   const submitPostButton = document.getElementById("submitPostButton");
 
   // Post image cropping elements
-  const postCropModal = new bootstrap.Modal(document.getElementById("cropPostModal"));
   const postCropImage = document.getElementById("cropPostImage");
-  const postCropButton = document.getElementById("cropPostButton")
+  const postCropButton = document.getElementById("cropPostButton");
   const MAX_IMAGE_SIZE_MB = 5; // Maximum file size in MB
   const MAX_DIMENSION = 1200; // Maximum width/height in pixels
   const JPEG_QUALITY = 0.7; // JPEG compression quality (0.0 to 1.0)
-    // Elements for product creation
-  const addProductButton = document.getElementById("addProductButton");
-  const productModal = new bootstrap.Modal(document.getElementById("productModal"));
-  const productName = document.getElementById("productName");
-  const productDescription = document.getElementById("productDescription");
-  const productPrice = document.getElementById("productPrice");
-  const productImageInput = document.getElementById("productImageInput");
-  const productImagePreview = document.getElementById("productImagePreview");
-  const submitProductButton = document.getElementById("submitProductButton");
-  const mockupCanvas = document.getElementById("mockupCanvas");
-  const ctx = mockupCanvas.getContext("2d");
-  const PRINTFUL_CLIENT_ID = "app-5311675"; // Replace with your Printful Client ID
-  const REDIRECT_URI = "https://kauara1.web.app"; // Must match Printful settings
-  let selectedProductImageFile = null;
-  let productCropper = null;
 
   let selectedImageFile = null;
   let cropper;
   let postCropper = null;
 
-  document.getElementById("becomeArtistButton").addEventListener("click", async () => {
-    const user = firebase.auth().currentUser;
-    if (!user) {
-      alert("Você precisa estar logado para se tornar um artista.");
-      return;
-    }
+  // Create Product button functionality
+  if (createProductButton) {
+    createProductButton.addEventListener("click", async () => {
+      const user = auth.currentUser;
+      if (user) {
+        try {
+          // Get the Firestore user ID format (e.g., "user_1", "user_2")
+          const firestoreUserId = await getUserIdFromUid(user.uid);
+          
+          // Store both user IDs in session storage for the next pages
+          sessionStorage.setItem('currentUserId', user.uid);
+          sessionStorage.setItem('currentFirestoreUserId', firestoreUserId);
+          sessionStorage.setItem('designerFirestoreUserId', firestoreUserId);
+          
+          window.location.href = 'select-product.html';
+        } catch (error) {
+          console.error("Error getting user ID:", error);
+          alert("Error retrieving user information. Please try again.");
+        }
+      } else {
+        alert("Please log in to create products");
+      }
+    });
+  }
 
-    const CLIENT_ID = "8000562204726523";
+  // Become Artist button functionality
+  const becomeArtistButton = document.getElementById("becomeArtistButton");
+  if (becomeArtistButton) {
+    becomeArtistButton.addEventListener("click", async () => {
+      const user = firebase.auth().currentUser;
+      if (!user) {
+        alert("Você precisa estar logado para se tornar um artista.");
+        return;
+      }
 
-    // Gera a URL para o usuário autenticar no Mercado Pago
-    const authUrl = `/artistRegistration.html`;
+      const CLIENT_ID = "8000562204726523";
 
-    window.location.href = authUrl; // Redireciona o usuário
-  });
+      // Gera a URL para o usuário autenticar no Mercado Pago
+      const authUrl = `/artistRegistration.html`;
+
+      window.location.href = authUrl; // Redireciona o usuário
+    });
+  }
 
   async function getPrintfulKey() {
       const db = firebase.firestore();
@@ -79,9 +115,17 @@ document.addEventListener("DOMContentLoaded", function () {
           const doc = await db.collection("config").doc("api_keys").get();
           if (doc.exists) {
               const encryptedKey = doc.data().printful_api_encrypted;
-              const bytes = CryptoJS.AES.decrypt(encryptedKey, ENCRYPTION_SECRET);
-              const decryptedKey = bytes.toString(CryptoJS.enc.Utf8);
-              return decryptedKey; 
+              const ENCRYPTION_SECRET = "your-secret-key"; // You should define this properly
+              
+              // Check if CryptoJS is available
+              if (typeof CryptoJS !== 'undefined') {
+                const bytes = CryptoJS.AES.decrypt(encryptedKey, ENCRYPTION_SECRET);
+                const decryptedKey = bytes.toString(CryptoJS.enc.Utf8);
+                return decryptedKey;
+              } else {
+                console.error("CryptoJS is not loaded");
+                return null;
+              }
           } else {
               console.error("Nenhuma chave encontrada no Firestore.");
               return null;
@@ -93,90 +137,122 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   // Add this event listener for the "Create Post" button
-  addPostButton.addEventListener("click", () => {
-    console.log("Create Post button clicked!"); // Debugging: Log to console
-    postModal.show(); // Open the post creation modal
-  });
+  if (addPostButton) {
+    addPostButton.addEventListener("click", () => {
+      console.log("Create Post button clicked!");
+      if (postModal) postModal.show(); // Open the post creation modal
+    });
+  }
 
-  // Impedir que o dropdown feche ao clicar em "Conta" ou "Segurança"
+  // Prevent dropdown from closing when clicking "Conta" or "Segurança"
   document.querySelectorAll('.dropdown-item[data-bs-toggle="collapse"]').forEach((button) => {
       button.addEventListener('click', (event) => {
-          event.stopPropagation(); // Impede que o evento de clique se propague e feche o dropdown
+          event.stopPropagation(); // Prevent event propagation to close dropdown
       });
   });
 
+  // Safe initialization of PostManager
   function initializePostManager(containerId) {
-    return new PostManager(db, auth, containerId);
+    if (typeof PostManager !== 'undefined') {
+      return new PostManager(db, auth, containerId);
+    } else {
+      console.error("PostManager is not defined. Make sure to include the PostManager script.");
+      return null;
+    }
+  }
+
+  // Safe initialization of ProductsManager
+  function initializeProductsManager(containerId) {
+    if (typeof ProductsManager !== 'undefined') {
+      return new ProductsManager(db, auth, containerId);
+    } else {
+      console.error("ProductsManager is not defined. Make sure to include the ProductsManager script.");
+      return null;
+    }
   }
 
   // Handle image upload and cropping
-  postImageInput.addEventListener("change", async (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      try {
-        const compressedImage = await compressImage(file);
-        selectedImageFile = file;
-        postCropImage.src = compressedImage;
+  if (postImageInput) {
+    postImageInput.addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      if (file) {
+        try {
+          const compressedImage = await compressImage(file);
+          selectedImageFile = file;
+          if (postCropImage) postCropImage.src = compressedImage;
 
-        if (postCropper) {
-          postCropper.destroy();
+          if (postCropper) {
+            postCropper.destroy();
+          }
+
+          if (postCropModal) postCropModal.show();
+          
+          // Check if Cropper is available
+          if (typeof Cropper !== 'undefined' && postCropImage) {
+            postCropper = new Cropper(postCropImage, {
+              aspectRatio: NaN,
+              viewMode: 1
+            });
+          } else {
+            console.error("Cropper library is not loaded or postCropImage element not found");
+          }
+        } catch (error) {
+          alert(error.message);
+          postImageInput.value = ''; // Clear the input
+          selectedImageFile = null;
         }
-
-        postCropModal.show();
-        postCropper = new Cropper(postCropImage, {
-          aspectRatio: NaN,
-          viewMode: 1
-        });
-      } catch (error) {
-        alert(error.message);
-        postImageInput.value = ''; // Clear the input
-        selectedImageFile = null;
       }
-    }
-  });
+    });
+  }
 
   // Handle image cropping
-  postCropButton.addEventListener("click", () => {
-    if (!postCropper) {
-      alert("Please select an image first");
-      return;
-    }
-
-    const canvas = postCropper.getCroppedCanvas();
-    postImagePreview.src = canvas.toDataURL("image/jpeg");
-    postImagePreview.classList.remove("d-none");
-    postCropModal.hide();
-  });
-
-  // Handle post submission
-  submitPostButton.addEventListener("click", async () => {
-    const postContent = postText.value.trim();
-    if (!postContent && !selectedImageFile) {
-      alert("Please add text or an image.");
-      return;
-    }
-
-    const user = auth.currentUser;
-    if (!user) {
-      alert("User is not logged in.");
-      return;
-    }
-
-    try {
-      const firestoreUserId = await getUserIdFromUid(user.uid);
-      let base64Image = null;
-
-      if (selectedImageFile && postCropper) {
-        const canvas = postCropper.getCroppedCanvas();
-        base64Image = canvas.toDataURL("image/jpeg").split(",")[1];
+  if (postCropButton) {
+    postCropButton.addEventListener("click", () => {
+      if (!postCropper) {
+        alert("Please select an image first");
+        return;
       }
 
-      await savePostToFirestore(postContent, base64Image, firestoreUserId);
-    } catch (error) {
-      console.error("Error handling post submission:", error);
-      alert("Something went wrong.");
-    }
-  });
+      const canvas = postCropper.getCroppedCanvas();
+      if (postImagePreview) {
+        postImagePreview.src = canvas.toDataURL("image/jpeg");
+        postImagePreview.classList.remove("d-none");
+      }
+      if (postCropModal) postCropModal.hide();
+    });
+  }
+
+  // Handle post submission
+  if (submitPostButton) {
+    submitPostButton.addEventListener("click", async () => {
+      const postContent = postText ? postText.value.trim() : "";
+      if (!postContent && !selectedImageFile) {
+        alert("Please add text or an image.");
+        return;
+      }
+
+      const user = auth.currentUser;
+      if (!user) {
+        alert("User is not logged in.");
+        return;
+      }
+
+      try {
+        const firestoreUserId = await getUserIdFromUid(user.uid);
+        let base64Image = null;
+
+        if (selectedImageFile && postCropper) {
+          const canvas = postCropper.getCroppedCanvas();
+          base64Image = canvas.toDataURL("image/jpeg").split(",")[1];
+        }
+
+        await savePostToFirestore(postContent, base64Image, firestoreUserId);
+      } catch (error) {
+        console.error("Error handling post submission:", error);
+        alert("Something went wrong.");
+      }
+    });
+  }
 
   // Function to save the post to Firestore
   async function savePostToFirestore(text, base64Image, userId) {
@@ -197,21 +273,21 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    const postText = text.trim() || "No content provided";
+    const postTextContent = text.trim() || "No content provided";
 
     try {
       await db.collection("posts").add({
         foreignUserId: userId,
         Firebase_UID: firebase.auth().currentUser.uid, 
-        postText: postText,
+        postText: postTextContent,
         postImage: base64Image,
         timestamp: firebase.firestore.FieldValue.serverTimestamp()
       });
 
-      postModal.hide();
-      postText.value = "";
-      postImageInput.value = "";
-      postImagePreview.classList.add("d-none");
+      if (postModal) postModal.hide();
+      if (postText) postText.value = "";
+      if (postImageInput) postImageInput.value = "";
+      if (postImagePreview) postImagePreview.classList.add("d-none");
       selectedImageFile = null;
 
       if (postCropper) {
@@ -226,6 +302,7 @@ document.addEventListener("DOMContentLoaded", function () {
       alert("Failed to create post.");
     }
   }
+
   // Helper function to get user ID format (e.g., "user_1", "user_2")
   async function getUserIdFromUid(uid) {
     console.log("Fetching Firestore user ID for UID:", uid);
@@ -259,24 +336,26 @@ document.addEventListener("DOMContentLoaded", function () {
                   const userData = userDoc.data();
 
                   // ✅ Display user data immediately
-                  userNameElement.textContent = userData.user_Name || "Unknown User";
-                  userEmailElement.textContent = user.email || "No Email";
-                  userBioElement.textContent = userData.user_Bio || "No bio available.";
+                  if (userNameElement) userNameElement.textContent = userData.user_Name || "Unknown User";
+                  if (userEmailElement) userEmailElement.textContent = user.email || "No Email";
+                  if (userBioElement) userBioElement.textContent = userData.user_Bio || "No bio available.";
                   
                   // ✅ Show profile picture ASAP
-                  profilePictureElement.src = userData.profilePicture 
-                      ? `data:image/jpeg;base64,${userData.profilePicture}`
-                      : "../images/default-profile.png";
+                  if (profilePictureElement) {
+                    profilePictureElement.src = userData.profilePicture 
+                        ? `data:image/jpeg;base64,${userData.profilePicture}`
+                        : "../images/default-profile.png";
+                  }
 
                   // ✅ Show/hide artist elements
                   if (userData.artista) {
-                      addPostButton.style.display = "block";
-                      if (addProductButton) addProductButton.style.display = "block";
-                      artistaBadge.style.display = "inline";
+                      if (addPostButton) addPostButton.style.display = "block";
+                      if (createProductButton) createProductButton.style.display = "block";
+                      if (artistaBadge) artistaBadge.style.display = "inline";
                   } else {
-                      addPostButton.style.display = "none";
-                      if (addProductButton) addProductButton.style.display = "none";
-                      artistaBadge.style.display = "none";
+                      if (addPostButton) addPostButton.style.display = "none";
+                      if (createProductButton) createProductButton.style.display = "none";
+                      if (artistaBadge) artistaBadge.style.display = "none";
                   }
 
                   // Explicitly fetch ratings
@@ -310,17 +389,26 @@ document.addEventListener("DOMContentLoaded", function () {
               console.log("Total Ratings from Firestore:", totalRatings); // Debugging
 
               // Update the DOM with the fetched values
-              document.getElementById("averageRating").textContent = `${averageRating} ★`;
-              document.getElementById("numberOfRatings").textContent = `(${totalRatings} ${totalRatings === 1 ? 'rating' : 'ratings'})`;
+              const averageRatingEl = document.getElementById("averageRating");
+              const numberOfRatingsEl = document.getElementById("numberOfRatings");
+              
+              if (averageRatingEl) averageRatingEl.textContent = `${averageRating} ⭐`;
+              if (numberOfRatingsEl) numberOfRatingsEl.textContent = `(${totalRatings} ${totalRatings === 1 ? 'rating' : 'ratings'})`;
           } else {
               console.error("User document not found for ID:", userId);
-              document.getElementById("averageRating").textContent = "No ratings yet";
-              document.getElementById("numberOfRatings").textContent = "(0 ratings)";
+              const averageRatingEl = document.getElementById("averageRating");
+              const numberOfRatingsEl = document.getElementById("numberOfRatings");
+              
+              if (averageRatingEl) averageRatingEl.textContent = "No ratings yet";
+              if (numberOfRatingsEl) numberOfRatingsEl.textContent = "(0 ratings)";
           }
       } catch (error) {
           console.error("Error fetching ratings:", error);
-          document.getElementById("averageRating").textContent = "Error loading ratings";
-          document.getElementById("numberOfRatings").textContent = "";
+          const averageRatingEl = document.getElementById("averageRating");
+          const numberOfRatingsEl = document.getElementById("numberOfRatings");
+          
+          if (averageRatingEl) averageRatingEl.textContent = "Error loading ratings";
+          if (numberOfRatingsEl) numberOfRatingsEl.textContent = "";
       }
   }
 
@@ -334,14 +422,17 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     getUserIdFromUid(user.uid).then((firestoreUserId) => {
-      const productsManager = new ProductsManager(db, auth, 'productsContainer');
-      // Always filter by the current user's ID on the profile page
-      productsManager.displayProducts(firestoreUserId, firestoreUserId);
+      const productsManager = initializeProductsManager('productsContainer');
+      if (productsManager) {
+        // Always filter by the current user's ID on the profile page
+        productsManager.displayProducts(firestoreUserId, firestoreUserId);
+      }
     }).catch((error) => {
       console.error("Error fetching user ID:", error);
     });
   }
-  //Limitador de tamanho da imagem
+
+  // Image compression function
   async function compressImage(imageFile) {
     // Check file size first
     const fileSizeMB = imageFile.size / (1024 * 1024);
@@ -397,153 +488,208 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   // Edit Name Functionality
-  document.getElementById("editNameButton").addEventListener("click", () => {
-    const nameEditSection = document.getElementById("nameEditSection");
-    nameEditSection.style.display = "block";
-    const nameInput = document.getElementById("nameInput");
-    nameInput.value = userNameElement.textContent; // Set the current name in the input
-  });
-
-  document.getElementById("saveNameButton").addEventListener("click", () => {
-    const newName = document.getElementById("nameInput").value.trim();
-    const user = auth.currentUser;
-
-    getUserIdFromUid(user.uid).then((firestoreUserId) => {
-      db.collection("users")
-        .doc(firestoreUserId)
-        .update({ user_Name: newName })
-        .then(() => {
-          userNameElement.textContent = newName; // Update the displayed name
-          document.getElementById("nameEditSection").style.display = "none"; // Hide the edit section
-        })
-        .catch((error) => {
-          console.error("Error updating name:", error);
-          alert("Failed to update name.");
-        });
+  const editNameButton = document.getElementById("editNameButton");
+  if (editNameButton) {
+    editNameButton.addEventListener("click", () => {
+      const nameEditSection = document.getElementById("nameEditSection");
+      if (nameEditSection) nameEditSection.style.display = "block";
+      const nameInput = document.getElementById("nameInput");
+      if (nameInput && userNameElement) nameInput.value = userNameElement.textContent; // Set the current name in the input
     });
-  });
+  }
 
-  document.getElementById("cancelNameButton").addEventListener("click", () => {
-  document.getElementById("nameEditSection").style.display = "none"; // Hide the edit section
-  });
-
-  // Edit Bio Functionality
-  document.getElementById("editBioButton").addEventListener("click", () => {
-    const bioEditSection = document.getElementById("bioEditSection");
-    bioEditSection.style.display = "block";
-    const bioInput = document.getElementById("bioInput");
-    bioInput.value = userBioElement.textContent; // Set the current bio in the input
-  });
-
-  document.getElementById("saveBioButton").addEventListener("click", () => {
-    const newBio = document.getElementById("bioInput").value.trim();
-    const user = auth.currentUser;
-
-    getUserIdFromUid(user.uid).then((firestoreUserId) => {
-      db.collection("users")
-        .doc(firestoreUserId)
-        .update({ user_Bio: newBio })
-        .then(() => {
-          userBioElement.textContent = newBio; // Update the displayed bio
-          document.getElementById("bioEditSection").style.display = "none"; // Hide the edit section
-        })
-        .catch((error) => {
-          console.error("Error updating bio:", error);
-          alert("Failed to update bio.");
-        });
-    });
-  });
-
-  document.getElementById("cancelBioButton").addEventListener("click", () => {
-    document.getElementById("bioEditSection").style.display = "none"; // Hide the edit section
-  });
-
-  // File upload and cropping
-  uploadPictureButton.addEventListener("click", () => {
-    const fileInput = document.createElement("input");
-    fileInput.type = "file";
-    fileInput.accept = "image/*";
-    fileInput.addEventListener("change", async (event) => {
-      const file = event.target.files[0];
-      if (file) {
-        try {
-          const compressedImage = await compressImage(file);
-          cropImage.src = compressedImage;
-          cropModal.show();
-          cropper = new Cropper(cropImage, {
-            aspectRatio: 1,
-            viewMode: 1,
-          });
-        } catch (error) {
-          alert(error.message);
-        }
-      }
-    });
-    fileInput.click();
-  });
-
-  // Save cropped image to Firestore as Base64
-  cropButton.addEventListener("click", () => {
-    const canvas = cropper.getCroppedCanvas({
-      width: 300,
-      height: 300,
-    });
-
-    if (!cropper) {
-      console.error("Cropper is not initialized.");
-      alert("Please select and crop an image first.");
-      return;
-    }
-
-    canvas.toBlob((blob) => {
-      const base64Image = canvas.toDataURL("image/jpeg").split(",")[1];
+  const saveNameButton = document.getElementById("saveNameButton");
+  if (saveNameButton) {
+    saveNameButton.addEventListener("click", () => {
+      const nameInput = document.getElementById("nameInput");
+      const newName = nameInput ? nameInput.value.trim() : "";
       const user = auth.currentUser;
 
-      getUserIdFromUid(user.uid).then((firestoreUserId) => {
-        db.collection("users")
-          .doc(firestoreUserId)
-          .update({ profilePicture: base64Image })
-          .then(() => {
-            profilePictureElement.src = `data:image/jpeg;base64,${base64Image}`;
-            cropModal.hide();
-            cropper.destroy();
-          })
-          .catch((error) => {
-            console.error("Error updating profile picture:", error);
-            alert("Error updating profile picture.");
-          });
+      if (user && newName) {
+        getUserIdFromUid(user.uid).then((firestoreUserId) => {
+          db.collection("users")
+            .doc(firestoreUserId)
+            .update({ user_Name: newName })
+            .then(() => {
+              if (userNameElement) userNameElement.textContent = newName; // Update the displayed name
+              const nameEditSection = document.getElementById("nameEditSection");
+              if (nameEditSection) nameEditSection.style.display = "none"; // Hide the edit section
+            })
+            .catch((error) => {
+              console.error("Error updating name:", error);
+              alert("Failed to update name.");
+            });
+        });
+      }
+    });
+  }
+
+  const cancelNameButton = document.getElementById("cancelNameButton");
+  if (cancelNameButton) {
+    cancelNameButton.addEventListener("click", () => {
+      const nameEditSection = document.getElementById("nameEditSection");
+      if (nameEditSection) nameEditSection.style.display = "none"; // Hide the edit section
+    });
+  }
+
+  // Edit Bio Functionality
+  const editBioButton = document.getElementById("editBioButton");
+  if (editBioButton) {
+    editBioButton.addEventListener("click", () => {
+      const bioEditSection = document.getElementById("bioEditSection");
+      if (bioEditSection) bioEditSection.style.display = "block";
+      const bioInput = document.getElementById("bioInput");
+      if (bioInput && userBioElement) bioInput.value = userBioElement.textContent; // Set the current bio in the input
+    });
+  }
+
+  const saveBioButton = document.getElementById("saveBioButton");
+  if (saveBioButton) {
+    saveBioButton.addEventListener("click", () => {
+      const bioInput = document.getElementById("bioInput");
+      const newBio = bioInput ? bioInput.value.trim() : "";
+      const user = auth.currentUser;
+
+      if (user) {
+        getUserIdFromUid(user.uid).then((firestoreUserId) => {
+          db.collection("users")
+            .doc(firestoreUserId)
+            .update({ user_Bio: newBio })
+            .then(() => {
+              if (userBioElement) userBioElement.textContent = newBio; // Update the displayed bio
+              const bioEditSection = document.getElementById("bioEditSection");
+              if (bioEditSection) bioEditSection.style.display = "none"; // Hide the edit section
+            })
+            .catch((error) => {
+              console.error("Error updating bio:", error);
+              alert("Failed to update bio.");
+            });
+        });
+      }
+    });
+  }
+
+  const cancelBioButton = document.getElementById("cancelBioButton");
+  if (cancelBioButton) {
+    cancelBioButton.addEventListener("click", () => {
+      const bioEditSection = document.getElementById("bioEditSection");
+      if (bioEditSection) bioEditSection.style.display = "none"; // Hide the edit section
+    });
+  }
+
+  // File upload and cropping
+  if (uploadPictureButton) {
+    uploadPictureButton.addEventListener("click", () => {
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = "image/*";
+      fileInput.addEventListener("change", async (event) => {
+        const file = event.target.files[0];
+        if (file) {
+          try {
+            const compressedImage = await compressImage(file);
+            const cropImage = document.getElementById("cropImage");
+            if (cropImage) cropImage.src = compressedImage;
+            if (cropModal) cropModal.show();
+            
+            // Check if Cropper is available
+            if (typeof Cropper !== 'undefined') {
+              cropper = new Cropper(cropImage, {
+                aspectRatio: 1,
+                viewMode: 1,
+              });
+            } else {
+              console.error("Cropper library is not loaded");
+            }
+          } catch (error) {
+            alert(error.message);
+          }
+        }
       });
-    }, "image/jpeg");
-  });
+      fileInput.click();
+    });
+  }
+
+  // Save cropped image to Firestore as Base64
+  const cropButton = document.getElementById("cropButton");
+  if (cropButton) {
+    cropButton.addEventListener("click", () => {
+      if (!cropper) {
+        console.error("Cropper is not initialized.");
+        alert("Please select and crop an image first.");
+        return;
+      }
+
+      const canvas = cropper.getCroppedCanvas({
+        width: 300,
+        height: 300,
+      });
+
+      canvas.toBlob((blob) => {
+        const base64Image = canvas.toDataURL("image/jpeg").split(",")[1];
+        const user = auth.currentUser;
+
+        if (user) {
+          getUserIdFromUid(user.uid).then((firestoreUserId) => {
+            db.collection("users")
+              .doc(firestoreUserId)
+              .update({ profilePicture: base64Image })
+              .then(() => {
+                if (profilePictureElement) profilePictureElement.src = `data:image/jpeg;base64,${base64Image}`;
+                if (cropModal) cropModal.hide();
+                cropper.destroy();
+              })
+              .catch((error) => {
+                console.error("Error updating profile picture:", error);
+                alert("Error updating profile picture.");
+              });
+          });
+        }
+      }, "image/jpeg");
+    });
+  }
 
   // Log Out Functionality
-  document.getElementById('logoutButton').addEventListener('click', async () => {
-      try {
-          // Sign out from Firebaslog out
-          await auth.signOut();
-          console.log("User signed out from Firebase");
-          window.location.href = "inicio.html";
-      } catch (error) {
-          console.error("Error during logout:", error);
-          alert("Erro ao fazer logout. Tente novamente.");
+  const logoutButton = document.getElementById('logoutButton');
+  if (logoutButton) {
+    logoutButton.addEventListener('click', async () => {
+        try {
+            // Clear session storage
+            sessionStorage.removeItem('currentUserId');
+            sessionStorage.removeItem('currentFirestoreUserId');
+            sessionStorage.removeItem('designerFirestoreUserId');
+            sessionStorage.removeItem('selectedProduct');
+            sessionStorage.removeItem('selectedVariants');
+            
+            // Sign out from Firebase
+            await auth.signOut();
+            console.log("User signed out from Firebase");
+            window.location.href = "inicio.html";
+        } catch (error) {
+            console.error("Error during logout:", error);
+            alert("Erro ao fazer logout. Tente novamente.");
+        }
+    });
+  }
+
+  // Delete account functionality
+  const deleteAccountButton = document.getElementById("deleteAccountButton");
+  if (deleteAccountButton) {
+    deleteAccountButton.addEventListener("click", () => {
+      const user = auth.currentUser;
+
+      if (!user) {
+        alert("No user is logged in.");
+        return;
       }
-  });
 
+      // Confirm the deletion with the user before proceeding
+      if (confirm("Are you sure you want to delete your account and all associated data? This action is irreversible.")) {
+        deleteUserAccountAndPosts(user);
+      }
+    });
+  }
 
-  //delete account
-  document.getElementById("deleteAccountButton").addEventListener("click", () => {
-    const user = auth.currentUser;
-
-    if (!user) {
-      alert("No user is logged in.");
-      return;
-    }
-
-    // Confirm the deletion with the user before proceeding
-    if (confirm("Are you sure you want to delete your account and all associated data? This action is irreversible.")) {
-      deleteUserAccountAndPosts(user);
-    }
-  });
   // Function to delete the user account and all their posts, comments
   async function deleteUserAccountAndPosts(user) {
     try {
@@ -754,8 +900,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
       getUserIdFromUid(user.uid).then((firestoreUserId) => {
           const postManager = initializePostManager('allPostsContainer');
-          // Always filter by the current user's ID on the profile page
-          postManager.displayPosts(firestoreUserId, firestoreUserId);
+          if (postManager) {
+            // Always filter by the current user's ID on the profile page
+            postManager.displayPosts(firestoreUserId, firestoreUserId);
+          }
       }).catch((error) => {
           console.error("Error fetching user ID:", error);
       });
@@ -764,186 +912,57 @@ document.addEventListener("DOMContentLoaded", function () {
   // Show the "Create Product" button if the user is an artist
   auth.onAuthStateChanged(async (user) => {
       if (user) {
-          const userDoc = await db.collection("users").doc(user.uid).get();
-          const userData = userDoc.data();
-          
-          if (userData?.artista) {
-              document.getElementById("artistaBadge").style.display = "inline";
-              console.log("✅ User is an artist!");
+          try {
+            const firestoreUserId = await getUserIdFromUid(user.uid);
+            const userDoc = await db.collection("users").doc(firestoreUserId).get();
+            const userData = userDoc.data();
+            
+            if (userData?.artista) {
+                if (artistaBadge) artistaBadge.style.display = "inline";
+                if (createProductButton) createProductButton.style.display = "block";
+                console.log("✅ User is an artist!");
+            }
+          } catch (error) {
+            console.error("Error in auth state change handler:", error);
           }
       }
   });
 
-  document.getElementById("donateButton").addEventListener("click", async () => {
-      const amount = prompt("Enter donation amount (e.g. 5.00):");
-      if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
-          alert("Invalid amount.");
-          return;
-      }
+  // Wait for external scripts to load before initializing managers
+  function waitForDependencies() {
+    return new Promise((resolve) => {
+      const checkDependencies = () => {
+        // Check if all required dependencies are loaded
+        const dependenciesLoaded = 
+          typeof firebase !== 'undefined' &&
+          (typeof PostManager !== 'undefined' || document.querySelector('script[src*="shared-posts"]')) &&
+          (typeof ProductsManager !== 'undefined' || document.querySelector('script[src*="products"]'));
 
-      const donorName = prompt("Enter your name (optional):");
-
-      try {
-          const result = await firebase.functions().httpsCallable("createDonationPreference")({
-              artistUserId: userIdFromUrl,
-              amount: parseFloat(amount),
-              donorName: donorName || null
-          });
-
-          // Redirect to Mercado Pago Checkout
-          window.location.href = result.data.init_point;
-      } catch (error) {
-          console.error("Donation error:", error);
-          alert("Failed to create donation. Please try again.");
-      }
-  });
-  
-  // Handle "Create Product" button click
-  addProductButton.addEventListener("click", () => {
-      productModal.show(); // Open the product creation modal
-  });
-
-  async function getPrintfulProducts() {
-      const apiKey = await getPrintfulKey();
-      if (!apiKey) {
-          console.error("Não foi possível obter a chave da API.");
-          return;
-      }
-
-      try {
-          const response = await fetch("https://api.printful.com/products", {
-              method: "GET",
-              headers: {
-                  "Authorization": `Basic ${btoa(apiKey + ":")}`,
-                  "Content-Type": "application/json"
-              }
-          });
-
-          const data = await response.json();
-          return data.result; 
-      } catch (error) {
-          console.error("Erro ao buscar produtos da Printful:", error);
-          return [];
-      }
-  }
-
-
-  // Handle product image upload and cropping
-  productImageInput.addEventListener("change", (event) => {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = function (e) {
-          const img = new Image();
-          img.onload = function () {
-              mockupCanvas.width = img.width;
-              mockupCanvas.height = img.height;
-              ctx.drawImage(img, 0, 0, img.width, img.height);
-          };
-          img.src = e.target.result;
+        if (dependenciesLoaded) {
+          resolve();
+        } else {
+          setTimeout(checkDependencies, 100);
+        }
       };
-      reader.readAsDataURL(file);
-  });
-
-  // Handle product submission
-  submitProductButton.addEventListener("click", async () => {
-      const productData = {
-          name: productName.value,
-          price: parseFloat(productPrice.value) * 1.10, // Add 10% commission
-          printfulProductId: selectedPrintfulProductId,
-          artistId: auth.currentUser.uid
-      };
-
-      // Call secure endpoint
-      const response = await fetch('https://your-cloud-function-url/createProduct', {
-          method: 'POST',
-          headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${await auth.currentUser.getIdToken()}`
-          },
-          body: JSON.stringify(productData)
-      });
-      
-      alert("Produto criado com sucesso!");
-  });
-
-  // Function to display products
-  async function displayProducts() {
-      const db = firebase.firestore();
-      const productsContainer = document.getElementById("productsContainer");
-
-      const snapshot = await db.collection("products").orderBy("timestamp", "desc").get();
-      productsContainer.innerHTML = "";
-
-      snapshot.forEach((doc) => {
-          const product = doc.data();
-          const productElement = document.createElement("div");
-          productElement.innerHTML = `
-              <div class="card">
-                  <img src="${product.image}" class="card-img-top">
-                  <div class="card-body">
-                      <h5>${product.name}</h5>
-                      <p>${product.description}</p>
-                      <p><strong>Preço:</strong> $${product.price}</p>
-                      <button class="btn btn-primary" onclick="comprarProduto('${doc.id}')">Comprar</button>
-                  </div>
-              </div>
-          `;
-          productsContainer.appendChild(productElement);
-      });
+      checkDependencies();
+    });
   }
 
-  // Function to save the product to Firestore
-  async function saveProductToFirestore(name, description, price, base64Image, userId) {
-      console.log("UserID:", userId);
-      if (!userId) {
-        alert("User ID is missing.");
-        return;
+  // Initialize after dependencies are loaded
+  waitForDependencies().then(() => {
+    console.log("Dependencies loaded, initializing managers...");
+    
+    // Initialize ProductsManager if available
+    const productsContainer = document.getElementById('productsContainer');
+    if (productsContainer && typeof ProductsManager !== 'undefined') {
+      const productsManager = initializeProductsManager('productsContainer');
+      if (productsManager) {
+        // Display products when the page loads
+        productsManager.displayProducts();
       }
-
-      const userDoc = await db.collection("users").doc(userId).get();
-      if (!userDoc.exists || !userDoc.data().artista) {
-        alert("Achei o espertinho. Só artistas podem fazer produtos.");
-        return;
-      }
-      try {
-          await db.collection("products").add({
-              foreignUserId: userId,
-              Firebase_UID: firebase.auth().currentUser.uid, 
-              name: name,
-              description: description,
-              price: price,
-              image: base64Image,
-              timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-          });
-
-          productModal.hide();
-          productName.value = "";
-          productDescription.value = "";
-          productPrice.value = "";
-          productImageInput.value = "";
-          productImagePreview.classList.add("d-none");
-          selectedProductImageFile = null;
-
-          if (productCropper) {
-              productCropper.destroy();
-              productCropper = null;
-          }
-
-          alert("Product successfully created!");
-          displayProducts(); // Refresh the product list
-      } catch (error) {
-          console.error("Error adding product:", error);
-          alert("Failed to create product.");
-      }
-  }
-
-  // Initialize ProductsManager
-  const productsManager = new ProductsManager(db, auth, 'productsContainer');
-
-  // Display products when the page loads
-  document.addEventListener('DOMContentLoaded', () => {
-      productsManager.displayProducts();
+    } else {
+      console.warn("ProductsManager not available or products container not found");
+    }
   });
+
 });

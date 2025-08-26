@@ -1,0 +1,8 @@
+{
+  "code": 401,
+  "result": "The access token provided is invalid.",
+  "error": {
+    "reason": "Unauthorized",
+    "message": "The access token provided is invalid."
+  }
+}

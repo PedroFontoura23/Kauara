@@ -198,6 +198,13 @@
         </div>
     </div>
 
+    <div class="container mt-4">
+        <div class="d-flex justify-content-center mb-4">
+            <button id="createProductButton" class="btn btn-primary">
+                Create New Product
+            </button>
+        </div>
+    </div>
     <!-- Container for posts -->
     <div id="allPostsContainer" class="container mt-4"></div>
     <!-- Container for products -->
@@ -219,69 +226,6 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                     <button type="button" class="btn btn-primary" id="submitPostButton">Post</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-
-    <!-- Product Modal -->
-    <div class="modal fade" id="productModal" tabindex="-1" aria-labelledby="productModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="productModalLabel">Create a New Product</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-
-                <div class="modal-body">
-                    <!-- Escolher Produto da Printful -->
-                    <div class="mb-3">
-                        <label for="printfulProductDropdown" class="form-label">Select a Printful Product</label>
-                        <select id="printfulProductDropdown" class="form-control">
-                            <option value="">Selecione um produto da Printful</option>
-                        </select>
-                    </div>
-
-                    <!-- Mockup Preview -->
-                    <div class="mb-3 text-center">
-                        <canvas id="mockupCanvas" class="img-fluid border rounded"></canvas>
-                        <p class="text-muted">Preview of your design on the selected product.</p>
-                    </div>
-
-                    <!-- Upload e Ajuste da Arte -->
-                    <div class="mb-3">
-                        <label for="productImageInput" class="form-label">Upload Your Design</label>
-                        <input type="file" id="productImageInput" class="form-control" accept="image/*">
-                    </div>
-
-                    <!-- Nome e Descrição -->
-                    <div class="mb-3">
-                        <label for="productName" class="form-label">Product Name</label>
-                        <input type="text" id="productName" class="form-control" placeholder="Enter product name">
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="productDescription" class="form-label">Product Description</label>
-                        <textarea id="productDescription" class="form-control" rows="3" placeholder="Enter product description"></textarea>
-                    </div>
-
-                    <!-- Preço -->
-                    <div class="mb-3">
-                        <label for="productPrice" class="form-label">Price ($)</label>
-                        <input type="number" id="productPrice" class="form-control" placeholder="Set a price">
-                    </div>
-
-                    <!-- Visualização da Imagem Final -->
-                    <div class="mb-3 text-center">
-                        <p><strong>Final Preview:</strong></p>
-                        <img id="productImagePreview" class="img-fluid border rounded d-none" alt="Product Preview">
-                    </div>
-                </div>
-
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="submitProductButton">Create Product</button>
                 </div>
             </div>
         </div>
