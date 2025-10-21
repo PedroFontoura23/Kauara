@@ -13,7 +13,11 @@ let hoverTimeout = null;
 
 const escapeHtml = t => { const d = document.createElement('div'); d.textContent = t || ''; return d.innerHTML; };
 
+// Product type classification
+const TWO_SIDED_PRODUCTS = [71, 146]; // tshirts, hoodies
+
 sessionStorage.removeItem('creationMode');
+
 // Load products from backend
 async function loadProducts() {
   if (loading) return; loading = true;
@@ -37,12 +41,20 @@ async function loadProducts() {
 
 // Render product cards
 function renderProducts() {
-  productsEl.innerHTML = products.map(p => `
-    <div class="product-card" data-id="${p.id}">
+  productsEl.innerHTML = products.map(p => {
+    const productType = TWO_SIDED_PRODUCTS.includes(p.id) ? 'two-sided' : 'one-sided';
+    const typeBadge = productType === 'two-sided' ? '<span class="product-type-badge">Front & Back</span>' : '<span class="product-type-badge">Single Side</span>';
+    
+    return `
+    <div class="product-card" data-id="${p.id}" data-type="${productType}">
       <img src="${p.image}" alt="${escapeHtml(p.title)}" class="product-image">
       <div class="product-title">${escapeHtml(p.title)}</div>
-      <div class="product-info">${escapeHtml(p.type_name)} â€¢ ${p.variant_count} variants</div>
-    </div>`).join('');
+      <div class="product-info">
+        ${escapeHtml(p.type_name)} • ${p.variant_count} variants
+        ${typeBadge}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 // Load overlay image
@@ -72,8 +84,11 @@ function showVariantModal(product) {
   selectedColors = [];
   confirmBtn.disabled = true;
   
-  // Update modal title
-  modalEl.querySelector('h3').textContent = `Choose colors for ${escapeHtml(product.title)}`;
+  // Update modal title with product type info
+  const productType = TWO_SIDED_PRODUCTS.includes(product.id) ? 'two-sided' : 'one-sided';
+  const typeInfo = productType === 'two-sided' ? '(Front & Back Printing)' : '(Single Side Printing)';
+  
+  modalEl.querySelector('h3').textContent = `Choose colors for ${escapeHtml(product.title)} ${typeInfo}`;
   
   loadBaseOverlay(product.id).then(() => renderShirtColor('#ffffff')); // default white
 
@@ -157,7 +172,7 @@ createArtBtn.addEventListener('click', () => {
   
   if (!firestoreUserId) {
     alert('Please log in to create art');
-    window.location.href = 'profile.html';
+    window.location.href = 'inicio.html';
     return;
   }
   
@@ -214,14 +229,16 @@ variantSelectionEl.addEventListener('click', e => {
 // SIMPLIFIED CONFIRM BUTTON - ONLY FIRESTORE USER ID
 confirmBtn.addEventListener('click', () => {
     if (!selectedProduct || selectedColors.length === 0) return;
-        // Clear art mode when selecting a product
+    
+    // Clear art mode when selecting a product
     sessionStorage.removeItem('creationMode');
+    
     // Find variants for all selected colors
     const variants = selectedColors.map(color => {
         return selectedProduct.variants.find(v => (v.color||'N/A') === color.name) || {};
     });
 
-    // Get ONLY Firestore user ID from session storage
+    // Get Firestore user ID from session storage
     const firestoreUserId = sessionStorage.getItem('designerFirestoreUserId') || 
                            sessionStorage.getItem('currentFirestoreUserId');
     
@@ -229,7 +246,7 @@ confirmBtn.addEventListener('click', () => {
     
     if (!firestoreUserId) {
         alert('User information not found. Please log in again.');
-        window.location.href = 'profile.html';
+        window.location.href = 'inicio.html';
         return;
     }
     
@@ -237,11 +254,23 @@ confirmBtn.addEventListener('click', () => {
     sessionStorage.setItem('selectedProduct', JSON.stringify(selectedProduct));
     sessionStorage.setItem('selectedVariants', JSON.stringify(variants));
     
+    // Store product type for canvas.js to use
+    const productType = TWO_SIDED_PRODUCTS.includes(selectedProduct.id) ? 'two-sided' : 'one-sided';
+    sessionStorage.setItem('productType', productType);
+    console.log("Product type stored:", productType, "for product ID:", selectedProduct.id);
+    
     // Store ONLY the Firestore user ID (both keys for compatibility)
     sessionStorage.setItem('designerFirestoreUserId', firestoreUserId);
     sessionStorage.setItem('currentFirestoreUserId', firestoreUserId);
     
     console.log("Navigating to canvas with Firestore User ID:", firestoreUserId);
+    console.log("Product details:", {
+        productId: selectedProduct.id,
+        productName: selectedProduct.title,
+        productType: productType,
+        variantsCount: variants.length,
+        selectedColors: selectedColors.map(c => c.name)
+    });
     
     closeModal();
     window.location.href = 'canvas.html';
@@ -272,3 +301,29 @@ document.addEventListener('DOMContentLoaded', loadProducts);
 window.handleColorHover = handleColorHover;
 window.handleColorHoverEnd = handleColorHoverEnd;
 window.removeSelectedColor = removeSelectedColor;
+
+// Add CSS for product type badges
+const style = document.createElement('style');
+style.textContent = `
+  .product-type-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    margin-left: 8px;
+    font-size: 0.7rem;
+    background: #e0e7ff;
+    color: #3b82f6;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+  
+  .product-card {
+    position: relative;
+  }
+  
+  .product-info {
+    font-size: 0.9rem;
+    color: #666;
+    margin-top: 4px;
+  }
+`;
+document.head.appendChild(style);

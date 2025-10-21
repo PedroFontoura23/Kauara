@@ -1,8 +1,0 @@
-[
-  {
-    "origin": ["https://kauava.com"],
-    "method": ["PUT", "POST", "GET", "DELETE", "HEAD", "OPTIONS"],
-    "responseHeader": ["Content-Type", "Authorization"],
-    "maxAgeSeconds": 3600
-  }
-]

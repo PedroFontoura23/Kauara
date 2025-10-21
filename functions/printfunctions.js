@@ -1,7 +1,15 @@
 const functions = require('firebase-functions');
 const fetch = require('node-fetch');
-const admin = require('firebase-admin'); // Add this
-admin.initializeApp(); // Add this
+const admin = require('firebase-admin');
+
+
+
+// Initialize Firebase Admin with explicit configuration
+if (!admin.apps.length) {
+  admin.initializeApp();
+  admin.firestore().settings({ ignoreUndefinedProperties: true });
+}
+
 
 const cors = require('cors')({
   origin: [
@@ -9,25 +17,259 @@ const cors = require('cors')({
     'https://www.kauara1.web.app',
     'https://kauava.com',
     'https://www.kauava.com',
+    'http://localhost:5000', // Add localhost for development
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 });
 
 // === Config ===
 const PRINTFUL_API_BASE = 'https://api.printful.com';
 const PRINTFUL_API_KEY = functions.config().printful.apikey;
 
-// Add Firebase Storage bucket initialization
-const bucket = admin.storage().bucket(); // Add this line
+const bucket = admin.storage().bucket();
 
 const ALLOWED_PRODUCT_IDS = [
+  1,    // Poster
   71,   // Classic T-Shirt
   146,  // Unisex Hoodie
+  682,  // Hardcover notebook
+  474,  // Spiral Notebook
+  358,  // Sticker
+  
 ];
+
+// Fallback pricing for products (base cost + minimal margin)
+const PRODUCT_BASE_PRICING = {
+  71: 24.99,   // T-Shirt base price
+  146: 39.99,  // Hoodie base price
+  679: 15.99    // Sticker base price (if added later)
+};
+
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 let cachedProducts = null;
 let cacheTimestamp = 0;
+
+exports.getAllProducts = functions.runWith({
+  timeoutSeconds: 540,
+  memory: '1GB',
+}).https.onRequest((req, res) => {
+  cors(req, res, async () => {
+    try {
+      let allProducts = [];
+      let offset = 0;
+      const limit = 100;
+      let hasMore = true;
+      let requestCount = 0;
+      let totalFetched = 0;
+
+      const fetchWithRetry = async (url, retries = 3) => {
+        for (let i = 0; i < retries; i++) {
+          try {
+            const response = await fetch(url, {
+              headers: {
+                Authorization: `Bearer ${PRINTFUL_API_KEY}`,
+                // 'X-PF-Region': 'BR', // Remove temporarily for debugging
+              },
+            });
+            
+            if (response.ok) return response;
+            
+            if (response.status === 429) {
+              console.log(`Rate limited, waiting 2 seconds before retry ${i + 1}`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              continue;
+            }
+            
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            
+          } catch (err) {
+            if (i === retries - 1) throw err;
+            console.log(`Retry ${i + 1} after error:`, err.message);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+      };
+
+      while (hasMore && requestCount < 30) {
+        requestCount++;
+        
+        try {
+          let url = `${PRINTFUL_API_BASE}/store/products?limit=${limit}&offset=${offset}`;
+          
+          console.log(`Request #${requestCount}: ${url}`);
+          
+          const catalogResponse = await fetchWithRetry(url);
+          const catalogData = await catalogResponse.json();
+          
+          // Handle different possible response structures
+          let products = [];
+          let pagination = {};
+          
+          if (Array.isArray(catalogData.result)) {
+            products = catalogData.result;
+          } else if (catalogData.result && Array.isArray(catalogData.result.data)) {
+            products = catalogData.result.data;
+            pagination = catalogData.result.pagination || {};
+          } else if (Array.isArray(catalogData)) {
+            products = catalogData;
+          } else {
+            console.log('Unexpected response structure:', JSON.stringify(catalogData, null, 2));
+            throw new Error('Unexpected API response structure');
+          }
+          
+          console.log(`Batch ${requestCount}: ${products.length} products, offset: ${offset}`);
+          
+          // Process variants safely
+          const processedProducts = products.map(product => {
+            let variantsArray = [];
+            
+            // Handle different variants structures
+            if (Array.isArray(product.variants)) {
+              variantsArray = product.variants;
+            } else if (product.variants && typeof product.variants === 'object') {
+              // If variants is an object, convert it to array
+              variantsArray = Object.values(product.variants);
+            }
+            
+            return {
+              id: product.id,
+              name: product.name || product.title || product.model || `Product ${product.id}`,
+              variants: variantsArray.map(v => ({
+                variant_id: v.id || v.variant_id,
+                name: v.name || `${product.name} - ${v.size} ${v.color}`.trim(),
+                size: v.size,
+                color: v.color
+              }))
+            };
+          });
+          
+          allProducts = allProducts.concat(processedProducts);
+          totalFetched += products.length;
+          
+          // Check if we've reached the end
+          if (products.length < limit) {
+            hasMore = false;
+          } else {
+            offset += limit;
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+        } catch (err) {
+          console.error(`Failed request #${requestCount}:`, err);
+          break;
+        }
+      }
+
+      console.log(`Total products fetched: ${totalFetched}`);
+      
+      res.status(200).json({
+        success: true,
+        count: allProducts.length,
+        total_requests: requestCount,
+        products: allProducts,
+        debug: {
+          total_fetched: totalFetched,
+          last_offset: offset
+        }
+      });
+      
+    } catch (err) {
+      console.error('Error fetching all products:', err);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch all products',
+        message: err.message,
+      });
+    }
+  });
+});
+// === Updated Get Product Pricing Function ===
+exports.getProductPricing = functions.https.onRequest((req, res) => {
+  cors(req, res, async () => {
+    if (req.method === 'OPTIONS') {
+      return res.status(204).send('');
+    }
+    if (req.method !== 'POST') {
+      return res.status(405).json({ success: false, error: 'Method not allowed' });
+    }
+
+    try {
+      const { productId, variantId } = req.body;
+
+      if (!productId) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Product ID is required' 
+        });
+      }
+
+      console.log('Fetching pricing for product:', productId, 'variant:', variantId);
+
+      let basePrice = PRODUCT_BASE_PRICING[productId];
+
+      // Try to fetch live pricing from Printful API
+      try {
+        const printfulResponse = await fetch(`${PRINTFUL_API_BASE}/products/${productId}`, {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${PRINTFUL_API_KEY}`,
+          },
+        });
+
+        if (printfulResponse.ok) {
+          const printfulData = await printfulResponse.json();
+          
+          if (variantId && printfulData.result?.variants) {
+            // Find specific variant pricing
+            const variant = printfulData.result.variants.find(v => v.id === variantId);
+            if (variant && variant.price) {
+              basePrice = parseFloat(variant.price);
+              console.log('Found variant-specific pricing:', basePrice);
+            }
+          }
+          
+          // If no variant-specific pricing found, use the first variant or product price
+          if (!basePrice && printfulData.result?.variants?.length > 0) {
+            basePrice = parseFloat(printfulData.result.variants[0].price || basePrice);
+          }
+        }
+      } catch (apiError) {
+        console.warn('Failed to fetch live pricing from Printful, using fallback:', apiError.message);
+      }
+
+      // Ensure we have a valid price
+      if (!basePrice || basePrice <= 0) {
+        basePrice = PRODUCT_BASE_PRICING[productId] || 29.99;
+      }
+
+      res.json({
+        success: true,
+        basePrice,
+        productId,
+        variantId: variantId || null,
+        source: 'live_or_fallback'
+      });
+
+    } catch (error) {
+      console.error('Error getting product pricing:', error);
+      
+      // Return fallback pricing in case of any error
+      const fallbackPrice = PRODUCT_BASE_PRICING[req.body.productId] || 29.99;
+      
+      res.json({
+        success: true,
+        basePrice: fallbackPrice,
+        productId: req.body.productId,
+        variantId: req.body.variantId || null,
+        source: 'fallback',
+        warning: 'Using fallback pricing due to API error'
+      });
+    }
+  });
+});
 
 // === Helpers ===
 async function fetchWithConcurrency(urls, concurrency = 10) {
@@ -68,13 +310,12 @@ async function getFlatLayTemplates(productId) {
 }
 
 function fallbackImage(title = 'No Image') {
-  // Use a static placeholder hosted in your project instead of generating with canvas
   return `https://kauara1.web.app/images/placeholder.png?text=${encodeURIComponent(
     title
   )}`;
 }
 
-// === Cloud Functions ===
+// === Existing Functions (Updated) ===
 exports.getProducts = functions.runWith({
   timeoutSeconds: 540,
   memory: '1GB',
@@ -118,6 +359,7 @@ exports.getProducts = functions.runWith({
                 color: variant.color,
                 color_code: variant.color_code,
                 availability_status: variant.availability_status,
+                retail_price: variant.retail_price || PRODUCT_BASE_PRICING[product.id] || 29.99,
                 preview_urls:
                   variant.files
                     ?.filter((f) => f.type === 'preview')
@@ -204,6 +446,7 @@ exports.proxyImage = functions.https.onRequest((req, res) => {
   });
 });
 
+// === FIXED saveProduct function with better Firestore handling ===
 exports.saveProduct = functions.runWith({
   timeoutSeconds: 120,
   memory: '1GB'
@@ -221,159 +464,202 @@ exports.saveProduct = functions.runWith({
         name, 
         thumbnail, 
         side, 
-        variants, 
+        variants = [], 
         designImage, 
         placement, 
         designerUserId,
         productId,
-        productTitle 
+        productTitle,
+        pricing
       } = req.body;
 
-      // Authentication check
+      console.log('Received saveProduct request for user:', designerUserId);
+
+      // Basic validation
       if (!designerUserId) {
-        return res.status(401).json({ 
-          success: false, 
-          error: 'User not authenticated. designerUserId is required.' 
-        });
+        return res.status(401).json({ success: false, error: 'User authentication required' });
       }
 
-      // Validate required fields
       const requiredFields = ['name', 'thumbnail', 'variants', 'designImage'];
-      const missingFields = requiredFields.filter(field => !req.body[field]);
-      
-      if (missingFields.length > 0) {
-        return res.status(400).json({ 
-          success: false, 
-          error: `Missing required fields: ${missingFields.join(', ')}` 
-        });
+      const missing = requiredFields.filter(f => !req.body[f]);
+      if (missing.length > 0) {
+        return res.status(400).json({ success: false, error: `Missing required fields: ${missing.join(', ')}` });
       }
 
-      if (!['front', 'back'].includes(side)) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Invalid side value. Must be "front" or "back".' 
-        });
-      }
-
-      // Upload thumbnail
+      // Upload images first
       const thumbnailUrl = await uploadBase64Image(thumbnail, 'thumbnails');
-      
-      // Upload design image
       const designUrl = await uploadBase64Image(designImage, 'designs');
 
-      // Create sync variants with proper positioning
-      const syncVariants = variants.map(v => ({
-        variant_id: v.id,
-        retail_price: v.price.toFixed(2),
-        files: [
-          {
-            url: designUrl,
-            type: side === 'back' ? 'back' : 'default',
-            position: placement ? {
-              area_width: placement.area_width,
-              area_height: placement.area_height,
-              width: placement.width,
-              height: placement.height,
-              top: placement.top,
-              left: placement.left
-            } : {
-              area_width: placement?.area_width || 1800,
-              area_height: placement?.area_height || 2400,
-              width: placement?.width || 1800,
-              height: placement?.height || 2400,
-              top: placement?.top || 0,
-              left: placement?.left || 0
-            }
-          }
-        ]
+      // Build Firestore-ready payload (no 'undefined' allowed)
+      const safeVariants = variants.map(v => ({
+        id: v?.id ?? null,
+        color: v?.color ?? null,
+        color_code: v?.color_code ?? null,
+        size: v?.size ?? null,
+        price: (v?.price != null ? Number(v.price) : (pricing?.totalPrice ?? 29.99))
       }));
 
-      const payload = {
-        sync_product: { 
-          name: `${name}`, // Use the provided name with user ID
-          thumbnail: thumbnailUrl 
-        },
-        sync_variants: syncVariants
+      const productData = {
+        id: null, // will fill after .add()
+        designerUserId: designerUserId ?? null,
+        name: name ?? null,
+        productId: productId ?? null,
+        productTitle: productTitle ?? null,
+        side: side ?? null,
+        variants: safeVariants,
+        thumbnailUrl,
+        designUrl,
+        placement: placement ?? null,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        status: 'creating',
+        printfulStatus: 'pending',
       };
 
-      console.log('Creating product for user:', designerUserId);
-      console.log('Product details:', {
-        name,
-        variant_count: syncVariants.length,
-        product_id: productId,
-        product_title: productTitle
-      });
-
-      const response = await fetch(`${PRINTFUL_API_BASE}/store/products`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${PRINTFUL_API_KEY}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-      
-      if (!response.ok) {
-        console.error('Printful API error:', {
-          status: response.status,
-          data: data,
-          user: designerUserId
-        });
-        
-        const errorMessage = JSON.stringify(data).toLowerCase();
-        let userFriendlyError = 'Failed to create product on Printful';
-        
-        if (errorMessage.includes('scale down') || errorMessage.includes('minimum requirements')) {
-          userFriendlyError = 'Image resolution is too low. Please use a higher quality image.';
-        } else if (errorMessage.includes('invalid file') || errorMessage.includes('file format')) {
-          userFriendlyError = 'Invalid image format. Please use PNG or JPG format.';
-        } else if (errorMessage.includes('variant') || errorMessage.includes('not available')) {
-          userFriendlyError = 'Selected product variant is not available.';
-        }
-        
-        return res.status(400).json({ 
-          success: false, 
-          error: userFriendlyError,
-          details: data 
-        });
+      // Optional pricing block
+      if (pricing) {
+        productData.pricing = {
+          basePrice: Number(pricing.basePrice ?? 0),
+          userCut: Number(pricing.userMarkup ?? 0),
+          totalPrice: Number(pricing.totalPrice ?? 0),
+          platformFee: Number(
+            pricing.platformFee ??
+            (Number(pricing.totalPrice ?? 0) - Number(pricing.basePrice ?? 0) - Number(pricing.userMarkup ?? 0))
+          ),
+          currency: 'BRL'
+        };
       }
 
-      // Store product reference in Firestore for user tracking
+      // === Firestore: use .add(...) as requested ===
+      let productDocRef;
       try {
-        await admin.firestore().collection('userProducts').add({
-          designerUserId,
+        productDocRef = await admin.firestore().collection('products').add(productData);
+        // Save the generated id back into the doc (optional but handy)
+        await productDocRef.update({
+          id: productDocRef.id,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        console.log('✅ Saved product to Firestore with ID:', productDocRef.id);
+      } catch (firestoreError) {
+        console.error('❌ Firestore .add() error:', firestoreError);
+        return res.status(500).json({ success: false, error: 'Failed to save product to Firestore', details: firestoreError.message });
+      }
+
+      // === Create product on Printful ===
+      try {
+        const syncVariants = safeVariants.map(v => ({
+          variant_id: v.id,
+          retail_price: Number(
+            pricing?.totalPrice != null ? pricing.totalPrice : (v.price != null ? v.price : 29.99)
+          ).toFixed(2),
+          files: [
+            {
+              url: designUrl,
+              type: side === 'back' ? 'back' : 'default',
+              position: placement ? {
+                area_width: placement.area_width,
+                area_height: placement.area_height,
+                width: placement.width,
+                height: placement.height,
+                top: placement.top,
+                left: placement.left
+              } : {
+                area_width: 6000,
+                area_height: 7200,
+                width: 6000,
+                height: 7200,
+                top: 0,
+                left: 0
+              }
+            }
+          ]
+        }));
+
+        const payload = {
+          sync_product: { 
+            name: `${name}`,
+            thumbnail: thumbnailUrl 
+          },
+          sync_variants: syncVariants
+        };
+
+        const response = await fetch(`${PRINTFUL_API_BASE}/store/products`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${PRINTFUL_API_KEY}`,
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          console.error('Printful error:', data);
+          // mark as failed
+          await productDocRef.update({
+            status: 'failed',
+            printfulStatus: 'error',
+            printfulError: data,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+
+          return res.status(400).json({ 
+            success: false, 
+            error: 'Failed to create product on Printful',
+            details: data 
+          });
+        }
+
+        // Update Firestore with Printful result
+        await productDocRef.update({
           printfulProductId: data.result.id,
           printfulSyncProductId: data.result.sync_product_id,
-          productName: name,
-          productId,
-          productTitle,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          variants: variants.map(v => v.id),
-          status: 'created'
+          printfulData: {
+            sync_product: data.result.sync_product,
+            sync_variants: data.result.sync_variants
+          },
+          status: 'created',
+          printfulStatus: 'success',
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
-      } catch (firestoreError) {
-        console.error('Error saving to Firestore:', firestoreError);
-        // Continue even if Firestore save fails - the main product creation succeeded
+
+        res.json({ 
+          success: true, 
+          product: data.result,
+          message: 'Product created successfully',
+          firestoreProductId: productDocRef.id,
+          printfulProductId: data.result.id
+        });
+
+      } catch (printfulError) {
+        console.error('Printful creation error:', printfulError);
+
+        await productDocRef.update({
+          status: 'failed',
+          printfulStatus: 'error',
+          printfulError: printfulError?.message ?? String(printfulError),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        res.status(500).json({ 
+          success: false, 
+          error: 'Failed to create product',
+          message: printfulError?.message ?? String(printfulError)
+        });
       }
 
-      res.json({ 
-        success: true, 
-        product: data.result,
-        message: 'Product created successfully'
-      });
-
     } catch (err) {
-      console.error('saveProduct error:', err);
+      console.error('Overall error in saveProduct (add version):', err);
       res.status(500).json({ 
         success: false, 
         error: 'Internal server error',
-        message: err.message 
+        message: err.message
       });
     }
   });
 });
+
 
 // Helper function to upload base64 images
 async function uploadBase64Image(base64Data, folder = 'uploads') {
@@ -383,8 +669,6 @@ async function uploadBase64Image(base64Data, folder = 'uploads') {
     
     const mimeType = matches[1];
     const buffer = Buffer.from(matches[2], 'base64');
-
-    console.log(`Uploading image: ${(buffer.length / 1024 / 1024).toFixed(2)}MB, type: ${mimeType}`);
 
     const uniqueId = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
     const extension = mimeType.includes('png') ? 'png' : 'jpg';
@@ -399,24 +683,19 @@ async function uploadBase64Image(base64Data, folder = 'uploads') {
         }
       },
       public: true,
-      validation: 'md5',
     });
 
-    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
-    console.log(`Image uploaded successfully: ${publicUrl}`);
-    
-    return publicUrl;
+    return `https://storage.googleapis.com/${bucket.name}/${fileName}`;
   } catch (error) {
     console.error('Error uploading image:', error);
     throw new Error(`Upload failed: ${error.message}`);
   }
 }
 
-// Add to printfunctions.js
-// Update the saveArt function in printfunctions.js
+// === Art saving function ===
 exports.saveArt = functions.runWith({
   timeoutSeconds: 120,
-  memory: '2GB' // Increase memory for higher resolution images
+  memory: '2GB'
 }).https.onRequest((req, res) => {
   cors(req, res, async () => {
     if (req.method !== 'POST') {
@@ -424,9 +703,9 @@ exports.saveArt = functions.runWith({
     }
 
     try {
-      const { artData, filename, artName, userId } = req.body;
+      const { artData, filename, artName, userId, price, platformFee, totalPrice } = req.body;
 
-      if (!artData || !filename || !artName || !userId) {
+      if (!artData || !filename || !artName || !userId || price === undefined) {
         return res.status(400).json({ 
           success: false, 
           error: 'Missing required fields' 
@@ -445,8 +724,6 @@ exports.saveArt = functions.runWith({
       const mimeType = matches[1];
       const buffer = Buffer.from(matches[2], 'base64');
       
-      console.log(`Art image size: ${(buffer.length / 1024 / 1024).toFixed(2)}MB`);
-      
       const filePath = `arts/${filename}.png`;
       const file = bucket.file(filePath);
 
@@ -464,17 +741,21 @@ exports.saveArt = functions.runWith({
 
       const downloadURL = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
 
-      // Save metadata to Firestore
+      // Save metadata to Firestore arts collection with price
       await admin.firestore().collection('arts').add({
         name: artName,
         filename: filename,
         storagePath: filePath,
         downloadURL: downloadURL,
         userId: userId,
+        price: parseFloat(price) || 0,
+        platformFee: parseFloat(platformFee) || 0,
+        totalPrice: parseFloat(totalPrice) || 0,
+        currency: 'BRL',
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         size: buffer.length,
         type: mimeType,
-        resolution: 'high' // Mark as high resolution
+        resolution: 'high'
       });
 
       res.json({ 

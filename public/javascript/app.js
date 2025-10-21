@@ -867,7 +867,50 @@ function initializePostManager(containerId) {
     // Create a new PostManager instance
     return new PostManager(db, auth, containerId);
 }
+function initializeArtManager(containerId) {
+    // Create a new ArtManager instance
+    return new ArtManager(db, auth, containerId);
+}
 
+function initializeArts() {
+    console.log("Initializing arts display");
+
+    // Initialize Firebase if not already initialized
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    // Initialize ArtManager and display arts
+    const artManager = initializeArtManager('artsContainer');
+    artManager.displayArts(); // Load arts without requiring a logged-in user
+}
+
+// Update the auth.onAuthStateChanged handler to include arts
+auth.onAuthStateChanged(async (user) => {
+    if (user) {
+        try {
+            const firestoreUserId = await getUserIdFromUid(user.uid);
+            const postManager = initializePostManager('allPostsContainer');
+            postManager.displayPosts(null, firestoreUserId);
+            
+            // Add art initialization for logged-in users
+            const artManager = initializeArtManager('artsContainer');
+            artManager.displayArts(null, firestoreUserId);
+        } catch (error) {
+            console.error("Error fetching current user ID:", error);
+        }
+    } else {
+        // Initialize posts and arts for non-logged-in users
+        const postManager = initializePostManager('allPostsContainer');
+        postManager.displayPosts();
+        
+        const artManager = initializeArtManager('artsContainer');
+        artManager.displayArts();
+    }
+});
 function initializePosts() {
     console.log("Initializing posts display");
 
@@ -884,4 +927,5 @@ function initializePosts() {
     postManager.displayPosts(); // Load posts without requiring a logged-in user
 }
 initializePosts();
+initializeArts();
 });

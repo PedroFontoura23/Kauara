@@ -20,11 +20,14 @@ exports.checkMockupStatus = printfunctions.checkMockupStatus;
 exports.getPrintAreas = printfunctions.getPrintAreas;
 exports.saveProduct = printfunctions.saveProduct;
 exports.saveArt = printfunctions.saveArt;
+exports.getProductPricing = printfunctions.getProductPricing;
+exports.getAllProducts = printfunctions.getAllProducts
 // Initialize Firebase Admin
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 const db = admin.firestore();
+
 
 exports.authMercadoPago = functions.https.onRequest((req, res) => {
   cors(req, res, async () => {

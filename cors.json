@@ -1,0 +1,19 @@
+[
+  {
+    "origin": [
+      "https://kauava.com", 
+      "https://www.kauava.com", 
+      "https://kauara1.web.app",
+      "http://localhost:*", 
+      "http://127.0.0.1:*"
+    ],
+    "method": ["GET", "HEAD"],
+    "responseHeader": [
+      "Content-Type", 
+      "Content-Length", 
+      "Cache-Control",
+      "Access-Control-Allow-Origin"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
