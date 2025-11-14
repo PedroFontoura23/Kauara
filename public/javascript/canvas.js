@@ -3,6 +3,34 @@ import * as OneSideModule from './one-side.js';
 import * as TwoSideModule from './two-side.js';
 import * as ArtModeModule from './art-mode.js';
 
+// Firebase configuration
+const firebaseConfig = {
+    apiKey: "AIzaSyBcBmuXY9ulETrbn2PmzjsDZ7JKRcehqGo",
+    authDomain: "kauara1.firebaseapp.com",
+    projectId: "kauara1",
+    storageBucket: "kauara1.firebasestorage.app",
+    messagingSenderId: "651139031771",
+    appId: "1:651139031771:web:8c73a3e1fff2d5cf2ae2fe",
+    measurementId: "G-KL18R1CJ6S"
+ };
+
+
+// Initialize Firebase
+let firebaseApp;
+let firebaseAuth;
+
+try {
+  if (typeof firebase !== 'undefined') {
+    firebaseApp = firebase.initializeApp(firebaseConfig);
+    firebaseAuth = firebase.auth();
+    console.log("Firebase initialized successfully");
+  } else {
+    console.warn("Firebase SDK not loaded");
+  }
+} catch (error) {
+  console.error("Firebase initialization error:", error);
+}
+
 // Constants
 const DPI = 300;
 const TWO_SIDED_PRODUCTS = [71, 146]; // tshirts, hoodies
@@ -54,7 +82,12 @@ const state = {
   artTotalPrice: 0,
   canvasScale: 1,
   currentModule: null,
-  moduleState: {}
+  moduleState: {},
+  variantPrices: new Map(),
+  variantPricingLoaded: false,
+  // NEW: Touch gesture support (EXACTLY like canvas-client.js)
+  initialDistance: null,
+  initialScale: 1
 };
 
 // Initialize
@@ -69,6 +102,9 @@ async function initializeApp() {
     try {
         console.log("Initializing canvas application...");
         
+        // Wait for Firebase to be ready
+        await waitForFirebase();
+        
         // Check mode
         const isArtMode = sessionStorage.getItem('creationMode') === 'art';
         
@@ -80,10 +116,7 @@ async function initializeApp() {
         console.log("Current mode:", isArtMode ? "Art" : "Product");
         
         if (!firestoreUserId) {
-            console.error("No Firestore user ID found");
-            alert('User information not found. Please log in again.');
-            window.location.href = 'profile.html';
-            return;
+            throw new Error("No Firestore user ID found. Please log in again.");
         }
         
         // Update UI based on mode
@@ -102,7 +135,45 @@ async function initializeApp() {
         
     } catch (error) {
         console.error('Failed to initialize app:', error);
+        alert(error.message);
+        window.location.href = 'profile.html';
     }
+}
+
+// Wait for Firebase to be ready
+async function waitForFirebase() {
+  return new Promise((resolve, reject) => {
+    if (typeof firebase === 'undefined') {
+      reject(new Error('Firebase SDK not loaded. Please check your internet connection.'));
+      return;
+    }
+
+    // Check if Firebase is already initialized
+    if (firebase.apps.length > 0) {
+      console.log("Firebase already initialized");
+      resolve();
+      return;
+    }
+
+    // Try to initialize Firebase
+    try {
+      firebaseApp = firebase.initializeApp(firebaseConfig);
+      firebaseAuth = firebase.auth();
+      console.log("Firebase initialized successfully");
+      resolve();
+    } catch (error) {
+      if (error.code === 'app/duplicate-app') {
+        // Firebase already initialized
+        firebaseApp = firebase.app();
+        firebaseAuth = firebase.auth();
+        console.log("Using existing Firebase app");
+        resolve();
+      } else {
+        console.error("Firebase initialization failed:", error);
+        reject(new Error('Failed to initialize authentication. Please refresh the page.'));
+      }
+    }
+  });
 }
 
 async function loadArtMode() {
@@ -135,7 +206,7 @@ async function loadProductMode() {
     }
     
     // Fetch pricing
-    fetchProductPricing();
+    await fetchProductPricing();
 }
 
 function updateCanvasScale() {
@@ -164,7 +235,7 @@ function updateArtPricingDisplay() {
   
   if (artPriceInput && platformFeeElement && totalPriceElement) {
     state.artPrice = parseFloat(artPriceInput.value) || 0;
-    state.artPlatformFee = state.artPrice * 0.05; // 5% platform fee
+    state.artPlatformFee = state.artPrice * 0.05;
     state.artTotalPrice = state.artPrice + state.artPlatformFee;
     
     platformFeeElement.textContent = `R$ ${state.artPlatformFee.toFixed(2)}`;
@@ -176,30 +247,66 @@ async function fetchProductPricing() {
   if (state.isArtMode || !state.selectedVariant) return;
   
   try {
-    const response = await fetch('https://us-central1-kauara1.cloudfunctions.net/getProductPricing', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        productId: state.product.id,
-        variantId: state.selectedVariant.id
-      })
+    console.log("=== STARTING PRICING FETCH ===");
+    console.log("Fetching pricing for all variants of product:", state.product.id);
+    
+    // Clear previous prices
+    state.variantPrices.clear();
+    
+    // Fetch pricing for ALL variants
+    const pricingPromises = state.variants.map(async (variant) => {
+      try {
+        const requestBody = {
+          productId: state.product.id,
+          variantId: variant.id
+        };
+        
+        const response = await fetch('https://us-central1-kauara1.cloudfunctions.net/getProductPricing', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (result.success && result.basePrice) {
+          state.variantPrices.set(variant.id, result.basePrice);
+          console.log(`✅ Variant ${variant.id} API price:`, result.basePrice);
+          return { variantId: variant.id, price: result.basePrice, success: true };
+        } else {
+          throw new Error(`API returned success:false - ${result.error}`);
+        }
+      } catch (error) {
+        console.error(`❌ Failed to fetch price for variant ${variant.id}:`, error);
+        throw new Error(`Failed to get price for variant ${variant.id}: ${error.message}`);
+      }
     });
 
-    if (response.ok) {
-      const result = await response.json();
-      if (result.success) {
-        state.basePrice = result.basePrice;
-        updatePricingDisplay();
-        state.pricingLoaded = true;
-      }
+    const results = await Promise.all(pricingPromises);
+    const successful = results.filter(r => r.success).length;
+    
+    console.log(`=== PRICING RESULTS ===`);
+    console.log(`Total variants: ${results.length}`);
+    console.log(`Successful API calls: ${successful}`);
+    console.log(`Variant prices map:`, Array.from(state.variantPrices.entries()));
+    
+    if (successful === 0) {
+      throw new Error("No variant prices could be fetched from API");
     }
+    
+    state.variantPricingLoaded = true;
+    state.pricingLoaded = true;
+    updatePricingDisplay(); // This will now show the detailed pricing
+    
   } catch (error) {
-    console.error('Error fetching pricing:', error);
-    // Set a fallback price
-    state.basePrice = state.selectedVariant.retail_price || 29.99;
-    updatePricingDisplay();
+    console.error('❌ Error in pricing fetch:', error);
+    throw new Error(`Pricing fetch failed: ${error.message}`);
   }
 }
 
@@ -209,7 +316,48 @@ function updatePricingDisplay() {
   const totalPriceElement = document.getElementById('total-price');
   
   if (basePriceElement) {
-    basePriceElement.textContent = `$${state.basePrice.toFixed(2)}`;
+    if (state.variantPricingLoaded && state.variantPrices.size > 0) {
+      // Calculate price range from all variant prices
+      const prices = Array.from(state.variantPrices.values())
+        .filter(price => price && !isNaN(price) && price > 0);
+      
+      if (prices.length === 0) {
+        basePriceElement.textContent = 'Price not available';
+      } else {
+        const minPrice = Math.min(...prices);
+        const maxPrice = Math.max(...prices);
+        
+        if (minPrice === maxPrice) {
+          basePriceElement.textContent = `R$ ${minPrice.toFixed(2)}`;
+        } else {
+          basePriceElement.textContent = `R$ ${minPrice.toFixed(2)} - R$ ${maxPrice.toFixed(2)}`;
+        }
+      }
+    } else {
+      // Fallback to old logic if variant pricing not loaded
+      const prices = state.variants
+        .filter(v => v.availability_status === 'active')
+        .map(v => v.price || v.cost)
+        .filter(price => price && !isNaN(price) && price > 0);
+      
+      if (prices.length === 0) {
+        basePriceElement.textContent = 'Price not available';
+      } else {
+        const minPrice = Math.min(...prices);
+        const maxPrice = Math.max(...prices);
+        
+        if (minPrice === maxPrice) {
+          basePriceElement.textContent = `R$ ${minPrice.toFixed(2)}`;
+        } else {
+          basePriceElement.textContent = `R$ ${minPrice.toFixed(2)} - R$ ${maxPrice.toFixed(2)}`;
+        }
+      }
+    }
+    
+    // Always show detailed pricing if we're in product mode
+    if (!state.isArtMode) {
+      showDetailedVariantPricing();
+    }
   }
   
   if (artistCutElement) {
@@ -217,8 +365,51 @@ function updatePricingDisplay() {
   }
   
   if (totalPriceElement) {
-    state.totalPrice = state.basePrice + state.artistCut + (state.basePrice + state.artistCut) * 0.05; // 10% platform fee
-    totalPriceElement.textContent = `$${state.totalPrice.toFixed(2)}`;
+    if (state.variantPricingLoaded && state.variantPrices.size > 0) {
+      // Calculate total price range from variant prices
+      const basePrices = Array.from(state.variantPrices.values())
+        .filter(price => price && !isNaN(price) && price > 0);
+      
+      if (basePrices.length === 0) {
+        totalPriceElement.textContent = 'R$ 0.00';
+      } else {
+        const totalPrices = basePrices.map(basePrice => (basePrice + state.artistCut) * 1.05);
+        
+        const minTotal = Math.min(...totalPrices);
+        const maxTotal = Math.max(...totalPrices);
+        
+        if (minTotal === maxTotal) {
+          totalPriceElement.textContent = `R$ ${minTotal.toFixed(2)}`;
+        } else {
+          totalPriceElement.textContent = `R$ ${minTotal.toFixed(2)} - R$ ${maxTotal.toFixed(2)}`;
+        }
+      }
+    } else {
+      // Fallback logic
+      const prices = state.variants
+        .filter(v => v.availability_status === 'active')
+        .map(v => {
+          const basePrice = v.price || v.cost;
+          if (basePrice && !isNaN(basePrice) && basePrice > 0) {
+            return (basePrice + state.artistCut) * 1.05;
+          }
+          return null;
+        })
+        .filter(price => price !== null);
+      
+      if (prices.length === 0) {
+        totalPriceElement.textContent = 'R$ 0.00';
+      } else {
+        const minTotal = Math.min(...prices);
+        const maxTotal = Math.max(...prices);
+        
+        if (minTotal === maxTotal) {
+          totalPriceElement.textContent = `R$ ${minTotal.toFixed(2)}`;
+        } else {
+          totalPriceElement.textContent = `R$ ${minTotal.toFixed(2)} - R$ ${maxTotal.toFixed(2)}`;
+        }
+      }
+    }
   }
 }
 
@@ -239,10 +430,9 @@ function updateUIForMode(isArtMode) {
     const clearCanvasBtn = document.getElementById('clear-canvas');
     const saveSideContainer = document.getElementById('save-side');
     const pricingSection = document.getElementById('pricing-section');
-
     const artPricingSection = document.getElementById('art-pricing-section');
     const productPricingSection = document.getElementById('pricing-section');
-  
+
     if (isArtMode) {
         if (artPricingSection) artPricingSection.style.display = 'block';
         if (productPricingSection) productPricingSection.style.display = 'none';
@@ -252,7 +442,6 @@ function updateUIForMode(isArtMode) {
     }
     
     if (isArtMode) {
-        // Art mode UI code
         if (sideSelector) sideSelector.style.display = 'none';
         if (viewButtons) viewButtons.style.display = 'none';
         if (variantSelection) variantSelection.style.display = 'none';
@@ -263,14 +452,12 @@ function updateUIForMode(isArtMode) {
         if (nameLabel) nameLabel.textContent = 'Art Name:';
         if (saveBtn) saveBtn.textContent = 'Save Art';
         
-        // Show art-only elements
         if (bgColorContainer) bgColorContainer.style.display = 'block';
         if (clearCanvasBtn) clearCanvasBtn.style.display = 'inline-block';
         document.querySelectorAll('.art-only').forEach(el => {
             if (el) el.style.display = 'block';
         });
     } else {
-        // Product mode UI code
         if (sideSelector) sideSelector.style.display = 'block';
         if (saveSideContainer) saveSideContainer.style.display = 'block';
         if (pricingSection) pricingSection.style.display = 'block';
@@ -279,22 +466,17 @@ function updateUIForMode(isArtMode) {
         if (nameLabel) nameLabel.textContent = 'Product Name:';
         if (saveBtn) saveBtn.textContent = 'Save Product';
         
-        // Hide art-only elements
         if (bgColorContainer) bgColorContainer.style.display = 'none';
         if (clearCanvasBtn) clearCanvasBtn.style.display = 'none';
         document.querySelectorAll('.art-only').forEach(el => {
             if (el) el.style.display = 'none';
         });
-        
-        // View buttons handled by modules
     }
     
-    // Update canvas scale after UI changes
     setTimeout(updateCanvasScale, 100);
 }
 
 function setupArtMode() {
-    // Initialize with background color
     ctx.fillStyle = state.bgColor;
     ctx.fillRect(0, 0, elements.canvas.width, elements.canvas.height);
 }
@@ -313,34 +495,74 @@ function loadSessionData() {
   const productData = sessionStorage.getItem('selectedProduct');
   const variantData = sessionStorage.getItem('selectedVariants');
   
-  if (!productData || !variantData) {
-    throw new Error('No product or variant data found');
-  }
+  if (!productData) throw new Error('No product data found in session storage');
+  if (!variantData) throw new Error('No variant data found in session storage');
   
   state.product = JSON.parse(productData);
   state.variants = JSON.parse(variantData);
   state.selectedVariant = state.variants[0] || null;
   
   if (!state.selectedVariant) {
-    throw new Error('No variants available');
+    throw new Error('No variants available for selected product');
   }
+
+  console.log("=== PRODUCT DATA ===");
+  console.log("Product ID:", state.product.id);
+  console.log("Product Name:", state.product.name);
+  console.log("Total variants:", state.variants.length);
 }
 
 function renderVariantOptions() {
   if (!state.variants.length) return;
   
-  elements.variantSelection.innerHTML = state.variants.map(variant => {
-    const isSelected = variant.id === state.selectedVariant?.id;
-    const colorCode = variant.color_code || '#ccc';
+  const variantsByColor = {};
+  state.variants.forEach(variant => {
+    // FIX: Handle missing color property
+    const color = variant.color || 'N/A';
+    if (!color) {
+      console.warn(`Variant ${variant.id} has no color property, defaulting to 'N/A'`);
+    }
     
-    return `
-      <div class="variant-option ${isSelected ? 'selected' : ''}" 
-           data-id="${variant.id}">
-        <span class="color-indicator" style="background: ${colorCode}"></span>
-        ${variant.color || 'N/A'}
-      </div>
+    if (!variantsByColor[color]) {
+      variantsByColor[color] = [];
+    }
+    variantsByColor[color].push(variant);
+  });
+  
+  let html = '';
+  
+  Object.keys(variantsByColor).forEach(color => {
+    const colorVariants = variantsByColor[color];
+    const firstVariant = colorVariants[0];
+    
+    // FIX: Handle missing color_code property
+    const colorCode = firstVariant.color_code || '#cccccc';
+    
+    html += `
+      <div class="color-group mb-3">
+        <div class="color-header d-flex align-items-center mb-2">
+          <span class="color-indicator me-2" style="background: ${colorCode}; width: 20px; height: 20px; border-radius: 50%; border: 1px solid #ddd;"></span>
+          <strong>${color}</strong>
+        </div>
+        <div class="size-options d-flex flex-wrap gap-2">
     `;
-  }).join('');
+    
+    colorVariants.forEach(variant => {
+      const isSelected = variant.id === state.selectedVariant?.id;
+      
+      html += `
+        <div class="variant-option ${isSelected ? 'selected' : ''}" 
+             data-id="${variant.id}"
+             title="${variant.size || 'One Size'}">
+          ${variant.size || 'One Size'}
+        </div>
+      `;
+    });
+    
+    html += `</div></div>`;
+  });
+  
+  elements.variantSelection.innerHTML = html;
 }
 
 function handleVariantSelection(event) {
@@ -354,8 +576,6 @@ function handleVariantSelection(event) {
     state.selectedVariant = newVariant;
     renderVariantOptions();
     renderCanvas();
-    // Fetch pricing for the new variant
-    fetchProductPricing();
   }
 }
 
@@ -366,7 +586,6 @@ function handleFileUpload(event) {
     return;
   }
   
-  // Reset scale to 100%
   state.scale = 1.0;
   document.getElementById('scale-slider').value = 100;
   document.getElementById('scale-value').textContent = '100%';
@@ -410,6 +629,77 @@ function handleSideSwitch(newSide) {
     }
 }
 
+// MODERNIZED: Touch gesture support (EXACTLY like canvas-client.js)
+function handleTouchStart(event) {
+  if (!state.overlayImage) return;
+  
+  if (event.touches.length === 1) {
+    // Single touch - start dragging
+    const pointerPos = getPointerPosition(event);
+    if (isPointInOverlay(pointerPos)) {
+      state.isDragging = true;
+      state.dragStartX = pointerPos.x - state.overlayX;
+      state.dragStartY = pointerPos.y - state.overlayY;
+      elements.canvas.style.cursor = 'grabbing';
+      event.preventDefault();
+    }
+  } else if (event.touches.length === 2) {
+    // Two touches - start pinch to zoom
+    state.initialDistance = getTouchDistance(event);
+    state.initialScale = state.scale;
+    event.preventDefault();
+  }
+}
+
+function handleTouchMove(event) {
+  if (!state.overlayImage) return;
+  
+  if (event.touches.length === 1 && state.isDragging) {
+    // Single touch dragging
+    const pointerPos = getPointerPosition(event);
+    state.overlayX = pointerPos.x - state.dragStartX;
+    state.overlayY = pointerPos.y - state.dragStartY;
+    scheduleRender();
+    event.preventDefault();
+  } else if (event.touches.length === 2) {
+    // Pinch to zoom
+    const currentDistance = getTouchDistance(event);
+    if (state.initialDistance !== null) {
+      const scaleFactor = currentDistance / state.initialDistance;
+      const newScale = Math.max(0.1, Math.min(5, state.initialScale * scaleFactor));
+      
+      // Update scale slider and value
+      const scaleSlider = document.getElementById('scale-slider');
+      const scaleValue = document.getElementById('scale-value');
+      const sliderValue = Math.round(newScale * 100);
+      
+      if (scaleSlider) scaleSlider.value = sliderValue;
+      if (scaleValue) scaleValue.textContent = `${sliderValue}%`;
+      
+      // Apply scale change
+      if (state.currentModule?.handleScaleChange) {
+        state.currentModule.handleScaleChange(state, elements, newScale);
+      }
+      event.preventDefault();
+    }
+  }
+}
+
+function handleTouchEnd(event) {
+  state.isDragging = false;
+  state.initialDistance = null;
+  elements.canvas.style.cursor = 'default';
+}
+
+function getTouchDistance(event) {
+  const touch1 = event.touches[0];
+  const touch2 = event.touches[1];
+  return Math.hypot(
+    touch2.clientX - touch1.clientX,
+    touch2.clientY - touch1.clientY
+  );
+}
+
 let renderScheduled = false;
 function scheduleRender() {
   if (!renderScheduled) {
@@ -431,7 +721,6 @@ function handlePointerDown(event) {
     state.dragStartY = pointerPos.y - state.overlayY;
     elements.canvas.style.cursor = 'grabbing';
     
-    // Prevent default for touch events to avoid scrolling
     if (event.type.includes('touch')) {
       event.preventDefault();
     }
@@ -460,7 +749,6 @@ function handlePointerUp() {
 function getPointerPosition(event) {
   const rect = elements.canvas.getBoundingClientRect();
   
-  // Handle both mouse and touch events
   let clientX, clientY;
   
   if (event.type.includes('touch')) {
@@ -471,12 +759,10 @@ function getPointerPosition(event) {
     clientY = event.clientY;
   }
   
-  // Convert screen coordinates to canvas coordinates
-  // Account for canvas scaling (CSS vs actual canvas size)
-  const x = (clientX - rect.left) * (elements.canvas.width / rect.width);
-  const y = (clientY - rect.top) * (elements.canvas.height / rect.height);
-  
-  return { x, y };
+  return { 
+    x: (clientX - rect.left) * state.canvasScale,
+    y: (clientY - rect.top) * state.canvasScale
+  };
 }
 
 function isPointInOverlay(point) {
@@ -488,54 +774,44 @@ function isPointInOverlay(point) {
 
 async function getAuthToken() {
   try {
-    if (typeof firebase === 'undefined') {
-      console.warn('Firebase not available, proceeding without auth token');
-      return null;
+    if (typeof firebase === 'undefined' || !firebaseAuth) {
+      throw new Error('Firebase authentication is not available. Please refresh the page.');
     }
     
-    const user = firebase.auth().currentUser;
+    const user = firebaseAuth.currentUser;
     if (!user) {
-      console.warn('No authenticated user, proceeding without auth token');
-      return null;
+      throw new Error('No authenticated user found. Please sign in.');
     }
     
     console.log("Getting auth token for user:", user.uid);
-    const token = await user.getIdToken();
+    const token = await user.getIdToken(true); // Force refresh to get latest token
     console.log("Auth token retrieved successfully");
     return token;
   } catch (error) {
     console.error('Error getting auth token:', error);
-    return null;
+    throw new Error(`Authentication failed: ${error.message}`);
   }
 }
 
 async function handleSaveArt() {
   if (!state.overlayImage) {
-    alert('Please upload an image first');
-    return;
+    throw new Error('Please upload an image first');
   }
 
-  // Validate art name
   const artName = document.getElementById('item-name').value.trim();
   if (!artName) {
-    alert('Please enter an art name');
-    return;
+    throw new Error('Please enter an art name');
   }
 
-  // Validate art price
   if (state.artPrice <= 0) {
-    alert('Please enter a valid price for your art');
-    return;
+    throw new Error('Please enter a valid price for your art');
   }
 
-  // Get Firestore user ID from session storage
   const firestoreUserId = sessionStorage.getItem('designerFirestoreUserId') || 
                          sessionStorage.getItem('currentFirestoreUserId');
   
   if (!firestoreUserId) {
-    alert('User information not found. Please log in again.');
-    window.location.href = 'profile.html';
-    return;
+    throw new Error('User information not found. Please log in again.');
   }
 
   const { saveBtn } = elements;
@@ -543,21 +819,16 @@ async function handleSaveArt() {
     saveBtn.disabled = true;
     saveBtn.textContent = 'Saving...';
 
-    // Create a temporary canvas with just the original image dimensions
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = state.overlayImage.naturalWidth;
     tempCanvas.height = state.overlayImage.naturalHeight;
     const tempCtx = tempCanvas.getContext('2d');
     
-    // Draw the original image at full resolution with transparent background
-    // This preserves the original image's transparency
     tempCtx.drawImage(state.overlayImage, 0, 0);
     
-    // Use PNG format to preserve transparency
     const artData = tempCanvas.toDataURL('image/png');
     const filename = `${firestoreUserId}-${artName.replace(/\s+/g, '-').toLowerCase()}`;
     
-    // Save to Firebase with pricing information
     const artId = await saveArtToFirebase(
       artData, 
       filename, 
@@ -573,7 +844,7 @@ async function handleSaveArt() {
     
   } catch (error) {
     console.error('Error saving art:', error);
-    alert(`Error saving art: ${error.message}`);
+    throw error;
   } finally {
     saveBtn.disabled = false;
     saveBtn.textContent = 'Save Art';
@@ -587,13 +858,12 @@ async function saveArtToFirebase(artData, filename, artName, userId, price, plat
       headers: {
         'Content-Type': 'application/json',
       },
-
       body: JSON.stringify({
           artData: artData,
           filename: filename,
           artName: artName,
           userId: userId,
-          price: price,           // Direct fields, not nested
+          price: price,
           platformFee: platformFee,
           totalPrice: totalPrice
       })
@@ -621,44 +891,56 @@ async function handleSaveProduct() {
         return handleSaveArt();
     }
     
-    // Original product saving code below...
+    // Validation
     if (!state.overlayImage) {
-        alert('Please upload an image first');
-        return;
+        throw new Error('Please upload an image first');
     }
 
-    // Validate product name
     const customName = elements.productNameInput.value.trim();
     if (!customName) {
-        alert('Please enter a product name');
-        return;
+        throw new Error('Please enter a product name');
     }
 
-    // Validate artist cut
     if (state.artistCut < 0) {
-        alert('Artist cut cannot be negative');
-        return;
+        throw new Error('Artist cut cannot be negative');
     }
 
-    // Get Firestore user ID from session storage
+    if (!state.variantPricingLoaded || state.variantPrices.size === 0) {
+        throw new Error('Product pricing not loaded. Please wait or try again.');
+    }
+
     const firestoreUserId = sessionStorage.getItem('designerFirestoreUserId') || 
                          sessionStorage.getItem('currentFirestoreUserId');
     
-    // Log the user IDs
-    console.log("Firestore User ID for product:", firestoreUserId);
-    console.log("Product details:", {
-        productId: state.product?.id,
-        customName: customName,
-        variants: state.variants.length,
-        basePrice: state.basePrice,
-        artistCut: state.artistCut,
-        totalPrice: state.totalPrice
-    });
-    
     if (!firestoreUserId) {
-        alert('User information not found. Please log in again.');
-        window.location.href = 'profile.html';
-        return;
+        throw new Error('User information not found. Please log in again.');
+    }
+
+    // FIREBASE AUTHENTICATION CHECK
+    let currentUser = null;
+    let authToken = null;
+    
+    try {
+        // Check if Firebase is available
+        if (typeof firebase === 'undefined' || !firebaseAuth) {
+            throw new Error('Firebase authentication is not available. Please refresh the page.');
+        }
+
+        // Get current user
+        currentUser = firebaseAuth.currentUser;
+        if (!currentUser) {
+            throw new Error('You are not logged in. Please sign in to save products.');
+        }
+
+        console.log("Firebase user authenticated:", currentUser.uid);
+        
+        // Get authentication token
+        authToken = await currentUser.getIdToken(true); // Force token refresh
+        console.log("Auth token retrieved successfully");
+        
+    } catch (authError) {
+        console.error('Firebase authentication error:', authError);
+        throw new Error(`Authentication failed: ${authError.message}`);
     }
 
     const { saveBtn } = elements;
@@ -666,35 +948,38 @@ async function handleSaveProduct() {
         saveBtn.disabled = true;
         saveBtn.textContent = 'Saving...';
 
-        // Use module to get save side
-        const saveSide = state.currentModule?.getSaveSide ? state.currentModule.getSaveSide(elements) : 'front';
+        // FIX: Get save side from radio buttons
+        const saveSide = getSaveSide();
+        console.log("Saving product for side:", saveSide);
+
+        // FIX: Use the correct base image for the selected save side
         const physicalArea = PHYSICAL_PRINT_AREAS[state.product.id]?.[saveSide] || 
                          PHYSICAL_PRINT_AREAS[state.product.id]?.default;
         
         if (!physicalArea) {
-            alert('Physical print area not defined for this product');
-            return;
+            throw new Error(`Physical print area not defined for product ${state.product.id} for side ${saveSide}`);
         }
 
-        console.log("Physical print area:", physicalArea);
-        console.log("Selected side:", saveSide);
-
+        // Create design image for Printful
         const areaWidthPx = Math.round(physicalArea.widthInches * 300);
         const areaHeightPx = Math.round(physicalArea.heightInches * 300);
 
-        // Create composite for Printful
         const compositeCanvas = document.createElement('canvas');
         const compositeCtx = compositeCanvas.getContext('2d');
         compositeCanvas.width = areaWidthPx;
         compositeCanvas.height = areaHeightPx;
 
+        // FIX: Temporarily switch to the save side to get the correct print area
+        const originalSide = state.side;
+        state.side = saveSide; // Switch to the save side temporarily
+        
         const printArea = state.currentModule?.getPrintArea ? state.currentModule.getPrintArea(state) : null;
+        
         if (!printArea) {
-            alert('Print area not defined for this product');
-            return;
+            // Restore original side before throwing error
+            state.side = originalSide;
+            throw new Error(`Print area not defined for ${saveSide} side of this product`);
         }
-
-        console.log("Canvas print area:", printArea);
 
         const scaleX = areaWidthPx / printArea.width;
         const scaleY = areaHeightPx / printArea.height;
@@ -707,137 +992,291 @@ async function handleSaveProduct() {
             state.overlayH * scaleY
         );
 
-        const compositeImage = compositeCanvas.toDataURL('image/png');
+        const designImage = compositeCanvas.toDataURL('image/png');
         
-        // Create thumbnail
+        // FIX: Create thumbnail using the correct side
         const thumbnail = await createThumbnail(saveSide, printArea);
+        
+        // Restore original side after processing
+        state.side = originalSide;
 
-        const placement = {
-            area_width: areaWidthPx,
-            area_height: areaHeightPx,
-            left: 0, top: 0,
-            width: areaWidthPx,
-            height: areaHeightPx
-        };
-
-        // Create product name with Firestore user ID and custom name
-        const productName = `${firestoreUserId}-${customName}`;
-        console.log("Final product name:", productName);
-
-        const requestBody = {
-            name: productName, // Use Firestore user ID + custom name
-            thumbnail,
-            side: saveSide,
-            variants: state.variants.map(v => ({ 
-                id: v.id, 
-                price: v.retail_price || 29.99,
-                color: v.color || 'N/A'
-            })),
-            designImage: compositeImage,
-            placement,
-            designerUserId: firestoreUserId, // Include Firestore designer ID
-            productId: state.product.id,
-            productTitle: customName, // Use custom name as product title
-            pricing: {
-                basePrice: state.basePrice,
-                userMarkup: state.artistCut,
-                totalPrice: state.totalPrice,
-                platformFee: (state.basePrice + state.artistCut) * 0.10
+        // Process variants with strict validation
+        const processedVariants = state.variants.map(variant => {
+            // FIX: Handle missing variant properties with defaults
+            if (!variant.id) throw new Error(`Variant missing ID`);
+            
+            const size = variant.size || 'One Size';
+            const color = variant.color || 'N/A';
+            const colorCode = variant.color_code || '#cccccc';
+            const variantName = variant.name || `${state.product.name} - ${color} - ${size}`;
+            
+            // Get price from API results
+            const price = state.variantPrices.get(variant.id);
+            if (!price || isNaN(price)) {
+                throw new Error(`No valid price found for variant ${variant.id}`);
             }
-        };
 
-        // Log the request body (without the large image data)
-        console.log("Request body to server:", {
-            name: requestBody.name,
-            side: requestBody.side,
-            variants: requestBody.variants.length,
-            designerUserId: requestBody.designerUserId,
-            productId: requestBody.productId,
-            productTitle: requestBody.productTitle,
-            hasThumbnail: !!requestBody.thumbnail,
-            hasDesignImage: !!requestBody.designImage,
-            placement: requestBody.placement,
-            pricing: requestBody.pricing
+            return {
+                id: variant.id,
+                productId: state.product.id,
+                name: variantName,
+                size: size,
+                color: color,
+                colorCode: colorCode,
+                price: (parseFloat(price) + state.artistCut) * 1.05,
+                flatLayUrl: variant.flat_lay_url || null,
+                // Include original variant data for Printful
+                retail_price: (parseFloat(price) + state.artistCut) * 1.05,
+                availability_status: variant.availability_status || 'active'
+            };
         });
 
-        // Get auth token
-        const authToken = await getAuthToken();
-        
-        const headers = {
-            'Content-Type': 'application/json'
+        // Calculate price ranges
+        const prices = processedVariants.map(v => v.price);
+        const minPrice = Math.min(...prices);
+        const maxPrice = Math.max(...prices);
+        console.log("Print area for placement:", printArea);
+        console.log("Save side for placement:", saveSide);
+        // Create clean request body with user authentication info
+        const requestBody = {
+            // Basic Information
+            name: `${firestoreUserId}-${customName}`,
+            productTitle: customName,
+            productId: state.product.id,
+            designerUserId: firestoreUserId,
+            side: saveSide, // This will now be correctly set to 'back' if selected
+            
+            // Firebase Authentication Info
+            firebaseUserId: currentUser.uid,
+            userEmail: currentUser.email,
+            
+            // Design Information
+            designImage: designImage,
+            thumbnail: thumbnail,
+            designScale: state.scale,
+            
+            // Placement Information - FIXED: Include side-specific placement
+            placement: {
+                area_width: areaWidthPx,
+                area_height: areaHeightPx,
+                width: areaWidthPx,
+                height: areaHeightPx,
+                left: 0,
+                top: 0,
+                side: saveSide // Explicitly include side in placement
+            },
+            
+            // Pricing Information
+            pricing: {
+                priceRange: {
+                    min: minPrice,
+                    max: maxPrice
+                },
+                currency: "BRL",
+                userCut: state.artistCut
+            },
+            
+            // Variant Information
+            availableColors: [...new Set(processedVariants.map(v => v.color))],
+            availableSizes: [...new Set(processedVariants.map(v => v.size))],
+            totalVariants: processedVariants.length,
+            variants: processedVariants
         };
-        
-        if (authToken) {
-            headers['Authorization'] = `Bearer ${authToken}`;
-            console.log("Auth token available, adding to headers");
-        } else {
-            console.log("No auth token available, proceeding without");
-        }
 
-        console.log("Sending request to server...");
-        const startTime = Date.now();
-        
+        console.log("Saving product with side:", saveSide, "using print area:", printArea);
+        console.log("Placement data:", requestBody.placement);
+
+        // Send request with authentication header
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+        };
+
         const response = await fetch('https://us-central1-kauara1.cloudfunctions.net/saveProduct', {
             method: 'POST',
             headers: headers,
             body: JSON.stringify(requestBody)
         });
 
-        const endTime = Date.now();
-        console.log(`Request completed in ${endTime - startTime}ms`);
-
         if (!response.ok) {
+            // Handle specific authentication errors
+            if (response.status === 401) {
+                throw new Error('Authentication expired. Please sign in again.');
+            } else if (response.status === 403) {
+                throw new Error('You do not have permission to save products.');
+            }
+            
             const errorText = await response.text();
-            console.error("Server error response:", errorText);
             throw new Error(`Server error: ${response.status} - ${errorText}`);
         }
 
         const result = await response.json();
-        console.log("Server response:", result);
         
         if (result.success) {
-            alert('Product saved successfully!');
-            console.log("Product saved successfully for Firestore user:", firestoreUserId);
-            console.log("Firestore product ID:", result.firestoreProductId);
+            alert(`Product saved successfully for ${saveSide} side with ${processedVariants.length} variants!`);
+            console.log("Product saved successfully. Firestore ID:", result.firestoreProductId);
             
-            // You can store the Firestore product ID if needed
             if (result.firestoreProductId) {
                 sessionStorage.setItem('lastSavedProductId', result.firestoreProductId);
             }
             
-            renderCanvas();
         } else {
             throw new Error(result.error || 'Failed to save product');
         }
     } catch (error) {
         console.error('Error saving product:', error);
         
-        // More specific error messages
-        if (error.message.includes('Failed to fetch')) {
-            alert('Network error. Please check your connection and try again.');
-        } else if (error.message.includes('Server error')) {
-            alert('Server error. Please try again later.');
-        } else {
-            alert(`Error saving product: ${error.message}`);
+        // Handle specific error types
+        if (error.message.includes('Authentication failed') || 
+            error.message.includes('not logged in') ||
+            error.message.includes('Authentication expired')) {
+            // Redirect to login
+            alert('Please sign in to continue.');
+            window.location.href = 'profile.html';
+            return;
         }
+        
+        throw error;
     } finally {
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save Product';
     }
 }
 
+// Add this helper function to get the selected save side
+function getSaveSide() {
+    const selectedSide = document.querySelector('input[name="saveSide"]:checked');
+    const side = selectedSide ? selectedSide.value : 'front';
+    console.log("Save side selected:", side);
+    return side;
+}
+
+function showDetailedVariantPricing() {
+  let pricingContainer = document.getElementById('variant-pricing-details');
+  
+  if (!pricingContainer) {
+    pricingContainer = document.createElement('div');
+    pricingContainer.id = 'variant-pricing-details';
+    pricingContainer.style.marginTop = '15px';
+    pricingContainer.style.padding = '15px';
+    pricingContainer.style.backgroundColor = '#f8f9fa';
+    pricingContainer.style.borderRadius = '6px';
+    pricingContainer.style.border = '1px solid #dee2e6';
+    
+    const pricingSection = document.getElementById('pricing-section');
+    if (pricingSection) {
+      pricingSection.appendChild(pricingContainer);
+    } else {
+      return;
+    }
+  }
+  
+  // Group variants by color for better organization
+  const variantsByColor = {};
+  state.variants.forEach(variant => {
+    const color = variant.color || 'Default';
+    if (!variantsByColor[color]) {
+      variantsByColor[color] = [];
+    }
+    variantsByColor[color].push(variant);
+  });
+  
+  let html = '<h4 style="margin-bottom: 15px; color: #333;">Price Preview</h4>';
+  
+  Object.keys(variantsByColor).forEach(color => {
+    const colorVariants = variantsByColor[color];
+    const firstVariant = colorVariants[0];
+    
+    html += `
+      <div class="color-pricing-group" style="margin-bottom: 20px;">
+        <div class="color-header d-flex align-items-center mb-2">
+          <span class="color-indicator" style="background: ${firstVariant.color_code || '#ccc'}; display: inline-block; width: 16px; height: 16px; border-radius: 50%; margin-right: 8px; vertical-align: middle;"></span>
+          <strong style="color: #555;">${color}</strong>
+        </div>
+        <div class="size-pricing" style="margin-left: 24px;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="border-bottom: 2px solid #dee2e6;">
+                <th style="text-align: left; padding: 8px 4px; font-weight: 600; color: #555;">Size</th>
+                <th style="text-align: right; padding: 8px 4px; font-weight: 600; color: #555;">Base Price</th>
+                <th style="text-align: right; padding: 8px 4px; font-weight: 600; color: #555;">Total Price</th>
+              </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    colorVariants.forEach(variant => {
+      // Get the specific price for this variant
+      let basePrice;
+      
+      if (state.variantPricingLoaded && state.variantPrices.has(variant.id)) {
+        basePrice = state.variantPrices.get(variant.id);
+      } else {
+        // Fallback to variant's own price properties
+        basePrice = variant.price || variant.cost;
+      }
+      
+      const isAvailable = variant.availability_status === 'active';
+      
+      if (basePrice && !isNaN(basePrice)) {
+        const totalPrice = (basePrice + state.artistCut) * 1.05; // base price + artist cut + 5% platform fee
+        
+        html += `
+          <tr style="${!isAvailable ? 'opacity: 0.6; color: #6c757d;' : 'color: #333;'} border-bottom: 1px solid #eee;">
+            <td style="padding: 8px 4px; ${!isAvailable ? 'color: #6c757d;' : ''}">
+              ${variant.size || 'One Size'}
+              ${!isAvailable ? ' (Unavailable)' : ''}
+            </td>
+            <td style="text-align: right; padding: 8px 4px; ${!isAvailable ? 'color: #6c757d;' : ''}">
+              R$ ${parseFloat(basePrice).toFixed(2)}
+            </td>
+            <td style="text-align: right; padding: 8px 4px; ${!isAvailable ? 'color: #6c757d;' : ''}">
+              <strong>R$ ${totalPrice.toFixed(2)}</strong>
+            </td>
+          </tr>
+        `;
+      } else {
+        html += `
+          <tr style="opacity: 0.6; color: #6c757d; border-bottom: 1px solid #eee;">
+            <td style="padding: 8px 4px;">${variant.size || 'One Size'}</td>
+            <td colspan="2" style="text-align: right; padding: 8px 4px;">
+              Price not available (Currently Unavailable)
+            </td>
+          </tr>
+        `;
+      }
+    });
+    
+    html += `
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  });
+  
+  // Add pricing formula explanation
+  html += `
+    <div style="margin-top: 15px; padding: 10px; background: #e9ecef; border-radius: 4px; font-size: 0.9em; color: #495057;">
+      <strong>Pricing Formula:</strong> Total Price = (Base Price + Artist Cut) × 1.05<br>
+      <small>Includes 5% platform fee</small>
+    </div>
+  `;
+  
+  pricingContainer.innerHTML = html;
+}
+
 async function createThumbnail(saveSide, printArea) {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
-  const size = 400;
+  const size = 800;
   canvas.width = canvas.height = size;
   
-  // Background
-  ctx.fillStyle = state.selectedVariant.color_code || '#ffffff';
-  ctx.fillRect(0, 0, size, size);
+  // Use transparent background instead of color
+  ctx.clearRect(0, 0, size, size);
   
-  // Base image - use module's base images if available
-  const baseImage = state.moduleState.baseImages?.[saveSide] || state.moduleState.baseImages?.front;
+  // FIX: Use the correct base image for the save side
+  const baseImage = state.moduleState.baseImages?.[saveSide];
   if (baseImage && baseImage.complete) {
     const scale = Math.min(size / baseImage.width, size / baseImage.height);
     const w = baseImage.width * scale;
@@ -846,12 +1285,12 @@ async function createThumbnail(saveSide, printArea) {
     const y = (size - h) / 2;
     ctx.drawImage(baseImage, x, y, w, h);
     
-    // Overlay
-    if (printArea) {
-      const thumbPrintAreaX = (printArea.x / elements.canvas.width) * size;
-      const thumbPrintAreaY = (printArea.y / elements.canvas.height) * size;
-      const thumbPrintAreaW = (printArea.width / elements.canvas.width) * size;
-      const thumbPrintAreaH = (printArea.height / elements.canvas.height) * size;
+    // Overlay design
+    if (printArea && state.overlayImage) {
+      const thumbPrintAreaX = (printArea.x / baseImage.width) * w;
+      const thumbPrintAreaY = (printArea.y / baseImage.height) * h;
+      const thumbPrintAreaW = (printArea.width / baseImage.width) * w;
+      const thumbPrintAreaH = (printArea.height / baseImage.height) * h;
       
       const thumbOverlayX = thumbPrintAreaX + ((state.overlayX - printArea.x) / printArea.width) * thumbPrintAreaW;
       const thumbOverlayY = thumbPrintAreaY + ((state.overlayY - printArea.y) / printArea.height) * thumbPrintAreaH;
@@ -860,9 +1299,19 @@ async function createThumbnail(saveSide, printArea) {
       
       ctx.drawImage(state.overlayImage, thumbOverlayX, thumbOverlayY, thumbOverlayW, thumbOverlayH);
     }
+  } else {
+    // Fallback: if no base image, just show the design on transparent background
+    if (state.overlayImage && printArea) {
+      const thumbOverlayW = (state.overlayW / printArea.width) * size;
+      const thumbOverlayH = (state.overlayH / printArea.height) * size;
+      const thumbOverlayX = (size - thumbOverlayW) / 2;
+      const thumbOverlayY = (size - thumbOverlayH) / 2;
+      
+      ctx.drawImage(state.overlayImage, thumbOverlayX, thumbOverlayY, thumbOverlayW, thumbOverlayH);
+    }
   }
   
-  return canvas.toDataURL('image/jpeg', 0.9);
+  return canvas.toDataURL('image/png'); // Use PNG to preserve transparency
 }
 
 function setupEventListeners(isArtMode) {
@@ -878,10 +1327,32 @@ function setupEventListeners(isArtMode) {
           artPriceInput.addEventListener('input', updateArtPricingDisplay);
         }
     }
+    const backButton = document.getElementById('back-to-profile');
+    if (backButton) {
+        backButton.addEventListener('click', () => {
+            window.location.href = 'profile.html';
+        });
+    }
     
     document.getElementById('upload-btn').addEventListener('click', () => elements.uploadInput.click());
     elements.uploadInput.addEventListener('change', handleFileUpload);
-    elements.saveBtn.addEventListener('click', handleSaveProduct);
+    elements.saveBtn.addEventListener('click', async () => {
+        try {
+            await handleSaveProduct();
+        } catch (error) {
+            console.error('Save product error:', error);
+            
+            // Handle authentication errors specifically
+            if (error.message.includes('Authentication') || 
+                error.message.includes('not logged in') ||
+                error.message.includes('sign in')) {
+                alert(error.message);
+                window.location.href = 'profile.html';
+            } else {
+                alert(`Error: ${error.message}`);
+            }
+        }
+    });
     
     // Mouse listeners for desktop
     elements.canvas.addEventListener('mousedown', handlePointerDown);
@@ -889,11 +1360,11 @@ function setupEventListeners(isArtMode) {
     elements.canvas.addEventListener('mouseup', handlePointerUp);
     elements.canvas.addEventListener('mouseleave', handlePointerUp);
 
-    // Touch listeners for mobile
-    elements.canvas.addEventListener('touchstart', handlePointerDown, { passive: false });
-    elements.canvas.addEventListener('touchmove', handlePointerMove, { passive: false });
-    elements.canvas.addEventListener('touchend', handlePointerUp);
-    elements.canvas.addEventListener('touchcancel', handlePointerUp);
+    // Touch listeners for mobile (EXACTLY like canvas-client.js)
+    elements.canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    elements.canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    elements.canvas.addEventListener('touchend', handleTouchEnd);
+    elements.canvas.addEventListener('touchcancel', handleTouchEnd);
     
     elements.canvas.addEventListener('dragstart', e => e.preventDefault());
     

@@ -1,0 +1,81 @@
+.product-summary {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 20px;
+}
+.form-section {
+    margin-bottom: 30px;
+}
+.loading {
+    display: none;
+}
+.error-message {
+    display: none;
+    color: #dc3545;
+    margin-top: 10px;
+}
+.success-message {
+    display: none;
+    color: #198754;
+    margin-top: 10px;
+}
+.selected-variant-info {
+    background-color: #f8f9fa;
+    border: 2px solid #007bff !important;
+}
+.variant-details {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.color-option {
+    border-bottom: 1px solid #eee;
+    padding-bottom: 15px;
+}
+.color-title {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.size-option {
+    min-width: 60px;
+    text-align: center;
+}
+.size-option.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* NOVOS ESTILOS PARA FRETE */
+.shipping-option {
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+.shipping-option:hover {
+    border-color: #007bff;
+    background-color: #f8f9fa;
+}
+.shipping-option.selected {
+    border-color: #007bff;
+    background-color: #e7f3ff;
+}
+.shipping-method {
+    font-weight: bold;
+    color: #333;
+}
+.shipping-price {
+    font-weight: bold;
+    color: #28a745;
+}
+.shipping-estimate {
+    color: #6c757d;
+    font-size: 0.9em;
+}
+.shipping-summary {
+    background-color: #f8f9fa;
+    border: 2px solid #28a745 !important;
+}

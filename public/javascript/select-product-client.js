@@ -62,7 +62,7 @@ function initializeSelectedArt() {
 
 function redirectToSharedArts() {
     alert('No art selected. Please choose an art first.');
-    window.location.href = 'shared-arts.html';
+    window.location.href = 'inicio.html';
 }
 
 // Fetch art data from Firestore using artId - FIXED: Better error handling
@@ -431,6 +431,29 @@ variantSelectionEl.addEventListener('click', e => {
     addSelectedColor(colorName, hex);
   }
 });
+function updateSelectedVariantDisplay() {
+  const selectedColorEl = document.getElementById('selected-color');
+  const selectedSizeEl = document.getElementById('selected-size');
+  const variantDetailsEl = document.getElementById('variant-details');
+  const artNameDisplayEl = document.getElementById('art-name-display');
+  
+  if (state.selectedVariant) {
+    if (selectedColorEl) {
+      selectedColorEl.textContent = state.selectedVariant.color || 'Default';
+      selectedColorEl.style.color = state.selectedVariant.color_code || '#000';
+    }
+    if (selectedSizeEl) {
+      selectedSizeEl.textContent = state.selectedVariant.size || 'One Size';
+    }
+    if (variantDetailsEl) {
+      variantDetailsEl.textContent = `${state.selectedVariant.color || 'Default'} - ${state.selectedVariant.size || 'One Size'}`;
+    }
+  }
+  
+  if (artNameDisplayEl && state.selectedArt) {
+    artNameDisplayEl.textContent = state.selectedArt.name || 'Selected Art';
+  }
+}
 
 // Enhanced confirm button with proper art handling
 confirmBtn.addEventListener('click', () => {
@@ -441,14 +464,17 @@ confirmBtn.addEventListener('click', () => {
     
     if (!selectedArt) {
         alert('No art selected. Please go back and select an art first.');
-        window.location.href = 'shared-arts.html';
+        window.location.href = 'inicio.html';
         return;
     }
     
     // Find variants for all selected colors
-    const variants = selectedColors.map(color => {
-        return selectedProduct.variants.find(v => (v.color||'N/A') === color.name) || {};
-    }).filter(v => v.id);
+    const variants = [];
+    selectedColors.forEach(color => {
+        const colorVariants = selectedProduct.variants.filter(v => (v.color||'N/A') === color.name);
+        variants.push(...colorVariants);
+    });
+    const validVariants = variants.filter(v => v.id);
 
     if (variants.length === 0) {
         alert('No valid variants found for selected colors.');

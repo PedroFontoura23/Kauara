@@ -29,6 +29,9 @@ const pixPayBtn = document.getElementById("pixPayBtn");
 const pixQrCode = document.getElementById("pixQrCode");
 
 let ratingSystem;
+let artManager;
+let productManager;
+let postManager;
 
 async function getCurrentUserId() {
     const user = auth.currentUser;
@@ -46,60 +49,62 @@ async function getCurrentUserId() {
 }
 
 function setupPixButton() {
-    pixPayBtn.addEventListener('click', async () => {
-        const currentUserId = await getCurrentUserId();
-        if (!currentUserId || !userIdFromUrl) {
-            alert("Você precisa estar logado para doar.");
-            return;
-        }
-
-        const amount = parseFloat(document.getElementById('pixAmount').value);
-        if (!amount || amount < 1) {
-            alert("Informe um valor válido (mínimo R$1,00)");
-            return;
-        }
-
-        // Show loading state
-        const loadingSpinner = document.querySelector('#pixLoading .loading-spinner');
-        const loadingText = document.querySelector('#pixLoading p');
-        pixPayBtn.disabled = true;
-        loadingSpinner.style.display = 'block';
-        loadingText.textContent = 'Generating QR Code...';
-        pixQrCode.innerHTML = '';
-        document.getElementById('pixLoading').style.display = 'block';
-
-        try {
-            const response = await fetch('https://us-central1-kauara1.cloudfunctions.net/createPixPayment', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    payerId: currentUserId,
-                    receiverId: userIdFromUrl,
-                    amount: amount
-                })
-            });
-
-            const data = await response.json();
-            if (data.success) {
-                pixQrCode.innerHTML = `
-                    <p><strong>Escaneie o QR Code com seu app de banco:</strong></p>
-                    <img src="data:image/png;base64,${data.qr_code_base64}" alt="PIX QR Code" style="max-width: 300px; margin: 10px 0;" />
-                    <p><strong>Código copia e cola:</strong></p>
-                    <code style="word-wrap: break-word; white-space: normal;">${data.qr_code}</code>
-                `;
-            } else {
-                alert("Erro: " + data.error);
+    if (pixPayBtn) {
+        pixPayBtn.addEventListener('click', async () => {
+            const currentUserId = await getCurrentUserId();
+            if (!currentUserId || !userIdFromUrl) {
+                alert("Você precisa estar logado para doar.");
+                return;
             }
-        } catch (err) {
-            console.error(err);
-            alert("Erro ao iniciar pagamento PIX.");
-        } finally {
-            // Hide loading state regardless of outcome
-            loadingSpinner.style.display = 'none';
-            document.getElementById('pixLoading').style.display = 'none';
-            pixPayBtn.disabled = false;
-        }
-    });
+
+            const amount = parseFloat(document.getElementById('pixAmount').value);
+            if (!amount || amount < 1) {
+                alert("Informe um valor válido (mínimo R$1,00)");
+                return;
+            }
+
+            // Show loading state
+            const loadingSpinner = document.querySelector('#pixLoading .loading-spinner');
+            const loadingText = document.querySelector('#pixLoading p');
+            pixPayBtn.disabled = true;
+            loadingSpinner.style.display = 'block';
+            loadingText.textContent = 'Generating QR Code...';
+            pixQrCode.innerHTML = '';
+            document.getElementById('pixLoading').style.display = 'block';
+
+            try {
+                const response = await fetch('https://us-central1-kauara1.cloudfunctions.net/createPixPayment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        payerId: currentUserId,
+                        receiverId: userIdFromUrl,
+                        amount: amount
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    pixQrCode.innerHTML = `
+                        <p><strong>Escaneie o QR Code com seu app de banco:</strong></p>
+                        <img src="data:image/png;base64,${data.qr_code_base64}" alt="PIX QR Code" style="max-width: 300px; margin: 10px 0;" />
+                        <p><strong>Código copia e cola:</strong></p>
+                        <code style="word-wrap: break-word; white-space: normal;">${data.qr_code}</code>
+                    `;
+                } else {
+                    alert("Erro: " + data.error);
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Erro ao iniciar pagamento PIX.");
+            } finally {
+                // Hide loading state regardless of outcome
+                loadingSpinner.style.display = 'none';
+                document.getElementById('pixLoading').style.display = 'none';
+                pixPayBtn.disabled = false;
+            }
+        });
+    }
 }
 
 async function displayPosts(userIdFromUrl) {
@@ -107,16 +112,47 @@ async function displayPosts(userIdFromUrl) {
     if (!postsContainer) return;
 
     const currentUserId = await getCurrentUserId();
-    const postManager = initializePostManager('postsContainer', userIdFromUrl);
-    postManager.displayPosts(userIdFromUrl, currentUserId);
+    
+    // Initialize PostManager if available
+    if (typeof PostManager !== 'undefined') {
+        postManager = new PostManager(db, auth, "postsContainer");
+        postManager.displayPosts(userIdFromUrl, currentUserId);
+    } else {
+        console.warn("PostManager not available");
+        postsContainer.innerHTML = "<p>Posts feature not available</p>";
+    }
+}
+
+async function displayArts(userIdFromUrl) {
+    const artsContainer = document.getElementById("artsContainer");
+    if (!artsContainer) return;
+
+    const currentUserId = await getCurrentUserId();
+    
+    // Initialize ArtManager if available
+    if (typeof ArtManager !== 'undefined') {
+        artManager = new ArtManager(db, auth, "artsContainer");
+        artManager.displayArts(userIdFromUrl, currentUserId);
+    } else {
+        console.warn("ArtManager not available");
+        artsContainer.innerHTML = "<p>Arts feature not available</p>";
+    }
 }
 
 async function displayProducts(userIdFromUrl) {
-    if (!userIdFromUrl) return;
+    const productsContainer = document.getElementById("productsContainer");
+    if (!productsContainer) return;
 
     const currentUserId = await getCurrentUserId();
-    const productsManager = new ProductsManager(db, auth, "productsContainer", userIdFromUrl);
-    productsManager.displayProducts(userIdFromUrl, currentUserId);
+    
+    // Initialize ProductManager if available
+    if (typeof ProductManager !== 'undefined') {
+        productManager = new ProductManager(db, auth, "productsContainer");
+        productManager.displayProducts(userIdFromUrl, currentUserId);
+    } else {
+        console.warn("ProductManager not available");
+        productsContainer.innerHTML = "<p>Products feature not available</p>";
+    }
 }
 
 async function loadProfileData() {
@@ -144,6 +180,8 @@ async function loadProfileData() {
         // Load profile picture
         if (userData.profilePicture) {
             profilePictureElement.src = `data:image/jpeg;base64,${userData.profilePicture}`;
+        } else {
+            profilePictureElement.src = "../images/default-profile.png";
         }
 
         // Load contact data
@@ -155,9 +193,14 @@ async function loadProfileData() {
         }
 
         // Initialize components
-        ratingSystem = new RatingSystem(userIdFromUrl, ratingContainer);
-        displayPosts(userIdFromUrl);
+        if (typeof RatingSystem !== 'undefined') {
+            ratingSystem = new RatingSystem(userIdFromUrl, ratingContainer);
+        }
+
+        // Load user content
+        displayArts(userIdFromUrl);
         displayProducts(userIdFromUrl);
+        displayPosts(userIdFromUrl);
 
     } catch (error) {
         console.error("Error loading profile:", error);
@@ -166,14 +209,48 @@ async function loadProfileData() {
 }
 
 function showError(message) {
-    userNameElement.textContent = message;
-    userEmailElement.textContent = "";
-    userBioElement.textContent = "";
-    donationSection.style.display = "none";
+    if (userNameElement) userNameElement.textContent = message;
+    if (userEmailElement) userEmailElement.textContent = "";
+    if (userBioElement) userBioElement.textContent = "";
+    if (donationSection) donationSection.style.display = "none";
+}
+
+// Wait for dependencies to load
+function waitForDependencies() {
+    return new Promise((resolve) => {
+        const checkDependencies = () => {
+            const dependenciesLoaded = 
+                typeof firebase !== 'undefined' &&
+                (typeof PostManager !== 'undefined' || document.querySelector('script[src*="shared-posts"]')) &&
+                (typeof ProductManager !== 'undefined' || document.querySelector('script[src*="shared-products"]')) &&
+                (typeof ArtManager !== 'undefined' || document.querySelector('script[src*="shared-art"]'));
+
+            if (dependenciesLoaded) {
+                resolve();
+            } else {
+                setTimeout(checkDependencies, 100);
+            }
+        };
+        checkDependencies();
+    });
 }
 
 // Initialize the page
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    console.log("Public profile page loaded");
+    
+    // Wait for dependencies before loading data
+    await waitForDependencies();
+    console.log("Dependencies loaded, initializing profile...");
+    
     setupPixButton();
     loadProfileData();
+});
+
+// Handle page visibility changes to refresh data when returning to the page
+document.addEventListener('visibilitychange', function() {
+    if (!document.hidden && userIdFromUrl) {
+        // Page became visible again, refresh data
+        loadProfileData();
+    }
 });

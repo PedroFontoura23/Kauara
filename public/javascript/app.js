@@ -849,83 +849,71 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 
-    auth.onAuthStateChanged(async (user) => {
-    if (user) {
-        try {
-            const firestoreUserId = await getUserIdFromUid(user.uid);
-            const postManager = initializePostManager('allPostsContainer');
-            postManager.displayPosts(null, firestoreUserId); // Pass the current user's ID
-        } catch (error) {
-            console.error("Error fetching current user ID:", error);
-        }
-
+    // Initialize managers for displaying ALL content (no user filtering)
+    function initializePostManager(containerId) {
+        return new PostManager(db, auth, containerId);
     }
 
-
-});
-function initializePostManager(containerId) {
-    // Create a new PostManager instance
-    return new PostManager(db, auth, containerId);
-}
-function initializeArtManager(containerId) {
-    // Create a new ArtManager instance
-    return new ArtManager(db, auth, containerId);
-}
-
-function initializeArts() {
-    console.log("Initializing arts display");
-
-    // Initialize Firebase if not already initialized
-    if (!firebase.apps.length) {
-        firebase.initializeApp(firebaseConfig);
+    function initializeArtManager(containerId) {
+        return new ArtManager(db, auth, containerId);
     }
 
-    const auth = firebase.auth();
-    const db = firebase.firestore();
+    function initializeProductManager(containerId) {
+        return new ProductManager(db, auth, containerId);
+    }
 
-    // Initialize ArtManager and display arts
-    const artManager = initializeArtManager('artsContainer');
-    artManager.displayArts(); // Load arts without requiring a logged-in user
-}
-
-// Update the auth.onAuthStateChanged handler to include arts
-auth.onAuthStateChanged(async (user) => {
-    if (user) {
-        try {
-            const firestoreUserId = await getUserIdFromUid(user.uid);
-            const postManager = initializePostManager('allPostsContainer');
-            postManager.displayPosts(null, firestoreUserId);
-            
-            // Add art initialization for logged-in users
-            const artManager = initializeArtManager('artsContainer');
-            artManager.displayArts(null, firestoreUserId);
-        } catch (error) {
-            console.error("Error fetching current user ID:", error);
-        }
-    } else {
-        // Initialize posts and arts for non-logged-in users
-        const postManager = initializePostManager('allPostsContainer');
-        postManager.displayPosts();
+    // Initialize and display ALL content (no filtering by user)
+    function initializeAllContent() {
+        console.log("Initializing all content display");
         
+        // Initialize Firebase if not already initialized
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        // Initialize PostManager and display ALL posts
+        const postManager = initializePostManager('allPostsContainer');
+        postManager.displayPosts(); // No filter parameter = show all posts
+
+        // Initialize ArtManager and display ALL arts
         const artManager = initializeArtManager('artsContainer');
-        artManager.displayArts();
-    }
-});
-function initializePosts() {
-    console.log("Initializing posts display");
+        artManager.displayArts(); // No filter parameter = show all arts
 
-    // Initialize Firebase if not already initialized
-    if (!firebase.apps.length) {
-        firebase.initializeApp(firebaseConfig);
+        // Initialize ProductManager and display ALL products
+        const productManager = initializeProductManager('productsContainer');
+        productManager.displayProducts(); // No filter parameter = show all products
     }
 
-    const auth = firebase.auth();
-    const db = firebase.firestore();
+    // Update the auth.onAuthStateChanged handler to include ALL content
+    auth.onAuthStateChanged(async (user) => {
+        if (user) {
+            try {
+                const firestoreUserId = await getUserIdFromUid(user.uid);
+                
+                // Initialize managers with current user ID for interaction purposes
+                const postManager = initializePostManager('allPostsContainer');
+                postManager.displayPosts(null, firestoreUserId); // Show all posts but pass current user for interactions
+                
+                const artManager = initializeArtManager('artsContainer');
+                artManager.displayArts(null, firestoreUserId); // Show all arts but pass current user for interactions
+                
+                const productManager = initializeProductManager('productsContainer');
+                productManager.displayProducts(null, firestoreUserId); // Show all products but pass current user for interactions
+                
+            } catch (error) {
+                console.error("Error fetching current user ID:", error);
+                // Fallback: still show all content without user context
+                initializeAllContent();
+            }
+        } else {
+            // For non-logged-in users, show ALL content
+            initializeAllContent();
+        }
+    });
 
-    // Initialize PostManager and display posts
-    const postManager = initializePostManager('allPostsContainer');
-    postManager.displayPosts(); // Load posts without requiring a logged-in user
-}
-initializePosts();
-initializeArts();
+    // Initialize content immediately
+    initializeAllContent();
 });

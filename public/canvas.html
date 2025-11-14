@@ -3,6 +3,8 @@
 <head>
   <meta http-equiv="Content-Security-Policy" content="connect-src 'self' data: https://www.googleapis.com https://firestore.googleapis.com ws://localhost:5001 wss://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://api.mercadopago.com https://www.mercadolibre.com https://api.mercadolibre.com https://events.mercadopago.com https://us-central1-kauara1.cloudfunctions.net">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
   <title id="page-title">Canvas</title>
   <style>
     body {
@@ -245,6 +247,11 @@
     </div>
     
     <button id="save-btn">Save Product</button>
+  </div>
+  <div style="margin-bottom: 20px;">
+    <button id="back-to-profile" style="background: #6b7280; padding: 8px 16px;">
+      ← Back to Profile
+    </button>
   </div>
   <div id="art-pricing-section" class="pricing-section art-only" style="display: none;">
     <h3>Pricing</h3>

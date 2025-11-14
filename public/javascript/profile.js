@@ -71,14 +71,10 @@ document.addEventListener("DOMContentLoaded", function () {
       const user = auth.currentUser;
       if (user) {
         try {
-          // Get the Firestore user ID format (e.g., "user_1", "user_2")
           const firestoreUserId = await getUserIdFromUid(user.uid);
-          
-          // Store both user IDs in session storage for the next pages
           sessionStorage.setItem('currentUserId', user.uid);
           sessionStorage.setItem('currentFirestoreUserId', firestoreUserId);
           sessionStorage.setItem('designerFirestoreUserId', firestoreUserId);
-          
           window.location.href = 'select-product.html';
         } catch (error) {
           console.error("Error getting user ID:", error);
@@ -101,11 +97,8 @@ document.addEventListener("DOMContentLoaded", function () {
       }
 
       const CLIENT_ID = "8000562204726523";
-
-      // Gera a URL para o usuário autenticar no Mercado Pago
       const authUrl = `/artistRegistration.html`;
-
-      window.location.href = authUrl; // Redireciona o usuário
+      window.location.href = authUrl;
     });
   }
 
@@ -115,9 +108,7 @@ document.addEventListener("DOMContentLoaded", function () {
           const doc = await db.collection("config").doc("api_keys").get();
           if (doc.exists) {
               const encryptedKey = doc.data().printful_api_encrypted;
-              const ENCRYPTION_SECRET = "your-secret-key"; // You should define this properly
-              
-              // Check if CryptoJS is available
+              const ENCRYPTION_SECRET = "your-secret-key";
               if (typeof CryptoJS !== 'undefined') {
                 const bytes = CryptoJS.AES.decrypt(encryptedKey, ENCRYPTION_SECRET);
                 const decryptedKey = bytes.toString(CryptoJS.enc.Utf8);
@@ -140,18 +131,16 @@ document.addEventListener("DOMContentLoaded", function () {
   if (addPostButton) {
     addPostButton.addEventListener("click", () => {
       console.log("Create Post button clicked!");
-      if (postModal) postModal.show(); // Open the post creation modal
+      if (postModal) postModal.show();
     });
   }
 
-  // Prevent dropdown from closing when clicking "Conta" or "Segurança"
   document.querySelectorAll('.dropdown-item[data-bs-toggle="collapse"]').forEach((button) => {
       button.addEventListener('click', (event) => {
-          event.stopPropagation(); // Prevent event propagation to close dropdown
+          event.stopPropagation();
       });
   });
 
-  // Safe initialization of PostManager
   function initializePostManager(containerId) {
     if (typeof PostManager !== 'undefined') {
       return new PostManager(db, auth, containerId);
@@ -161,14 +150,40 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  // Safe initialization of ProductsManager
-  function initializeProductsManager(containerId) {
-    if (typeof ProductsManager !== 'undefined') {
-      return new ProductsManager(db, auth, containerId);
+  function initializeProductManager(containerId) {
+    if (typeof ProductManager !== 'undefined') {
+      return new ProductManager(db, auth, containerId);
     } else {
-      console.error("ProductsManager is not defined. Make sure to include the ProductsManager script.");
+      console.error("ProductManager is not defined. Make sure to include the ProductManager script.");
       return null;
     }
+  }
+
+  // ✅ Initialize ArtManager
+  function initializeArtManager(containerId) {
+    if (typeof ArtManager !== 'undefined') {
+      return new ArtManager(db, auth, containerId);
+    } else {
+      console.error("ArtManager is not defined. Make sure to include the ArtManager script.");
+      return null;
+    }
+  }
+
+  // displayArt function (only user's art)
+  function displayArt() {
+    const user = auth.currentUser;
+    if (!user) {
+      console.error("No user is logged in.");
+      return;
+    }
+    getUserIdFromUid(user.uid).then((firestoreUserId) => {
+      const artManager = initializeArtManager('artContainer');
+      if (artManager) {
+        artManager.displayArts(firestoreUserId, firestoreUserId);
+      }
+    }).catch((error) => {
+      console.error("Error fetching user ID:", error);
+    });
   }
 
   // Handle image upload and cropping
@@ -198,7 +213,7 @@ document.addEventListener("DOMContentLoaded", function () {
           }
         } catch (error) {
           alert(error.message);
-          postImageInput.value = ''; // Clear the input
+          postImageInput.value = '';
           selectedImageFile = null;
         }
       }
@@ -362,8 +377,9 @@ document.addEventListener("DOMContentLoaded", function () {
                   console.log("Calling fetchUserRatings for ID:", firestoreUserId);
                   fetchUserRatings(firestoreUserId);
                   
-                  // ✅ Start loading posts & products **without waiting for ratings**
+                  // ✅ Start loading posts, art & products without waiting for ratings
                   displayPosts(firestoreUserId);
+                  displayArt(firestoreUserId); // ✅ Show user's art
                   displayProducts(firestoreUserId);
               }
           }).catch((error) => {
@@ -382,11 +398,11 @@ document.addEventListener("DOMContentLoaded", function () {
               const userData = userDoc.data();
 
               // Get the averageRating and totalRatings fields
-              const averageRating = userData.averageRating || 0; // Default to 0 if not available
-              const totalRatings = userData.totalRatings || 0; // Default to 0 if not available
+              const averageRating = userData.averageRating || 0;
+              const totalRatings = userData.totalRatings || 0;
 
-              console.log("Average Rating from Firestore:", averageRating); // Debugging
-              console.log("Total Ratings from Firestore:", totalRatings); // Debugging
+              console.log("Average Rating from Firestore:", averageRating);
+              console.log("Total Ratings from Firestore:", totalRatings);
 
               // Update the DOM with the fetched values
               const averageRatingEl = document.getElementById("averageRating");
@@ -422,10 +438,10 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     getUserIdFromUid(user.uid).then((firestoreUserId) => {
-      const productsManager = initializeProductsManager('productsContainer');
-      if (productsManager) {
+      const productManager = initializeProductManager('productsContainer');
+      if (productManager) {
         // Always filter by the current user's ID on the profile page
-        productsManager.displayProducts(firestoreUserId, firestoreUserId);
+        productManager.displayProducts(firestoreUserId, firestoreUserId);
       }
     }).catch((error) => {
       console.error("Error fetching user ID:", error);
@@ -494,7 +510,7 @@ document.addEventListener("DOMContentLoaded", function () {
       const nameEditSection = document.getElementById("nameEditSection");
       if (nameEditSection) nameEditSection.style.display = "block";
       const nameInput = document.getElementById("nameInput");
-      if (nameInput && userNameElement) nameInput.value = userNameElement.textContent; // Set the current name in the input
+      if (nameInput && userNameElement) nameInput.value = userNameElement.textContent;
     });
   }
 
@@ -511,9 +527,9 @@ document.addEventListener("DOMContentLoaded", function () {
             .doc(firestoreUserId)
             .update({ user_Name: newName })
             .then(() => {
-              if (userNameElement) userNameElement.textContent = newName; // Update the displayed name
+              if (userNameElement) userNameElement.textContent = newName;
               const nameEditSection = document.getElementById("nameEditSection");
-              if (nameEditSection) nameEditSection.style.display = "none"; // Hide the edit section
+              if (nameEditSection) nameEditSection.style.display = "none";
             })
             .catch((error) => {
               console.error("Error updating name:", error);
@@ -528,7 +544,7 @@ document.addEventListener("DOMContentLoaded", function () {
   if (cancelNameButton) {
     cancelNameButton.addEventListener("click", () => {
       const nameEditSection = document.getElementById("nameEditSection");
-      if (nameEditSection) nameEditSection.style.display = "none"; // Hide the edit section
+      if (nameEditSection) nameEditSection.style.display = "none";
     });
   }
 
@@ -539,7 +555,7 @@ document.addEventListener("DOMContentLoaded", function () {
       const bioEditSection = document.getElementById("bioEditSection");
       if (bioEditSection) bioEditSection.style.display = "block";
       const bioInput = document.getElementById("bioInput");
-      if (bioInput && userBioElement) bioInput.value = userBioElement.textContent; // Set the current bio in the input
+      if (bioInput && userBioElement) bioInput.value = userBioElement.textContent;
     });
   }
 
@@ -556,9 +572,9 @@ document.addEventListener("DOMContentLoaded", function () {
             .doc(firestoreUserId)
             .update({ user_Bio: newBio })
             .then(() => {
-              if (userBioElement) userBioElement.textContent = newBio; // Update the displayed bio
+              if (userBioElement) userBioElement.textContent = newBio;
               const bioEditSection = document.getElementById("bioEditSection");
-              if (bioEditSection) bioEditSection.style.display = "none"; // Hide the edit section
+              if (bioEditSection) bioEditSection.style.display = "none";
             })
             .catch((error) => {
               console.error("Error updating bio:", error);
@@ -573,7 +589,7 @@ document.addEventListener("DOMContentLoaded", function () {
   if (cancelBioButton) {
     cancelBioButton.addEventListener("click", () => {
       const bioEditSection = document.getElementById("bioEditSection");
-      if (bioEditSection) bioEditSection.style.display = "none"; // Hide the edit section
+      if (bioEditSection) bioEditSection.style.display = "none";
     });
   }
 
@@ -845,7 +861,7 @@ document.addEventListener("DOMContentLoaded", function () {
         email: user?.email
       });
       alert("Failed to delete account and associated data: " + error.message);
-      throw error; // Re-throw to allow further debugging if needed
+      throw error;
     }
   }
 
@@ -887,7 +903,7 @@ document.addEventListener("DOMContentLoaded", function () {
           minute: '2-digit', 
           hour12: true 
       };
-      return date.toLocaleString('en-US', options); // Format using the user's local settings
+      return date.toLocaleString('en-US', options);
   }
 
   function displayPosts() {
@@ -936,7 +952,8 @@ document.addEventListener("DOMContentLoaded", function () {
         const dependenciesLoaded = 
           typeof firebase !== 'undefined' &&
           (typeof PostManager !== 'undefined' || document.querySelector('script[src*="shared-posts"]')) &&
-          (typeof ProductsManager !== 'undefined' || document.querySelector('script[src*="products"]'));
+          (typeof ProductManager !== 'undefined' || document.querySelector('script[src*="products"]')) &&
+          (typeof ArtManager !== 'undefined' || document.querySelector('script[src*="art"]'));
 
         if (dependenciesLoaded) {
           resolve();
@@ -952,17 +969,52 @@ document.addEventListener("DOMContentLoaded", function () {
   waitForDependencies().then(() => {
     console.log("Dependencies loaded, initializing managers...");
     
-    // Initialize ProductsManager if available
-    const productsContainer = document.getElementById('productsContainer');
-    if (productsContainer && typeof ProductsManager !== 'undefined') {
-      const productsManager = initializeProductsManager('productsContainer');
-      if (productsManager) {
-        // Display products when the page loads
-        productsManager.displayProducts();
+    // Initialize ArtManager if available
+    const artContainer = document.getElementById('artContainer');
+    if (artContainer && typeof ArtManager !== 'undefined') {
+      const artManager = initializeArtManager('artContainer');
+      if (artManager) {
+        artManager.displayArts();
       }
     } else {
-      console.warn("ProductsManager not available or products container not found");
+      console.warn("ArtManager not available or art container not found");
+    }
+
+    // Initialize ProductManager if available
+    const productsContainer = document.getElementById('productsContainer');
+    if (productsContainer && typeof ProductManager !== 'undefined') {
+      const productManager = initializeProductManager('productsContainer');
+      if (productManager) {
+        productManager.displayProducts();
+      }
+    } else {
+      console.warn("ProductManager not available or products container not found");
+    }
+
+    // Initialize PostManager if available
+    const postsContainer = document.getElementById('allPostsContainer');
+    if (postsContainer && typeof PostManager !== 'undefined') {
+      const postManager = initializePostManager('allPostsContainer');
+      if (postManager) {
+        postManager.displayPosts();
+      }
+    } else {
+      console.warn("PostManager not available or posts container not found");
     }
   });
 
+  // Handle page visibility changes to refresh data when returning to the page
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) {
+      // Page became visible again, refresh data
+      const user = auth.currentUser;
+      if (user) {
+        getUserIdFromUid(user.uid).then((firestoreUserId) => {
+          displayPosts(firestoreUserId);
+          displayArt(firestoreUserId);
+          displayProducts(firestoreUserId);
+        });
+      }
+    }
+  });
 });

@@ -224,20 +224,57 @@
       <input type="range" id="scale-slider" min="10" max="500" value="100" step="5">
       <span id="scale-value">100%</span>
     </div>
-
+    <!-- REPLACE the entire pricing section in canvas-client.html -->
     <div class="pricing-section">
-      <h3>Pricing</h3>
-      <div class="pricing-row">
-        <span>Art Price:</span>
-        <span id="art-price-display">R$ 0.00</span>
+      <h3>Pricing Details</h3>
+      
+      <!-- Selected Variant Info -->
+      <div id="selected-variant-info" class="selected-variant-info">
+        <div class="variant-display">
+          <span id="selected-color" class="selected-color"></span>
+          <span id="selected-size" class="selected-size"></span>
+        </div>
       </div>
-      <div class="pricing-row">
-        <span>Product Base Price:</span>
-        <span id="base-price">R$ 0.00</span>
+
+      <!-- Price Breakdown -->
+      <div class="price-breakdown">
+        <div class="price-row">
+          <div class="price-label">
+            <span>Product Base Price</span>
+            <small id="variant-details">(Selected variant)</small>
+          </div>
+          <div class="price-amount" id="base-price">R$ 0.00</div>
+        </div>
+        
+        <div class="price-row">
+          <div class="price-label">
+            <span>Art Price</span>
+            <small id="art-name-display"></small>
+          </div>
+          <div class="price-amount" id="art-price-display">R$ 0.00</div>
+        </div>
+        
+        <div class="price-row fee-row">
+          <div class="price-label">
+            <span>Platform Fee</span>
+            <small>(5% of total)</small>
+          </div>
+          <div class="price-amount" id="platform-fee">R$ 0.00</div>
+        </div>
+        
+        <div class="price-row total-row">
+          <div class="price-label">
+            <strong>Total Price</strong>
+          </div>
+          <div class="price-amount total-amount" id="total-price">
+            <strong>R$ 0.00</strong>
+          </div>
+        </div>
       </div>
-      <div class="pricing-row">
-        <span>Total Price:</span>
-        <span id="total-price">R$ 0.00</span>
+
+      <!-- Price Range Info -->
+      <div id="price-range-info" class="price-range-info">
+        <small>Price varies by size. Select a size to see exact pricing.</small>
       </div>
     </div>
     
@@ -254,7 +291,10 @@
     
     <button id="save-btn">Save Product</button>
   </div>
-
+  <div id="selected-variant-info" class="mt-3">
+    <div><strong>Selected:</strong> <span id="selected-variant-display">-</span></div>
+    <div><strong>Base Price:</strong> <span id="variant-price-display">R$ 0.00</span></div>
+  </div>
   <script>
     // Clear art mode when navigating away from canvas
     window.addEventListener('beforeunload', function() {

@@ -69,6 +69,17 @@
         .dropdown-menu h5 {
             margin-top: 20px; /* Add spacing between sections */
         }
+
+        /* Content section styling */
+        .content-section {
+            margin-bottom: 30px;
+        }
+        .section-title {
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -213,17 +224,30 @@
 
     <!-- Main Content -->
     <div class="container mt-4">
-        <!-- Posts Container -->
-        <div id="allPostsContainer">
-            <!-- Posts will be dynamically loaded here -->
+        
+        <!-- Products Section -->
+        <div class="content-section">
+            <h2 class="section-title">Community Products</h2>
+            <div id="productsContainer" class="products-feed">
+                <!-- Products from ALL users will be dynamically loaded here -->
+            </div>
         </div>
-    </div>
+        <!-- Posts Section -->
+        <div class="content-section">
+            <h2 class="section-title">Community Posts</h2>
+            <div id="allPostsContainer">
+                <!-- Posts from ALL users will be dynamically loaded here -->
+            </div>
+        </div>
 
-    <!-- Add Arts Container -->
-    <div class="container mt-4">
-        <div id="artsContainer" class="arts-feed">
-            <!-- Arts will be dynamically loaded here -->
+        <!-- Arts Section -->
+        <div class="content-section">
+            <h2 class="section-title">Community Arts</h2>
+            <div id="artsContainer" class="arts-feed">
+                <!-- Arts from ALL users will be dynamically loaded here -->
+            </div>
         </div>
+
     </div>
 
     <script>
@@ -236,14 +260,14 @@
                 dropdownMenu.style.display = 'none';
             }
         });
-
     </script>
 
-        <!-- Scripts -->
+    <!-- Scripts -->
     <script src="/javascript/app.js"></script>
     <script src="/javascript/rating.js"></script>
     <script src="/javascript/shared-posts.js"></script>
-    <script src="/javascript/shared-art.js"></script> <!-- Add this line -->
+    <script src="/javascript/shared-art.js"></script>
+    <script src="/javascript/shared-products.js"></script> <!-- Add this line -->
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>

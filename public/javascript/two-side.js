@@ -111,6 +111,16 @@ export function handleSideSwitch(newSide, state, elements, baseImages, imagesLoa
     if (frontBtn) frontBtn.classList.toggle('active', newSide === 'front');
     if (backBtn) backBtn.classList.toggle('active', newSide === 'back');
     
+    // ⭐ ADD THIS: Sync the save radio buttons with the view
+    const saveSideFront = document.querySelector('input[name="saveSide"][value="front"]');
+    const saveSideBack = document.querySelector('input[name="saveSide"][value="back"]');
+    
+    if (newSide === 'front' && saveSideFront) {
+        saveSideFront.checked = true;
+    } else if (newSide === 'back' && saveSideBack) {
+        saveSideBack.checked = true;
+    }
+    
     if (imagesLoaded[newSide]) {
         updateCanvasSize(baseImages[newSide], elements);
         // Trigger re-render
@@ -121,7 +131,6 @@ export function handleSideSwitch(newSide, state, elements, baseImages, imagesLoa
     
     return newSide;
 }
-
 export function getPrintArea(state) {
     if (!state.product?.id) {
         console.log("No product ID available for print area");
@@ -144,12 +153,6 @@ export function getPrintArea(state) {
     } : null;
 }
 
-export function getSaveSide(elements) {
-    const saveSideFront = document.querySelector('input[name="saveSide"][value="front"]');
-    const side = saveSideFront?.checked ? 'front' : 'back';
-    console.log("Save side selected:", side);
-    return side;
-}
 
 export function initializeOverlayPosition(state, elements) {
     if (!state.overlayImage) {

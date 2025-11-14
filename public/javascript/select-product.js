@@ -92,7 +92,14 @@ function showVariantModal(product) {
   
   loadBaseOverlay(product.id).then(() => renderShirtColor('#ffffff')); // default white
 
-  const colors = new Set(product.variants.map(v => v.color || 'N/A'));
+  // FIX: Handle variants with missing color property
+  const colors = new Set();
+  product.variants.forEach(v => {
+    const color = v.color || 'N/A'; // Default to 'N/A' if color is missing
+    colors.add(color);
+  });
+  
+  // Always include white as an option
   colors.add('White');
   const colorArray = [...colors];
 
@@ -101,7 +108,7 @@ function showVariantModal(product) {
       <div class="section-title">Available Colors</div>
       <div class="variant-selection-grid" data-type="color">
         ${colorArray.map(c => {
-          const v = product.variants.find(vv => (vv.color||'N/A') === c);
+          const v = product.variants.find(vv => (vv.color || 'N/A') === c);
           const hex = v?.color_code || (c.toLowerCase() === 'white' ? '#ffffff' : '#cccccc');
           return `<div class="variant-option" 
                     data-color="${escapeHtml(c)}" 
@@ -233,9 +240,9 @@ confirmBtn.addEventListener('click', () => {
     // Clear art mode when selecting a product
     sessionStorage.removeItem('creationMode');
     
-    // Find variants for all selected colors
-    const variants = selectedColors.map(color => {
-        return selectedProduct.variants.find(v => (v.color||'N/A') === color.name) || {};
+    // Find ALL variants for all selected colors (not just one per color)
+    const variants = selectedColors.flatMap(color => {
+        return selectedProduct.variants.filter(v => (v.color||'N/A') === color.name);
     });
 
     // Get Firestore user ID from session storage
@@ -243,6 +250,8 @@ confirmBtn.addEventListener('click', () => {
                            sessionStorage.getItem('currentFirestoreUserId');
     
     console.log("Firestore User ID for product creation:", firestoreUserId);
+    console.log("Selected variants count:", variants.length);
+    console.log("All selected variants:", variants);
     
     if (!firestoreUserId) {
         alert('User information not found. Please log in again.');
@@ -269,7 +278,12 @@ confirmBtn.addEventListener('click', () => {
         productName: selectedProduct.title,
         productType: productType,
         variantsCount: variants.length,
-        selectedColors: selectedColors.map(c => c.name)
+        selectedColors: selectedColors.map(c => c.name),
+        // Log size distribution
+        sizeDistribution: variants.reduce((acc, v) => {
+            acc[v.size] = (acc[v.size] || 0) + 1;
+            return acc;
+        }, {})
     });
     
     closeModal();

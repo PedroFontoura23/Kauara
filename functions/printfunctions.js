@@ -187,87 +187,94 @@ exports.getAllProducts = functions.runWith({
   });
 });
 // === Updated Get Product Pricing Function ===
+// === UPDATED Get Product Pricing Function (Supports GET and POST) ===
 exports.getProductPricing = functions.https.onRequest((req, res) => {
   cors(req, res, async () => {
     if (req.method === 'OPTIONS') {
       return res.status(204).send('');
     }
-    if (req.method !== 'POST') {
-      return res.status(405).json({ success: false, error: 'Method not allowed' });
+
+    // Support both GET and POST methods
+    let productId, variantId;
+    
+    if (req.method === 'GET') {
+      productId = req.query.productId;
+      variantId = req.query.variantId;
+    } else if (req.method === 'POST') {
+      productId = req.body.productId;
+      variantId = req.body.variantId;
+    } else {
+      return res.status(405).json({ success: false, error: 'Method not allowed. Use GET or POST.' });
     }
 
+    if (!productId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Product ID is required' 
+      });
+    }
+
+    console.log('Fetching pricing for product:', productId, 'variant:', variantId);
+
+    let basePrice = PRODUCT_BASE_PRICING[productId];
+
+    // Try to fetch live pricing from Printful API
     try {
-      const { productId, variantId } = req.body;
+      const printfulResponse = await fetch(`${PRINTFUL_API_BASE}/products/${productId}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${PRINTFUL_API_KEY}`,
+        },
+      });
 
-      if (!productId) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Product ID is required' 
-        });
-      }
-
-      console.log('Fetching pricing for product:', productId, 'variant:', variantId);
-
-      let basePrice = PRODUCT_BASE_PRICING[productId];
-
-      // Try to fetch live pricing from Printful API
-      try {
-        const printfulResponse = await fetch(`${PRINTFUL_API_BASE}/products/${productId}`, {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${PRINTFUL_API_KEY}`,
-          },
-        });
-
-        if (printfulResponse.ok) {
-          const printfulData = await printfulResponse.json();
-          
-          if (variantId && printfulData.result?.variants) {
-            // Find specific variant pricing
-            const variant = printfulData.result.variants.find(v => v.id === variantId);
-            if (variant && variant.price) {
-              basePrice = parseFloat(variant.price);
-              console.log('Found variant-specific pricing:', basePrice);
+      if (printfulResponse.ok) {
+        const printfulData = await printfulResponse.json();
+        console.log('Printful API response for product:', printfulData);
+        
+        if (printfulData.result && printfulData.result.variants) {
+          // If we have a specific variant ID, find that variant
+          if (variantId) {
+            const variant = printfulData.result.variants.find(v => v.id === parseInt(variantId));
+            if (variant) {
+              // Try different possible price fields
+              basePrice = variant.retail_price || variant.price || basePrice;
+              console.log('Found variant-specific pricing:', basePrice, 'for variant:', variantId);
             }
           }
           
-          // If no variant-specific pricing found, use the first variant or product price
-          if (!basePrice && printfulData.result?.variants?.length > 0) {
-            basePrice = parseFloat(printfulData.result.variants[0].price || basePrice);
+          // If no variant-specific pricing found or no variantId provided, 
+          // use the first available variant's price
+          if (!basePrice && printfulData.result.variants.length > 0) {
+            const firstVariant = printfulData.result.variants[0];
+            basePrice = firstVariant.retail_price || firstVariant.price || basePrice;
+            console.log('Using first variant pricing:', basePrice);
           }
         }
-      } catch (apiError) {
-        console.warn('Failed to fetch live pricing from Printful, using fallback:', apiError.message);
+      } else {
+        console.warn('Printful API returned non-OK status:', printfulResponse.status);
       }
-
-      // Ensure we have a valid price
-      if (!basePrice || basePrice <= 0) {
-        basePrice = PRODUCT_BASE_PRICING[productId] || 29.99;
-      }
-
-      res.json({
-        success: true,
-        basePrice,
-        productId,
-        variantId: variantId || null,
-        source: 'live_or_fallback'
-      });
-
-    } catch (error) {
-      console.error('Error getting product pricing:', error);
-      
-      // Return fallback pricing in case of any error
-      const fallbackPrice = PRODUCT_BASE_PRICING[req.body.productId] || 29.99;
-      
-      res.json({
-        success: true,
-        basePrice: fallbackPrice,
-        productId: req.body.productId,
-        variantId: req.body.variantId || null,
-        source: 'fallback',
-        warning: 'Using fallback pricing due to API error'
-      });
+    } catch (apiError) {
+      console.warn('Failed to fetch live pricing from Printful, using fallback:', apiError.message);
     }
+
+    // Ensure we have a valid price
+    if (!basePrice || basePrice <= 0) {
+      basePrice = PRODUCT_BASE_PRICING[productId] || 29.99;
+      console.log('Using fallback pricing:', basePrice);
+    }
+
+    // Convert to number and ensure it's positive
+    basePrice = Math.abs(parseFloat(basePrice) || 29.99);
+
+    res.json({
+      success: true,
+      basePrice,
+      productId,
+      variantId: variantId || null,
+      source: 'live_or_fallback',
+      method: req.method // For debugging
+    });
+
   });
 });
 
@@ -346,6 +353,7 @@ exports.getProducts = functions.runWith({
 
             const flatLayTemplates = await getFlatLayTemplates(product.id);
 
+            // Process ALL variants, not just limited selection
             const variants = (variantData || []).map((variant) => {
               const template = flatLayTemplates.find((t) =>
                 t.variant_ids.includes(variant.id)
@@ -354,17 +362,26 @@ exports.getProducts = functions.runWith({
 
               return {
                 id: variant.id,
+                product_id: variant.product_id,
                 name: variant.name,
                 size: variant.size,
                 color: variant.color,
                 color_code: variant.color_code,
                 availability_status: variant.availability_status,
-                retail_price: variant.retail_price || PRODUCT_BASE_PRICING[product.id] || 29.99,
+                retail_price: variant.retail_price,
+                price: variant.retail_price, // Use retail_price as base price
+                cost: variant.cost,
+                is_ignored: variant.is_ignored || false,
                 preview_urls:
                   variant.files
                     ?.filter((f) => f.type === 'preview')
                     .map((f) => f.preview_url) || [],
                 flat_lay_url: template?.url || fallback?.url || null,
+                // Include additional Printful data for completeness
+                product: variant.product,
+                files: variant.files,
+                options: variant.options,
+                dimensions: variant.dimensions
               };
             });
 
@@ -388,7 +405,7 @@ exports.getProducts = functions.runWith({
               model: product.model,
               image: product.image || fallbackImage(product.title),
               variant_count: variants.length,
-              variants,
+              variants, // This now contains ALL variants
               mockups,
               flat_lay_templates: flatLayTemplates.map((t) => t.url),
             };
@@ -446,7 +463,7 @@ exports.proxyImage = functions.https.onRequest((req, res) => {
   });
 });
 
-// === FIXED saveProduct function with better Firestore handling ===
+// === UPDATED saveProduct function with proper side handling ===
 exports.saveProduct = functions.runWith({
   timeoutSeconds: 120,
   memory: '1GB'
@@ -463,21 +480,38 @@ exports.saveProduct = functions.runWith({
       const { 
         name, 
         thumbnail, 
-        side, 
+        side,
         variants = [], 
         designImage, 
         placement, 
         designerUserId,
         productId,
         productTitle,
-        pricing
+        pricing,
+        availableSizes = [],
+        availableColors = [],
+        totalVariants = 0,
+        designScale = 1.0,
+        firestoreCollection = 'products', // NEW: Default to 'products'
+        artistUserId, // NEW: For client products
+        originalArtId // NEW: For client products
       } = req.body;
 
+      console.log('Saving to collection:', firestoreCollection);
       console.log('Received saveProduct request for user:', designerUserId);
+      console.log('Saving for side:', side);
 
       // Basic validation
       if (!designerUserId) {
         return res.status(401).json({ success: false, error: 'User authentication required' });
+      }
+
+      // Validate side parameter
+      if (!side || (side !== 'front' && side !== 'back')) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid side parameter. Must be "front" or "back"' 
+        });
       }
 
       const requiredFields = ['name', 'thumbnail', 'variants', 'designImage'];
@@ -490,15 +524,37 @@ exports.saveProduct = functions.runWith({
       const thumbnailUrl = await uploadBase64Image(thumbnail, 'thumbnails');
       const designUrl = await uploadBase64Image(designImage, 'designs');
 
-      // Build Firestore-ready payload (no 'undefined' allowed)
-      const safeVariants = variants.map(v => ({
-        id: v?.id ?? null,
-        color: v?.color ?? null,
-        color_code: v?.color_code ?? null,
-        size: v?.size ?? null,
-        price: (v?.price != null ? Number(v.price) : (pricing?.totalPrice ?? 29.99))
-      }));
+      // FIX: Clean variants - remove availability_status array and fix color_code
+      const safeVariants = variants.map(v => {
+        // Create clean variant object with only needed fields
+        const cleanVariant = {
+          // Core identification
+          id: v?.id ?? null,
+          name: v?.name ?? null,
+          
+          // Size and color information
+          size: v?.size ?? 'One Size',
+          color: v?.color ?? 'N/A',
+          color_code: v?.colorCode || v?.color_code || null,
+          
+          // Pricing
+          price: (v?.price != null ? Number(v.price) : (v?.retail_price != null ? Number(v.retail_price) : (pricing?.totalPrice ?? 29.99))),
+          retail_price: v?.retail_price != null ? Number(v.retail_price) : (pricing?.totalPrice ?? 29.99),
+          
+          // Simple availability status - remove array completely
+          availability_status: 'active',
+          is_ignored: v?.is_ignored ?? false,
+          
+          // Optional flat lay URL
+          flat_lay_url: v?.flatLayUrl || null
+        };
+        
+        return cleanVariant;
+      });
 
+      console.log('Processed variants for Firestore:', safeVariants.length);
+
+      // Base product data
       const productData = {
         id: null, // will fill after .add()
         designerUserId: designerUserId ?? null,
@@ -510,14 +566,26 @@ exports.saveProduct = functions.runWith({
         thumbnailUrl,
         designUrl,
         placement: placement ?? null,
+        designScale: Number(designScale) || 1.0,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         status: 'creating',
         printfulStatus: 'pending',
+        // Add summary information for easy querying
+        availableSizes: availableSizes.length > 0 ? availableSizes : [...new Set(safeVariants.map(v => v.size))],
+        availableColors: availableColors.length > 0 ? availableColors : [...new Set(safeVariants.map(v => v.color))],
+        totalVariants: totalVariants > 0 ? totalVariants : safeVariants.length
       };
 
-      // Optional pricing block
-      if (pricing) {
+      // NEW: Add artist attribution for client products
+      if (firestoreCollection === 'products-client') {
+        productData.artistUserId = artistUserId || null;
+        productData.originalArtId = originalArtId || null;
+        productData.artPrice = pricing?.artPrice || 0;
+      }
+
+      // Optional pricing block (for designer products)
+      if (pricing && firestoreCollection === 'products') {
         productData.pricing = {
           basePrice: Number(pricing.basePrice ?? 0),
           userCut: Number(pricing.userMarkup ?? 0),
@@ -530,39 +598,42 @@ exports.saveProduct = functions.runWith({
         };
       }
 
-      // === Firestore: use .add(...) as requested ===
+      // NEW: Use the specified collection
       let productDocRef;
       try {
-        productDocRef = await admin.firestore().collection('products').add(productData);
-        // Save the generated id back into the doc (optional but handy)
+        productDocRef = await admin.firestore().collection(firestoreCollection).add(productData);
+        // Save the generated id back into the doc
         await productDocRef.update({
           id: productDocRef.id,
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
-        console.log('✅ Saved product to Firestore with ID:', productDocRef.id);
+        console.log('✅ Saved product to Firestore collection:', firestoreCollection, 'with ID:', productDocRef.id);
+        console.log('✅ Side saved:', side);
+        console.log('✅ Total variants saved:', safeVariants.length);
       } catch (firestoreError) {
         console.error('❌ Firestore .add() error:', firestoreError);
         return res.status(500).json({ success: false, error: 'Failed to save product to Firestore', details: firestoreError.message });
       }
 
-      // === Create product on Printful ===
+      // === Create product on Printful with proper side handling ===
       try {
         const syncVariants = safeVariants.map(v => ({
           variant_id: v.id,
           retail_price: Number(
-            pricing?.totalPrice != null ? pricing.totalPrice : (v.price != null ? v.price : 29.99)
+            v.price != null ? v.price : (pricing?.totalPrice != null ? pricing.totalPrice : 29.99)
           ).toFixed(2),
           files: [
             {
               url: designUrl,
+              // FIXED: Use the correct type based on side
               type: side === 'back' ? 'back' : 'default',
               position: placement ? {
-                area_width: placement.area_width,
-                area_height: placement.area_height,
-                width: placement.width,
-                height: placement.height,
-                top: placement.top,
-                left: placement.left
+                area_width: placement.area_width || 6000,
+                area_height: placement.area_height || 7200,
+                width: placement.width || placement.area_width || 6000,
+                height: placement.height || placement.area_height || 7200,
+                top: placement.top || 0,
+                left: placement.left || 0
               } : {
                 area_width: 6000,
                 area_height: 7200,
@@ -575,9 +646,13 @@ exports.saveProduct = functions.runWith({
           ]
         }));
 
+        console.log('Creating Printful product for side:', side);
+        console.log('Printful file type used:', side === 'back' ? 'back' : 'default');
+        console.log('Number of Printful variants:', syncVariants.length);
+
         const payload = {
           sync_product: { 
-            name: `${name}`,
+            name: `${name} - ${side}`, // Include side in product name for clarity
             thumbnail: thumbnailUrl 
           },
           sync_variants: syncVariants
@@ -624,12 +699,17 @@ exports.saveProduct = functions.runWith({
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
 
+        console.log('✅ Successfully created Printful product for', side, 'side with', syncVariants.length, 'variants');
+
         res.json({ 
           success: true, 
           product: data.result,
-          message: 'Product created successfully',
+          message: `Product created successfully for ${side} side`,
           firestoreProductId: productDocRef.id,
-          printfulProductId: data.result.id
+          printfulProductId: data.result.id,
+          side: side, // Return the side for confirmation
+          variantsCount: safeVariants.length,
+          collection: firestoreCollection // NEW: Return collection info
         });
 
       } catch (printfulError) {
@@ -650,7 +730,7 @@ exports.saveProduct = functions.runWith({
       }
 
     } catch (err) {
-      console.error('Overall error in saveProduct (add version):', err);
+      console.error('Overall error in saveProduct:', err);
       res.status(500).json({ 
         success: false, 
         error: 'Internal server error',
