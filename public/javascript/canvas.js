@@ -14,7 +14,6 @@ const firebaseConfig = {
     measurementId: "G-KL18R1CJ6S"
  };
 
-
 // Initialize Firebase
 let firebaseApp;
 let firebaseAuth;
@@ -34,6 +33,7 @@ try {
 // Constants
 const DPI = 300;
 const TWO_SIDED_PRODUCTS = [71, 146]; // tshirts, hoodies
+const PLATFORM_FEE_PERCENTAGE = 0.05; // 5% platform fee
 
 // Physical dimensions for Printful (in inches)
 const PHYSICAL_PRINT_AREAS = {
@@ -73,9 +73,7 @@ const state = {
   scale: 1.0,
   isArtMode: false,
   bgColor: '#ffffff',
-  basePrice: 0,
-  artistCut: 0,
-  totalPrice: 0,
+  artistCut: 0, // User input for artist markup
   pricingLoaded: false,
   artPrice: 0,
   artPlatformFee: 0,
@@ -83,12 +81,32 @@ const state = {
   canvasScale: 1,
   currentModule: null,
   moduleState: {},
-  variantPrices: new Map(),
+  variantPricing: new Map(), // Store full pricing data per variant
   variantPricingLoaded: false,
   // NEW: Touch gesture support (EXACTLY like canvas-client.js)
   initialDistance: null,
   initialScale: 1
 };
+
+// Price helper functions
+function roundToTwoDecimals(num) {
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+}
+
+function formatCurrency(amount) {
+  return `R$ ${roundToTwoDecimals(amount).toFixed(2)}`;
+}
+
+// Calculate platform fee (5% of product price)
+function calculatePlatformFee(productPrice) {
+  return roundToTwoDecimals(productPrice * PLATFORM_FEE_PERCENTAGE);
+}
+
+// Calculate total price: product_price + platform_fee + artist_cut
+function calculateTotalPrice(productPrice, artistCut) {
+  const platformFee = calculatePlatformFee(productPrice);
+  return roundToTwoDecimals(productPrice + platformFee + artistCut);
+}
 
 // Initialize
 document.addEventListener('DOMContentLoaded', initializeApp);
@@ -234,12 +252,18 @@ function updateArtPricingDisplay() {
   const totalPriceElement = document.getElementById('art-total-price');
   
   if (artPriceInput && platformFeeElement && totalPriceElement) {
-    state.artPrice = parseFloat(artPriceInput.value) || 0;
-    state.artPlatformFee = state.artPrice * 0.05;
-    state.artTotalPrice = state.artPrice + state.artPlatformFee;
+    // Round the input price to 2 decimals
+    state.artPrice = roundToTwoDecimals(parseFloat(artPriceInput.value) || 0);
     
-    platformFeeElement.textContent = `R$ ${state.artPlatformFee.toFixed(2)}`;
-    totalPriceElement.textContent = `R$ ${state.artTotalPrice.toFixed(2)}`;
+    // Update the input field with the rounded value
+    artPriceInput.value = state.artPrice.toFixed(2);
+    
+    // Calculate fees with rounding
+    state.artPlatformFee = roundToTwoDecimals(state.artPrice * 0.05);
+    state.artTotalPrice = roundToTwoDecimals(state.artPrice + state.artPlatformFee);
+    
+    platformFeeElement.textContent = formatCurrency(state.artPlatformFee);
+    totalPriceElement.textContent = formatCurrency(state.artTotalPrice);
   }
 }
 
@@ -250,8 +274,8 @@ async function fetchProductPricing() {
     console.log("=== STARTING PRICING FETCH ===");
     console.log("Fetching pricing for all variants of product:", state.product.id);
     
-    // Clear previous prices
-    state.variantPrices.clear();
+    // Clear previous pricing data
+    state.variantPricing.clear();
     
     // Fetch pricing for ALL variants
     const pricingPromises = state.variants.map(async (variant) => {
@@ -276,9 +300,20 @@ async function fetchProductPricing() {
         const result = await response.json();
         
         if (result.success && result.basePrice) {
-          state.variantPrices.set(variant.id, result.basePrice);
-          console.log(`✅ Variant ${variant.id} API price:`, result.basePrice);
-          return { variantId: variant.id, price: result.basePrice, success: true };
+          // Round the base price to 2 decimals
+          const basePrice = roundToTwoDecimals(result.basePrice);
+          
+          // Store full pricing structure for this variant
+          const pricingData = {
+            product_price: basePrice, // Printful cost
+            artist_cut: state.artistCut, // User input
+            platform_fee: calculatePlatformFee(basePrice), // 5% of product_price
+            total_price: calculateTotalPrice(basePrice, state.artistCut) // Final price to customer
+          };
+          
+          state.variantPricing.set(variant.id, pricingData);
+          console.log(`✅ Variant ${variant.id} pricing:`, pricingData);
+          return { variantId: variant.id, pricing: pricingData, success: true };
         } else {
           throw new Error(`API returned success:false - ${result.error}`);
         }
@@ -294,7 +329,7 @@ async function fetchProductPricing() {
     console.log(`=== PRICING RESULTS ===`);
     console.log(`Total variants: ${results.length}`);
     console.log(`Successful API calls: ${successful}`);
-    console.log(`Variant prices map:`, Array.from(state.variantPrices.entries()));
+    console.log(`Variant pricing map:`, Array.from(state.variantPricing.entries()));
     
     if (successful === 0) {
       throw new Error("No variant prices could be fetched from API");
@@ -302,7 +337,7 @@ async function fetchProductPricing() {
     
     state.variantPricingLoaded = true;
     state.pricingLoaded = true;
-    updatePricingDisplay(); // This will now show the detailed pricing
+    updatePricingDisplay();
     
   } catch (error) {
     console.error('❌ Error in pricing fetch:', error);
@@ -316,21 +351,22 @@ function updatePricingDisplay() {
   const totalPriceElement = document.getElementById('total-price');
   
   if (basePriceElement) {
-    if (state.variantPricingLoaded && state.variantPrices.size > 0) {
-      // Calculate price range from all variant prices
-      const prices = Array.from(state.variantPrices.values())
+    if (state.variantPricingLoaded && state.variantPricing.size > 0) {
+      // Calculate product price range (Printful cost)
+      const productPrices = Array.from(state.variantPricing.values())
+        .map(p => p.product_price)
         .filter(price => price && !isNaN(price) && price > 0);
       
-      if (prices.length === 0) {
+      if (productPrices.length === 0) {
         basePriceElement.textContent = 'Price not available';
       } else {
-        const minPrice = Math.min(...prices);
-        const maxPrice = Math.max(...prices);
+        const minPrice = Math.min(...productPrices);
+        const maxPrice = Math.max(...productPrices);
         
         if (minPrice === maxPrice) {
-          basePriceElement.textContent = `R$ ${minPrice.toFixed(2)}`;
+          basePriceElement.textContent = `Base Cost: ${formatCurrency(minPrice)}`;
         } else {
-          basePriceElement.textContent = `R$ ${minPrice.toFixed(2)} - R$ ${maxPrice.toFixed(2)}`;
+          basePriceElement.textContent = `Base Cost: ${formatCurrency(minPrice)} - ${formatCurrency(maxPrice)}`;
         }
       }
     } else {
@@ -338,7 +374,8 @@ function updatePricingDisplay() {
       const prices = state.variants
         .filter(v => v.availability_status === 'active')
         .map(v => v.price || v.cost)
-        .filter(price => price && !isNaN(price) && price > 0);
+        .filter(price => price && !isNaN(price) && price > 0)
+        .map(price => roundToTwoDecimals(price));
       
       if (prices.length === 0) {
         basePriceElement.textContent = 'Price not available';
@@ -347,9 +384,9 @@ function updatePricingDisplay() {
         const maxPrice = Math.max(...prices);
         
         if (minPrice === maxPrice) {
-          basePriceElement.textContent = `R$ ${minPrice.toFixed(2)}`;
+          basePriceElement.textContent = `Base Cost: ${formatCurrency(minPrice)}`;
         } else {
-          basePriceElement.textContent = `R$ ${minPrice.toFixed(2)} - R$ ${maxPrice.toFixed(2)}`;
+          basePriceElement.textContent = `Base Cost: ${formatCurrency(minPrice)} - ${formatCurrency(maxPrice)}`;
         }
       }
     }
@@ -361,27 +398,28 @@ function updatePricingDisplay() {
   }
   
   if (artistCutElement) {
-    artistCutElement.value = state.artistCut.toFixed(2);
+    // Update artist cut display
+    artistCutElement.value = roundToTwoDecimals(state.artistCut).toFixed(2);
+    artistCutElement.setAttribute('data-current-value', state.artistCut);
   }
   
   if (totalPriceElement) {
-    if (state.variantPricingLoaded && state.variantPrices.size > 0) {
-      // Calculate total price range from variant prices
-      const basePrices = Array.from(state.variantPrices.values())
+    if (state.variantPricingLoaded && state.variantPricing.size > 0) {
+      // Calculate total price range (final price to customer)
+      const totalPrices = Array.from(state.variantPricing.values())
+        .map(p => p.total_price)
         .filter(price => price && !isNaN(price) && price > 0);
       
-      if (basePrices.length === 0) {
-        totalPriceElement.textContent = 'R$ 0.00';
+      if (totalPrices.length === 0) {
+        totalPriceElement.textContent = formatCurrency(0);
       } else {
-        const totalPrices = basePrices.map(basePrice => (basePrice + state.artistCut) * 1.05);
-        
         const minTotal = Math.min(...totalPrices);
         const maxTotal = Math.max(...totalPrices);
         
         if (minTotal === maxTotal) {
-          totalPriceElement.textContent = `R$ ${minTotal.toFixed(2)}`;
+          totalPriceElement.textContent = `Final Price: ${formatCurrency(minTotal)}`;
         } else {
-          totalPriceElement.textContent = `R$ ${minTotal.toFixed(2)} - R$ ${maxTotal.toFixed(2)}`;
+          totalPriceElement.textContent = `Final Price: ${formatCurrency(minTotal)} - ${formatCurrency(maxTotal)}`;
         }
       }
     } else {
@@ -391,22 +429,23 @@ function updatePricingDisplay() {
         .map(v => {
           const basePrice = v.price || v.cost;
           if (basePrice && !isNaN(basePrice) && basePrice > 0) {
-            return (basePrice + state.artistCut) * 1.05;
+            const roundedBase = roundToTwoDecimals(basePrice);
+            return calculateTotalPrice(roundedBase, state.artistCut);
           }
           return null;
         })
         .filter(price => price !== null);
       
       if (prices.length === 0) {
-        totalPriceElement.textContent = 'R$ 0.00';
+        totalPriceElement.textContent = formatCurrency(0);
       } else {
         const minTotal = Math.min(...prices);
         const maxTotal = Math.max(...prices);
         
         if (minTotal === maxTotal) {
-          totalPriceElement.textContent = `R$ ${minTotal.toFixed(2)}`;
+          totalPriceElement.textContent = `Final Price: ${formatCurrency(minTotal)}`;
         } else {
-          totalPriceElement.textContent = `R$ ${minTotal.toFixed(2)} - R$ ${maxTotal.toFixed(2)}`;
+          totalPriceElement.textContent = `Final Price: ${formatCurrency(minTotal)} - ${formatCurrency(maxTotal)}`;
         }
       }
     }
@@ -414,7 +453,24 @@ function updatePricingDisplay() {
 }
 
 function handleArtistCutChange(event) {
-  state.artistCut = parseFloat(event.target.value) || 0;
+  const newArtistCut = roundToTwoDecimals(parseFloat(event.target.value) || 0);
+  
+  // Update the input field with rounded value
+  event.target.value = newArtistCut.toFixed(2);
+  event.target.setAttribute('data-current-value', newArtistCut);
+  
+  // Update state
+  state.artistCut = newArtistCut;
+  
+  // Recalculate pricing for all variants
+  if (state.variantPricingLoaded) {
+    state.variantPricing.forEach((pricingData, variantId) => {
+      pricingData.artist_cut = newArtistCut;
+      pricingData.total_price = calculateTotalPrice(pricingData.product_price, newArtistCut);
+      // Platform fee remains the same (5% of product_price)
+    });
+  }
+  
   updatePricingDisplay();
 }
 
@@ -863,9 +919,9 @@ async function saveArtToFirebase(artData, filename, artName, userId, price, plat
           filename: filename,
           artName: artName,
           userId: userId,
-          price: price,
-          platformFee: platformFee,
-          totalPrice: totalPrice
+          price: roundToTwoDecimals(price),
+          platformFee: roundToTwoDecimals(platformFee),
+          totalPrice: roundToTwoDecimals(totalPrice)
       })
     });
 
@@ -905,7 +961,7 @@ async function handleSaveProduct() {
         throw new Error('Artist cut cannot be negative');
     }
 
-    if (!state.variantPricingLoaded || state.variantPrices.size === 0) {
+    if (!state.variantPricingLoaded || state.variantPricing.size === 0) {
         throw new Error('Product pricing not loaded. Please wait or try again.');
     }
 
@@ -914,6 +970,22 @@ async function handleSaveProduct() {
     
     if (!firestoreUserId) {
         throw new Error('User information not found. Please log in again.');
+    }
+
+    // ✅ VALIDAÇÃO ANTES DE SALVAR
+    console.log("=== VALIDAÇÃO DE PRICING ===");
+    console.log("Variant pricing map:", Array.from(state.variantPricing.entries()));
+    console.log("Artist cut:", state.artistCut);
+    console.log("Variants count:", state.variants.length);
+
+    // Validar que todos os variants têm pricing
+    for (const variant of state.variants) {
+        const pricing = state.variantPricing.get(variant.id);
+        if (!pricing || pricing.product_price <= 0) {
+            throw new Error(`Preço inválido ou não encontrado para variant ${variant.id}`);
+        }
+        
+        console.log(`Variant ${variant.id} pricing:`, pricing);
     }
 
     // FIREBASE AUTHENTICATION CHECK
@@ -1000,62 +1072,116 @@ async function handleSaveProduct() {
         // Restore original side after processing
         state.side = originalSide;
 
-        // Process variants with strict validation
+        // ✅ CORRIGIDO: Process variants com cálculo correto e arredondamento
         const processedVariants = state.variants.map(variant => {
-            // FIX: Handle missing variant properties with defaults
-            if (!variant.id) throw new Error(`Variant missing ID`);
+          if (!variant.id) throw new Error(`Variant missing ID`);
+          
+          const size = variant.size || 'One Size';
+          const color = variant.color || 'N/A';
+          const colorCode = variant.color_code || '#cccccc';
+          const variantName = variant.name || `${state.product.name} - ${color} - ${size}`;
+          
+          // Get pricing data for this variant
+          const pricingData = state.variantPricing.get(variant.id);
+          if (!pricingData) {
+            throw new Error(`No pricing data found for variant ${variant.id}`);
+          }
+          
+          // Create well-organized variant data structure
+          return {
+            // ✅ Basic variant info
+            id: variant.id,
+            variant_id: variant.id,
             
-            const size = variant.size || 'One Size';
-            const color = variant.color || 'N/A';
-            const colorCode = variant.color_code || '#cccccc';
-            const variantName = variant.name || `${state.product.name} - ${color} - ${size}`;
+            // ✅ Product info
+            name: variantName,
+            size: size,
+            color: color,
+            color_code: colorCode,
             
-            // Get price from API results
-            const price = state.variantPrices.get(variant.id);
-            if (!price || isNaN(price)) {
-                throw new Error(`No valid price found for variant ${variant.id}`);
-            }
-
-            return {
-                id: variant.id,
-                productId: state.product.id,
-                name: variantName,
-                size: size,
-                color: color,
-                colorCode: colorCode,
-                price: (parseFloat(price) + state.artistCut) * 1.05,
-                flatLayUrl: variant.flat_lay_url || null,
-                // Include original variant data for Printful
-                retail_price: (parseFloat(price) + state.artistCut) * 1.05,
-                availability_status: variant.availability_status || 'active'
-            };
+            // ✅ ORGANIZED PRICING STRUCTURE
+            pricing: {
+              // Base cost from Printful
+              product_price: pricingData.product_price,
+              
+              // User-defined markup
+              artist_cut: pricingData.artist_cut,
+              
+              // Platform fee (5% of product_price)
+              platform_fee: pricingData.platform_fee,
+              platform_fee_percentage: PLATFORM_FEE_PERCENTAGE,
+              
+              // Final price to customer
+              total_price: pricingData.total_price,
+              
+              // Currency
+              currency: "BRL"
+            },
+            
+            // ✅ For display and compatibility
+            retail_price: pricingData.total_price, // For Printful API compatibility
+            price: pricingData.total_price, // For display
+            
+            // ✅ Add these for compatibility
+            external_id: `variant_${variant.id}`,
+            sku: `KAUARA_${state.product.id}_${variant.id}`,
+            
+            // ✅ Availability
+            availability_status: variant.availability_status || 'active'
+          };
         });
 
-        // Calculate price ranges
-        const prices = processedVariants.map(v => v.price);
-        const minPrice = Math.min(...prices);
-        const maxPrice = Math.max(...prices);
+        // Calculate price ranges for display
+        const totalPrices = processedVariants.map(v => v.pricing.total_price);
+        const minPrice = Math.min(...totalPrices);
+        const maxPrice = Math.max(...totalPrices);
+        
+        // ✅ CORRIGIDO: CRIAR pricing summary object
+        const pricingSummary = {
+            // Base pricing
+            product_price_range: {
+              min: Math.min(...processedVariants.map(v => v.pricing.product_price)),
+              max: Math.max(...processedVariants.map(v => v.pricing.product_price))
+            },
+            
+            // Artist cut (same for all variants)
+            artist_cut: state.artistCut,
+            
+            // Platform fee percentage
+            platform_fee_percentage: PLATFORM_FEE_PERCENTAGE,
+            
+            // Final price range
+            total_price_range: {
+              min: minPrice,
+              max: maxPrice
+            },
+            
+            // Currency
+            currency: "BRL"
+        };
+
         console.log("Print area for placement:", printArea);
         console.log("Save side for placement:", saveSide);
+        
         // Create clean request body with user authentication info
         const requestBody = {
-            // Basic Information
+            // ✅ Basic Information
             name: `${firestoreUserId}-${customName}`,
             productTitle: customName,
             productId: state.product.id,
             designerUserId: firestoreUserId,
-            side: saveSide, // This will now be correctly set to 'back' if selected
+            side: saveSide,
             
-            // Firebase Authentication Info
+            // ✅ Firebase Authentication Info
             firebaseUserId: currentUser.uid,
             userEmail: currentUser.email,
             
-            // Design Information
+            // ✅ Design Information
             designImage: designImage,
             thumbnail: thumbnail,
             designScale: state.scale,
             
-            // Placement Information - FIXED: Include side-specific placement
+            // ✅ Placement Information
             placement: {
                 area_width: areaWidthPx,
                 area_height: areaHeightPx,
@@ -1063,28 +1189,31 @@ async function handleSaveProduct() {
                 height: areaHeightPx,
                 left: 0,
                 top: 0,
-                side: saveSide // Explicitly include side in placement
+                side: saveSide
             },
             
-            // Pricing Information
-            pricing: {
-                priceRange: {
-                    min: minPrice,
-                    max: maxPrice
-                },
-                currency: "BRL",
-                userCut: state.artistCut
-            },
+            // ✅ ORGANIZED PRICING SUMMARY
+            pricing_summary: pricingSummary,
             
-            // Variant Information
+            // ✅ ORGANIZED VARIANT INFORMATION
             availableColors: [...new Set(processedVariants.map(v => v.color))],
             availableSizes: [...new Set(processedVariants.map(v => v.size))],
             totalVariants: processedVariants.length,
-            variants: processedVariants
+            variants: processedVariants,
+            
+            // ✅ Timestamps
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            
+            // ✅ Firestore collection
+            firestoreCollection: 'products'
         };
 
         console.log("Saving product with side:", saveSide, "using print area:", printArea);
         console.log("Placement data:", requestBody.placement);
+        console.log("Pricing summary:", requestBody.pricing_summary);
+        console.log("Variants to save:", processedVariants.length);
+        console.log("Request body structure:", Object.keys(requestBody));
 
         // Send request with authentication header
         const headers = {
@@ -1092,6 +1221,7 @@ async function handleSaveProduct() {
             'Authorization': `Bearer ${authToken}`
         };
 
+        console.log("Sending request to cloud function...");
         const response = await fetch('https://us-central1-kauara1.cloudfunctions.net/saveProduct', {
             method: 'POST',
             headers: headers,
@@ -1107,6 +1237,7 @@ async function handleSaveProduct() {
             }
             
             const errorText = await response.text();
+            console.error('Server error response:', errorText);
             throw new Error(`Server error: ${response.status} - ${errorText}`);
         }
 
@@ -1115,6 +1246,7 @@ async function handleSaveProduct() {
         if (result.success) {
             alert(`Product saved successfully for ${saveSide} side with ${processedVariants.length} variants!`);
             console.log("Product saved successfully. Firestore ID:", result.firestoreProductId);
+            console.log("Printful Sync Product ID:", result.printfulSyncProductId);
             
             if (result.firestoreProductId) {
                 sessionStorage.setItem('lastSavedProductId', result.firestoreProductId);
@@ -1181,7 +1313,7 @@ function showDetailedVariantPricing() {
     variantsByColor[color].push(variant);
   });
   
-  let html = '<h4 style="margin-bottom: 15px; color: #333;">Price Preview</h4>';
+  let html = '<h4 style="margin-bottom: 15px; color: #333;">Detailed Price Breakdown</h4>';
   
   Object.keys(variantsByColor).forEach(color => {
     const colorVariants = variantsByColor[color];
@@ -1198,7 +1330,9 @@ function showDetailedVariantPricing() {
             <thead>
               <tr style="border-bottom: 2px solid #dee2e6;">
                 <th style="text-align: left; padding: 8px 4px; font-weight: 600; color: #555;">Size</th>
-                <th style="text-align: right; padding: 8px 4px; font-weight: 600; color: #555;">Base Price</th>
+                <th style="text-align: right; padding: 8px 4px; font-weight: 600; color: #555;">Product Cost</th>
+                <th style="text-align: right; padding: 8px 4px; font-weight: 600; color: #555;">Artist Cut</th>
+                <th style="text-align: right; padding: 8px 4px; font-weight: 600; color: #555;">Platform Fee (5%)</th>
                 <th style="text-align: right; padding: 8px 4px; font-weight: 600; color: #555;">Total Price</th>
               </tr>
             </thead>
@@ -1206,21 +1340,25 @@ function showDetailedVariantPricing() {
     `;
     
     colorVariants.forEach(variant => {
-      // Get the specific price for this variant
-      let basePrice;
+      // Get the pricing data for this variant
+      let pricingData;
       
-      if (state.variantPricingLoaded && state.variantPrices.has(variant.id)) {
-        basePrice = state.variantPrices.get(variant.id);
+      if (state.variantPricingLoaded && state.variantPricing.has(variant.id)) {
+        pricingData = state.variantPricing.get(variant.id);
       } else {
-        // Fallback to variant's own price properties
-        basePrice = variant.price || variant.cost;
+        // Fallback
+        const basePrice = variant.price || variant.cost || 0;
+        pricingData = {
+          product_price: roundToTwoDecimals(basePrice),
+          artist_cut: state.artistCut,
+          platform_fee: calculatePlatformFee(basePrice),
+          total_price: calculateTotalPrice(basePrice, state.artistCut)
+        };
       }
       
       const isAvailable = variant.availability_status === 'active';
       
-      if (basePrice && !isNaN(basePrice)) {
-        const totalPrice = (basePrice + state.artistCut) * 1.05; // base price + artist cut + 5% platform fee
-        
+      if (pricingData.product_price && !isNaN(pricingData.product_price)) {
         html += `
           <tr style="${!isAvailable ? 'opacity: 0.6; color: #6c757d;' : 'color: #333;'} border-bottom: 1px solid #eee;">
             <td style="padding: 8px 4px; ${!isAvailable ? 'color: #6c757d;' : ''}">
@@ -1228,10 +1366,16 @@ function showDetailedVariantPricing() {
               ${!isAvailable ? ' (Unavailable)' : ''}
             </td>
             <td style="text-align: right; padding: 8px 4px; ${!isAvailable ? 'color: #6c757d;' : ''}">
-              R$ ${parseFloat(basePrice).toFixed(2)}
+              ${formatCurrency(pricingData.product_price)}
             </td>
             <td style="text-align: right; padding: 8px 4px; ${!isAvailable ? 'color: #6c757d;' : ''}">
-              <strong>R$ ${totalPrice.toFixed(2)}</strong>
+              ${formatCurrency(pricingData.artist_cut)}
+            </td>
+            <td style="text-align: right; padding: 8px 4px; ${!isAvailable ? 'color: #6c757d;' : ''}">
+              ${formatCurrency(pricingData.platform_fee)}
+            </td>
+            <td style="text-align: right; padding: 8px 4px; ${!isAvailable ? 'color: #6c757d;' : ''}">
+              <strong>${formatCurrency(pricingData.total_price)}</strong>
             </td>
           </tr>
         `;
@@ -1239,7 +1383,7 @@ function showDetailedVariantPricing() {
         html += `
           <tr style="opacity: 0.6; color: #6c757d; border-bottom: 1px solid #eee;">
             <td style="padding: 8px 4px;">${variant.size || 'One Size'}</td>
-            <td colspan="2" style="text-align: right; padding: 8px 4px;">
+            <td colspan="4" style="text-align: right; padding: 8px 4px;">
               Price not available (Currently Unavailable)
             </td>
           </tr>
@@ -1258,8 +1402,8 @@ function showDetailedVariantPricing() {
   // Add pricing formula explanation
   html += `
     <div style="margin-top: 15px; padding: 10px; background: #e9ecef; border-radius: 4px; font-size: 0.9em; color: #495057;">
-      <strong>Pricing Formula:</strong> Total Price = (Base Price + Artist Cut) × 1.05<br>
-      <small>Includes 5% platform fee</small>
+      <strong>Pricing Formula:</strong> Total Price = Product Cost + Artist Cut + (Product Cost × 5%)<br>
+      <small>Platform fee is 5% of the product cost</small>
     </div>
   `;
   
@@ -1385,6 +1529,9 @@ function setupEventListeners(isArtMode) {
         const artistCutInput = document.getElementById('artist-cut');
         if (artistCutInput) {
             artistCutInput.addEventListener('input', handleArtistCutChange);
+            // Set initial value
+            artistCutInput.value = state.artistCut.toFixed(2);
+            artistCutInput.setAttribute('data-current-value', state.artistCut);
         }
     }
     

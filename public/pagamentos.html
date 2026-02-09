@@ -1,12 +1,23 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' https://cdn.jsdelivr.net https://www.gstatic.com https://cdnjs.cloudflare.com https://viacep.com.br 'unsafe-inline';
+        style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline';
+        img-src 'self' data: https:;
+        font-src 'self' https://cdnjs.cloudflare.com;
+        connect-src 'self' https://us-central1-kauara1.cloudfunctions.net https://viacep.com.br https://cdn.jsdelivr.net https://www.gstatic.com;
+    ">
     <title>Finalizar Compra - Kauara</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        /* Custom styles */
         .product-summary {
             border: 1px solid #e0e0e0;
             border-radius: 10px;
@@ -27,32 +38,17 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(255,255,255,0.9);
-            display: flex;
+            background: rgba(255,255,255,0.95);
             justify-content: center;
             align-items: center;
             z-index: 9999;
+            backdrop-filter: blur(5px);
         }
         .price-breakdown {
             background: white;
             border-radius: 8px;
             padding: 15px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .shipping-option {
-            border: 2px solid #e9ecef;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 10px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        .shipping-option.selected {
-            border-color: #007bff;
-            background-color: #f8f9ff;
-        }
-        .shipping-option:hover {
-            border-color: #007bff;
         }
         .error-message {
             color: #dc3545;
@@ -62,6 +58,74 @@
         .form-control:invalid {
             border-color: #dc3545;
         }
+        .split-info {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .product-image-container {
+            position: relative;
+            display: inline-block;
+            width: 80px;
+            height: 80px;
+            overflow: hidden;
+            border-radius: 8px;
+            flex-shrink: 0;
+        }
+        .product-image {
+            position: relative;
+            width: 100%;
+            height: auto;
+            z-index: 1;
+            border-radius: 8px;
+            object-fit: cover;
+        }
+        .color-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+        }
+        .security-badge {
+            font-size: 0.8rem;
+            padding: 8px 12px;
+            border-radius: 20px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+        }
+        .split-info-hidden {
+            display: none;
+        }
+        .loading-overlay-content {
+            text-align: center;
+        }
+        .loading-overlay-spinner {
+            width: 3rem;
+            height: 3rem;
+            margin-bottom: 1rem;
+        }
+        .loading-overlay-progress {
+            height: 6px;
+            width: 200px;
+            margin-top: 1rem;
+        }
+        
+        /* Utility classes */
+        .d-flex {
+            display: flex !important;
+        }
+        .d-none {
+            display: none !important;
+        }
+        
+        /* Fixed styles for loading overlay */
+        #loadingOverlay {
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -69,8 +133,15 @@
         <!-- Header -->
         <div class="row mb-4">
             <div class="col-12">
-                <h1 class="h3 mb-0">Finalizar Compra</h1>
+                <h1 class="h3 mb-0">
+                    <i class="fas fa-shopping-cart text-primary me-2"></i>
+                    Finalizar Compra
+                </h1>
                 <p class="text-muted">Complete suas informações para finalizar o pedido</p>
+                <div class="security-badge d-inline-flex align-items-center">
+                    <i class="fas fa-lock text-success me-2"></i>
+                    <span>Pagamento 100% seguro via Mercado Pago</span>
+                </div>
             </div>
         </div>
 
@@ -78,22 +149,67 @@
             <!-- Left Column - Product Summary -->
             <div class="col-lg-5 mb-4">
                 <div class="product-summary">
-                    <h4 class="mb-3">Resumo do Pedido</h4>
+                    <h4 class="mb-3">
+                        <i class="fas fa-box me-2"></i>
+                        Resumo do Pedido
+                    </h4>
                     
                     <!-- Product Info -->
                     <div id="productInfo" class="mb-4">
                         <div class="d-flex align-items-start mb-3">
-                            <img id="productImage" src="" alt="Product" class="rounded me-3" style="width: 80px; height: 80px; object-fit: cover;">
+                            <!-- Product Image Container with Color Layer -->
+                            <div id="productImageContainer" class="product-image-container me-3">
+                                <!-- Color layer will be inserted here by JavaScript -->
+                                <img id="productImage" src="" alt="Product" class="product-image">
+                            </div>
                             <div>
                                 <h6 id="productTitle" class="mb-1">Carregando...</h6>
-                                <div id="variantInfo" class="text-muted small"></div>
+                                <div id="variantInfo" class="text-muted small">
+                                    <div class="mb-1">
+                                        <span class="badge bg-secondary me-1">Carregando...</span>
+                                        <span class="badge bg-info">Carregando...</span>
+                                    </div>
+                                </div>
+                                <!-- Variant Color Display -->
+                                <div id="variantColorDisplay" class="mt-1 small"></div>
+                                <div id="artistInfo" class="mt-2">
+                                    <small class="text-muted">
+                                        <i class="fas fa-palette me-1"></i>
+                                        <span id="artistName">Artista</span>
+                                    </small>
+                                </div>
                             </div>
                         </div>
                     </div>
 
+                    <!-- Split Information -->
+                    <div id="splitInfo" class="split-info split-info-hidden">
+                        <h6 class="mb-2">
+                            <i class="fas fa-share-alt me-2"></i>
+                            Split Configurado
+                        </h6>
+                        <div class="d-flex justify-content-between small">
+                            <span>Valor para Artista:</span>
+                            <strong id="artistSplitAmount">R$ 0,00</strong>
+                        </div>
+                        <div class="d-flex justify-content-between small">
+                            <span>Taxa da Plataforma:</span>
+                            <strong id="platformSplitAmount">R$ 0,00</strong>
+                        </div>
+                        <div class="mt-2">
+                            <small>
+                                <i class="fas fa-info-circle me-1"></i>
+                                O valor será transferido automaticamente para o artista
+                            </small>
+                        </div>
+                    </div>
+
                     <!-- Price Breakdown -->
-                    <div class="price-breakdown">
-                        <h6 class="mb-3">Detalhes do Valor</h6>
+                    <div class="price-breakdown mt-3">
+                        <h6 class="mb-3">
+                            <i class="fas fa-receipt me-2"></i>
+                            Detalhes do Valor
+                        </h6>
                         <div class="d-flex justify-content-between mb-2">
                             <span>Produto:</span>
                             <span id="productPrice">R$ 0,00</span>
@@ -103,30 +219,13 @@
                             <span id="artistMarkup">R$ 0,00</span>
                         </div>
                         <div class="d-flex justify-content-between mb-2">
-                            <span>Taxa da Plataforma:</span>
+                            <span>Taxa da Plataforma (5%):</span>
                             <span id="platformFee">R$ 0,00</span>
                         </div>
-                        <div class="d-flex justify-content-between mb-2">
-                            <span>Frete:</span>
-                            <span id="shippingCost">R$ 0,00</span>
-                        </div>
                         <hr>
-                        <div class="d-flex justify-content-between fw-bold">
+                        <div class="d-flex justify-content-between fw-bold fs-5">
                             <span>Total:</span>
-                            <span id="totalPrice">R$ 0,00</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Shipping Options -->
-                <div class="mt-4">
-                    <h5 class="mb-3">Opções de Entrega</h5>
-                    <div id="shippingOptions">
-                        <div class="text-center py-3">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Carregando...</span>
-                            </div>
-                            <p class="mt-2 text-muted">Calculando opções de frete...</p>
+                            <span id="totalPrice" class="text-primary">R$ 0,00</span>
                         </div>
                     </div>
                 </div>
@@ -134,79 +233,115 @@
 
             <!-- Right Column - Checkout Form -->
             <div class="col-lg-7">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">Informações de Entrega</h5>
+                <div class="card shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-user-circle me-2"></i>
+                            Informações Pessoais
+                        </h5>
                     </div>
                     <div class="card-body">
                         <form id="checkoutForm">
+                            <!-- CSRF Token (would be generated server-side in production) -->
+                            <input type="hidden" id="csrfToken" name="csrfToken" value="">
+                            
                             <!-- Personal Information -->
                             <div class="row mb-3">
                                 <div class="col-md-6">
-                                    <label for="fullName" class="form-label">Nome Completo *</label>
-                                    <input type="text" class="form-control" id="fullName" required>
+                                    <label for="fullName" class="form-label">
+                                        <i class="fas fa-user me-1"></i>
+                                        Nome Completo *
+                                    </label>
+                                    <input type="text" class="form-control" id="fullName" required 
+                                           maxlength="100" 
+                                           title="Digite seu nome completo (mínimo 2 caracteres)">
                                     <div class="error-message" id="fullNameError"></div>
                                 </div>
                                 <div class="col-md-6">
-                                    <label for="cpf" class="form-label">CPF *</label>
-                                    <input type="text" class="form-control" id="cpf" placeholder="000.000.000-00" required>
+                                    <label for="cpf" class="form-label">
+                                        <i class="fas fa-id-card me-1"></i>
+                                        CPF *
+                                    </label>
+                                    <input type="text" class="form-control" id="cpf" 
+                                           placeholder="000.000.000-00" required
+                                           title="Digite um CPF válido no formato 000.000.000-00">
                                     <div class="error-message" id="cpfError"></div>
                                 </div>
                             </div>
 
                             <div class="row mb-3">
                                 <div class="col-md-6">
-                                    <label for="email" class="form-label">Email *</label>
-                                    <input type="email" class="form-control" id="email" required>
+                                    <label for="email" class="form-label">
+                                        <i class="fas fa-envelope me-1"></i>
+                                        Email *
+                                    </label>
+                                    <input type="email" class="form-control" id="email" required
+                                           maxlength="100" 
+                                           title="Digite um email válido">
                                     <div class="error-message" id="emailError"></div>
                                 </div>
                                 <div class="col-md-6">
-                                    <label for="phone" class="form-label">Telefone *</label>
-                                    <input type="tel" class="form-control" id="phone" placeholder="(11) 99999-9999" required>
+                                    <label for="phone" class="form-label">
+                                        <i class="fas fa-phone me-1"></i>
+                                        Telefone *
+                                    </label>
+                                    <input type="tel" class="form-control" id="phone" 
+                                           placeholder="(11) 99999-9999" required
+                                           title="Digite um telefone válido no formato (11) 99999-9999">
                                     <div class="error-message" id="phoneError"></div>
                                 </div>
                             </div>
 
-                            <!-- Address Information -->
+                            <!-- Address Information (optional) -->
+                            <div class="mt-4 mb-3">
+                                <h6>
+                                    <i class="fas fa-home me-2"></i>
+                                    Endereço (opcional)
+                                </h6>
+                                <small class="text-muted">Forneça seu endereço se desejar receber informações adicionais</small>
+                            </div>
+                            
                             <div class="row mb-3">
                                 <div class="col-md-3">
-                                    <label for="zipCode" class="form-label">CEP *</label>
-                                    <input type="text" class="form-control" id="zipCode" placeholder="00000-000" required>
-                                    <div class="error-message" id="zipCodeError"></div>
+                                    <label for="zipCode" class="form-label">CEP</label>
+                                    <input type="text" class="form-control" id="zipCode" 
+                                           placeholder="00000-000"
+                                           title="Digite um CEP válido no formato 00000-000">
                                 </div>
                                 <div class="col-md-9">
-                                    <label for="street" class="form-label">Endereço *</label>
-                                    <input type="text" class="form-control" id="street" required>
-                                    <div class="error-message" id="streetError"></div>
+                                    <label for="street" class="form-label">Endereço</label>
+                                    <input type="text" class="form-control" id="street"
+                                           maxlength="200">
                                 </div>
                             </div>
 
                             <div class="row mb-3">
                                 <div class="col-md-3">
-                                    <label for="number" class="form-label">Número *</label>
-                                    <input type="text" class="form-control" id="number" required>
-                                    <div class="error-message" id="numberError"></div>
+                                    <label for="number" class="form-label">Número</label>
+                                    <input type="text" class="form-control" id="number"
+                                           maxlength="10">
                                 </div>
                                 <div class="col-md-5">
                                     <label for="complement" class="form-label">Complemento</label>
-                                    <input type="text" class="form-control" id="complement">
+                                    <input type="text" class="form-control" id="complement"
+                                           maxlength="50">
                                 </div>
                                 <div class="col-md-4">
-                                    <label for="neighborhood" class="form-label">Bairro *</label>
-                                    <input type="text" class="form-control" id="neighborhood" required>
-                                    <div class="error-message" id="neighborhoodError"></div>
+                                    <label for="neighborhood" class="form-label">Bairro</label>
+                                    <input type="text" class="form-control" id="neighborhood"
+                                           maxlength="100">
                                 </div>
                             </div>
 
                             <div class="row mb-4">
                                 <div class="col-md-6">
-                                    <label for="city" class="form-label">Cidade *</label>
-                                    <input type="text" class="form-control" id="city" required>
-                                    <div class="error-message" id="cityError"></div>
+                                    <label for="city" class="form-label">Cidade</label>
+                                    <input type="text" class="form-control" id="city"
+                                           maxlength="100">
                                 </div>
                                 <div class="col-md-6">
-                                    <label for="state" class="form-label">Estado *</label>
-                                    <select class="form-select" id="state" required>
+                                    <label for="state" class="form-label">Estado</label>
+                                    <select class="form-select" id="state">
                                         <option value="">Selecione...</option>
                                         <option value="AC">Acre</option>
                                         <option value="AL">Alagoas</option>
@@ -236,7 +371,6 @@
                                         <option value="SE">Sergipe</option>
                                         <option value="TO">Tocantins</option>
                                     </select>
-                                    <div class="error-message" id="stateError"></div>
                                 </div>
                             </div>
 
@@ -244,33 +378,63 @@
                             <div class="form-check mb-4">
                                 <input class="form-check-input" type="checkbox" id="termsCheck" required>
                                 <label class="form-check-label" for="termsCheck">
-                                    Concordo com os <a href="#" target="_blank">Termos de Serviço</a> e <a href="#" target="_blank">Política de Privacidade</a>
+                                    Concordo com os <a href="/termos.html" target="_blank" rel="noopener noreferrer">Termos de Serviço</a> 
+                                    e <a href="/privacidade.html" target="_blank" rel="noopener noreferrer">Política de Privacidade</a>
                                 </label>
                                 <div class="error-message" id="termsError"></div>
                             </div>
 
+                            <!-- Payment Method Info -->
+                            <div class="alert alert-info mb-4">
+                                <div class="d-flex">
+                                    <i class="fas fa-info-circle fa-2x me-3"></i>
+                                    <div>
+                                        <h6 class="alert-heading mb-2">Forma de Pagamento</h6>
+                                        <p class="mb-0">
+                                            Você será redirecionado para o Mercado Pago para concluir o pagamento.
+                                            Aceitamos cartões, PIX, boleto e mais.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- Submit Button -->
-                            <div class="d-grid">
+                            <div class="d-grid gap-2">
                                 <button type="submit" class="btn btn-primary btn-lg" id="submitButton">
                                     <i class="fas fa-lock me-2"></i>
-                                    Finalizar Compra
+                                    Finalizar Compra e Pagar
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary" id="backButton">
+                                    <i class="fas fa-arrow-left me-2"></i>
+                                    Voltar
                                 </button>
                             </div>
                         </form>
                     </div>
+                </div>
+
+                <!-- Security Info -->
+                <div class="mt-3 text-center">
+                    <small class="text-muted">
+                        <i class="fas fa-shield-alt me-1"></i>
+                        Transações protegidas com criptografia SSL de 256 bits
+                    </small>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Loading Overlay -->
-    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
-        <div class="text-center">
-            <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+    <div id="loadingOverlay" class="loading-overlay d-none">
+        <div class="loading-overlay-content">
+            <div class="spinner-border text-primary loading-overlay-spinner" role="status">
                 <span class="visually-hidden">Processando...</span>
             </div>
-            <h5>Processando seu pedido...</h5>
-            <p class="text-muted">Aguarde enquanto preparamos tudo para você</p>
+            <h5>Criando seu pedido...</h5>
+            <p class="text-muted">Estamos preparando tudo para você</p>
+            <div class="progress loading-overlay-progress">
+                <div class="progress-bar progress-bar-striped progress-bar-animated"></div>
+            </div>
         </div>
     </div>
 
@@ -281,6 +445,6 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
     
     <!-- Payment Script -->
-    <script src="/javascript/pagamentos.js"></script>
+    <script src="/javascript/pagamentos.js?v=2.2"></script>
 </body>
 </html>

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pagamento Aprovado - Kauara Store</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #f8f9fa; }
+        .success-container { max-width: 600px; margin: 100px auto; }
+    </style>
+</head>
+<body>
+    <div class="container success-container">
+        <div class="card shadow">
+            <div class="card-header bg-success text-white">
+                <h3 class="mb-0"><i class="fas fa-check-circle me-2"></i> Pagamento Aprovado!</h3>
+            </div>
+            <div class="card-body text-center py-5">
+                <i class="fas fa-check-circle fa-5x text-success mb-4"></i>
+                <h4 class="mb-3">Seu pagamento foi aprovado com sucesso!</h4>
+                <p class="text-muted mb-4">Obrigado por sua compra. Você receberá um e-mail com os detalhes do pedido.</p>
+                
+                <div id="paymentDetails" class="alert alert-info text-start">
+                    <p class="mb-1"><strong>ID do Pagamento:</strong> <span id="paymentId">Carregando...</span></p>
+                    <p class="mb-1"><strong>Status:</strong> <span id="paymentStatus">Carregando...</span></p>
+                    <p class="mb-0"><strong>Referência:</strong> <span id="externalRef">Carregando...</span></p>
+                </div>
+                
+                <a href="https://kauava.com" class="btn btn-primary btn-lg">
+                    <i class="fas fa-home me-2"></i> Voltar para a Loja
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://kit.fontawesome.com/your-fontawesome-kit.js" crossorigin="anonymous"></script>
+    <script>
+        // Extrai parâmetros da URL
+        const urlParams = new URLSearchParams(window.location.search);
+        
+        // Elementos DOM
+        const paymentIdEl = document.getElementById('paymentId');
+        const paymentStatusEl = document.getElementById('paymentStatus');
+        const externalRefEl = document.getElementById('externalRef');
+        
+        // Preenche dados do pagamento
+        const paymentId = urlParams.get('payment_id') || urlParams.get('preference_id');
+        const collectionStatus = urlParams.get('collection_status');
+        const externalRef = urlParams.get('external_reference');
+        
+        paymentIdEl.textContent = paymentId || 'Não disponível';
+        externalRefEl.textContent = externalRef || 'Não disponível';
+        
+        // Traduz status
+        const statusMap = {
+            'approved': 'Aprovado',
+            'pending': 'Pendente',
+            'in_process': 'Em processo',
+            'rejected': 'Rejeitado'
+        };
+        
+        paymentStatusEl.textContent = statusMap[collectionStatus] || collectionStatus || 'Não disponível';
+        
+        // Salva no localStorage para possível uso posterior
+        if (paymentId) {
+            localStorage.setItem('lastPaymentId', paymentId);
+        }
+        
+        console.log('✅ Payment success parameters:', {
+            payment_id: paymentId,
+            status: collectionStatus,
+            external_reference: externalRef,
+            allParams: Object.fromEntries(urlParams)
+        });
+    </script>
+</body>
+</html>

@@ -1,605 +1,583 @@
-// Firebase Configuration
-const firebaseConfig = {
-    apiKey: "AIzaSyBcBmuXY9ulETrbn2PmzjsDZ7JKRcehqGo",
-    authDomain: "kauara1.firebaseapp.com",
-    projectId: "kauara1",
-    storageBucket: "kauara1.firebasestorage.app",
-    messagingSenderId: "651139031771",
-    appId: "1:651139031771:web:8c73a3e1fff2d5cf2ae2fe",
-    measurementId: "G-KL18R1CJ6S"
-};
+// pagamentos.js - Checkout Pro Payment System
+console.log('💰 pagamentos.js - Production ready checkout system v2.2');
 
-// Initialize Firebase
-if (!firebase.apps.length) {
-    firebase.initializeApp(firebaseConfig);
-}
+let productData = null;
+let currentPayment = null;
+const FUNCTIONS_BASE_URL = 'https://us-central1-kauara1.cloudfunctions.net';
 
-const auth = firebase.auth();
-const db = firebase.firestore();
-
-// Global variables
-let selectedProduct = null;
-let selectedShippingOption = null;
-let currentUser = null;
-
-// Main initialization
-document.addEventListener('DOMContentLoaded', async function() {
-    console.log('🚀 Inicializando página de pagamentos...');
+// 1. Load product and initialize page
+window.onload = async function() {
+    console.log('🛒 Loading checkout page...');
     
     try {
-        // Check authentication
-        currentUser = await checkAuthentication();
-        
-        // Load product data from sessionStorage
-        await loadProductData();
-        
-        // Calculate shipping options
-        await calculateShipping();
-        
-        // Setup form validation
-        setupFormValidation();
-        
-        // Setup CPF mask
-        setupCPFMask();
-        
-        // Setup CEP auto-complete
-        setupCEPAutoComplete();
-        
-        console.log('✅ Página de pagamentos inicializada com sucesso');
-    } catch (error) {
-        console.error('❌ Erro na inicialização:', error);
-        showError('Erro ao carregar página. Por favor, recarregue.');
-    }
-});
-
-// Check user authentication
-async function checkAuthentication() {
-    return new Promise((resolve, reject) => {
-        auth.onAuthStateChanged(async (user) => {
-            if (user) {
-                console.log('👤 Usuário autenticado:', user.email);
-                
-                try {
-                    // Get Firestore user ID
-                    const userQuery = await db.collection("users")
-                        .where("firebaseUID", "==", user.uid)
-                        .get();
-                    
-                    if (!userQuery.empty) {
-                        const firestoreUserId = userQuery.docs[0].id;
-                        user.firestoreUserId = firestoreUserId;
-                        console.log('🔑 Firestore User ID:', firestoreUserId);
-                    }
-                    
-                    // Pre-fill user data if available
-                    await prefillUserData(user);
-                    resolve(user);
-                } catch (error) {
-                    console.error('Erro ao buscar dados do usuário:', error);
-                    reject(error);
-                }
-            } else {
-                console.warn('⚠️ Usuário não autenticado');
-                alert('Você precisa estar logado para finalizar a compra.');
-                window.location.href = 'login.html';
-                reject(new Error('User not authenticated'));
-            }
-        });
-    });
-}
-
-// Load product data from sessionStorage
-async function loadProductData() {
-    try {
-        const productDataString = sessionStorage.getItem('selectedProduct');
-        
-        if (!productDataString) {
-            throw new Error('Nenhum produto selecionado encontrado');
+        // Get product from session storage
+        const productString = sessionStorage.getItem('selectedProduct');
+        if (!productString) {
+            throw new Error('No product found. Please return to the store and select a product.');
         }
         
-        selectedProduct = JSON.parse(productDataString);
-        console.log('📦 Produto carregado:', selectedProduct);
+        productData = JSON.parse(productString);
+        console.log('✅ Product loaded:', {
+            title: productData.productTitle,
+            pricing: productData.pricing,
+            designer: productData.designerName,
+            variant: productData.selectedVariant
+        });
         
-        // Update UI with product data
-        updateProductDisplay();
+        // Display product info with new pricing structure
+        displayProductInfo();
+        
+        // Setup checkout form
+        setupCheckoutForm();
+        
+        // Update UI for Checkout Pro
+        updateUIForCheckoutPro();
+        
+        console.log('✅ Checkout Pro page loaded successfully');
         
     } catch (error) {
-        console.error('❌ Erro ao carregar produto:', error);
-        showError('Erro ao carregar informações do produto. Por favor, selecione o produto novamente.');
-        
-        // Redirect back after delay
-        setTimeout(() => {
-            window.history.back();
-        }, 3000);
+        console.error('❌ Error:', error);
+        showError(`Error loading checkout: ${error.message}`);
     }
-}
+};
 
-// Update product display in UI
-function updateProductDisplay() {
-    if (!selectedProduct) return;
-    
-    // Product image
-    const productImage = document.getElementById('productImage');
-    if (selectedProduct.thumbnailUrl) {
-        productImage.src = selectedProduct.thumbnailUrl;
-        productImage.alt = selectedProduct.productTitle;
-    } else {
-        productImage.src = '../public/images/default-product.png';
+// 2. Display product information with new pricing
+function displayProductInfo() {
+    // Product title
+    const productTitle = document.getElementById('productTitle');
+    if (productTitle) {
+        productTitle.textContent = productData.productTitle || 'Product';
     }
     
-    // Product title
-    document.getElementById('productTitle').textContent = selectedProduct.productTitle;
+    // Product image with color background
+    const productImageContainer = document.getElementById('productImageContainer');
+    const productImage = document.getElementById('productImage');
+    
+    if (productImageContainer && productImage) {
+        const imageUrl = productData.thumbnailUrl || 
+                        productData.thumbnail || 
+                        productData.imageUrl || 
+                        productData.image;
+        
+        // Add color background if variant has color
+        if (productData.selectedVariant?.color_code || productData.selectedVariant?.colorCode) {
+            const colorCode = productData.selectedVariant.color_code || productData.selectedVariant.colorCode;
+            const colorLayer = document.createElement('div');
+            colorLayer.className = 'color-layer';
+            colorLayer.style.backgroundColor = colorCode;
+            colorLayer.style.opacity = '1';
+            productImageContainer.appendChild(colorLayer);
+        }
+        
+        if (imageUrl) {
+            productImage.src = imageUrl;
+            productImage.alt = productData.productTitle || 'Product';
+            productImage.style.display = 'block';
+        }
+    }
     
     // Variant info
     const variantInfo = document.getElementById('variantInfo');
-    if (selectedProduct.selectedVariant) {
-        const variant = selectedProduct.selectedVariant;
-        const colorName = getColorName(variant.color_code, variant.color);
-        
+    if (variantInfo && productData.selectedVariant) {
+        const variant = productData.selectedVariant;
         variantInfo.innerHTML = `
-            <div>
-                <span class="color-indicator" style="background-color: ${variant.color_code || '#ccc'}"></span>
-                ${colorName} - ${variant.size}
+            <div class="mb-1">
+                ${variant.color ? `<span class="badge bg-secondary me-1">${variant.color}</span>` : ''}
+                ${variant.size ? `<span class="badge bg-info me-1">${variant.size}</span>` : ''}
             </div>
         `;
     }
     
-    // Price breakdown
-    updatePriceBreakdown();
-}
-
-// Update price breakdown display
-function updatePriceBreakdown() {
-    if (!selectedProduct) return;
-    
-    const pricing = calculatePricing();
-    
-    document.getElementById('productPrice').textContent = formatCurrency(pricing.productPrice);
-    document.getElementById('artistMarkup').textContent = formatCurrency(pricing.artistMarkup);
-    document.getElementById('platformFee').textContent = formatCurrency(pricing.platformFee);
-    document.getElementById('shippingCost').textContent = formatCurrency(pricing.shippingCost);
-    document.getElementById('totalPrice').textContent = formatCurrency(pricing.totalWithShipping);
-}
-
-// Calculate pricing based on product data
-function calculatePricing() {
-    if (!selectedProduct) {
-        return {
-            productPrice: 0,
-            artistMarkup: 0,
-            platformFee: 0,
-            shippingCost: 0,
-            subtotal: 0,
-            totalWithoutShipping: 0,
-            totalWithShipping: 0
-        };
+    // Display artist info
+    const artistInfo = document.getElementById('artistName');
+    if (artistInfo && productData.designerName) {
+        artistInfo.textContent = productData.designerName;
     }
     
-    const productPrice = selectedProduct.selectedVariant?.price || 
-                        selectedProduct.pricing?.basePrice || 
-                        selectedProduct.variants?.[0]?.price || 0;
+    // Update pricing display with new structure
+    updatePricingDisplay();
     
-    const artistMarkup = selectedProduct.pricing?.userMarkup || 
-                        selectedProduct.selectedArt?.totalPrice || 
-                        selectedProduct.selectedArt?.price || 0;
-    
-    const shippingCost = selectedShippingOption ? parseFloat(selectedShippingOption.rate) : 0;
-    
-    const subtotal = productPrice + artistMarkup;
-    const platformFee = Math.max(1.00, subtotal * 0.05);
-    const totalWithoutShipping = subtotal + platformFee;
-    const totalWithShipping = totalWithoutShipping + shippingCost;
-    
-    return {
-        productPrice: productPrice,
-        artistMarkup: artistMarkup,
-        platformFee: platformFee,
-        shippingCost: shippingCost,
-        subtotal: subtotal,
-        totalWithoutShipping: totalWithoutShipping,
-        totalWithShipping: Math.max(5.00, totalWithShipping)
-    };
+    // Show split information if available
+    displaySplitInfo();
 }
 
-// Calculate shipping options
-async function calculateShipping() {
+// 3. Update pricing display with new structure
+function updatePricingDisplay() {
+    const priceElement = document.getElementById('productPrice');
+    const artistMarkupElement = document.getElementById('artistMarkup');
+    const platformFeeElement = document.getElementById('platformFee');
+    const totalElement = document.getElementById('totalPrice');
+    
+    // Try to get pricing from new structure first
+    let pricingData = productData.pricing;
+    
+    // If no pricing in productData, check selectedVariant
+    if (!pricingData && productData.selectedVariant?.pricing) {
+        pricingData = productData.selectedVariant.pricing;
+    }
+    
+    // Fallback: calculate from variant price
+    if (!pricingData) {
+        const price = parseFloat(productData.selectedVariant?.price || productData.selectedVariant?.retail_price || 0);
+        console.log('erro: não foi possível processar o preço do produto')
+    }
+    
+    // Ensure all values are numbers
+    const productPrice = parseFloat(pricingData.product_price || 0);
+    const artistCut = parseFloat(pricingData.artist_cut || 0);
+    const platformFee = parseFloat(pricingData.platform_fee || 0);
+    const totalPrice = parseFloat(pricingData.total_price || productPrice + artistCut + platformFee);
+    
+    console.log('💰 Pricing breakdown:', { productPrice, artistCut, platformFee, totalPrice });
+    
+    if (priceElement) {
+        priceElement.textContent = formatCurrency(productPrice);
+    }
+    
+    if (artistMarkupElement) {
+        artistMarkupElement.textContent = formatCurrency(artistCut);
+    }
+    
+    if (platformFeeElement) {
+        platformFeeElement.textContent = formatCurrency(platformFee);
+    }
+    
+    if (totalElement) {
+        totalElement.textContent = formatCurrency(totalPrice);
+    }
+}
+
+// 4. Display split payment information
+function displaySplitInfo() {
+    const splitInfo = document.getElementById('splitInfo');
+    const artistSplitAmount = document.getElementById('artistSplitAmount');
+    const platformSplitAmount = document.getElementById('platformSplitAmount');
+    
+    if (!splitInfo || !artistSplitAmount || !platformSplitAmount) return;
+    
+    // Get pricing data
+    let pricingData = productData.pricing || productData.selectedVariant?.pricing;
+    
+    if (pricingData) {
+        const artistCut = parseFloat(pricingData.artist_cut || 0);
+        const platformFee = parseFloat(pricingData.platform_fee || 0);
+        
+        artistSplitAmount.textContent = formatCurrency(artistCut);
+        platformSplitAmount.textContent = formatCurrency(platformFee);
+        
+        // Only show split info if there's an artist cut
+        if (artistCut > 0) {
+            splitInfo.classList.remove('split-info-hidden');
+        }
+    }
+}
+
+// 5. Setup checkout form for Checkout Pro
+function setupCheckoutForm() {
+    const form = document.getElementById('checkoutForm');
+    if (!form) return;
+    
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        await processCheckoutPro();
+    });
+    
+    // Setup back button with JavaScript instead of inline onclick
+    const backButton = document.getElementById('backButton');
+    if (backButton) {
+        backButton.addEventListener('click', function() {
+            window.history.back();
+        });
+    }
+    
+    // Setup real-time validation
+    setupRealTimeValidation();
+    
+    // Auto-format CPF
+    const cpfInput = document.getElementById('cpf');
+    if (cpfInput) {
+        cpfInput.addEventListener('input', formatCPF);
+    }
+}
+
+// 6. Process Checkout Pro payment with updated data - FIXED PRICING
+async function processCheckoutPro() {
+    console.log('💳 Processing Checkout Pro payment...');
+    
     try {
-        const shippingContainer = document.getElementById('shippingOptions');
+        // 1. Get buyer info
+        const buyerInfo = getBuyerInfo();
         
-        if (!selectedProduct) {
-            shippingContainer.innerHTML = '<div class="alert alert-warning">Produto não encontrado</div>';
+        // 2. Validate form
+        if (!validateForm()) {
+            alert('Por favor, preencha todos os campos obrigatórios corretamente.');
             return;
         }
         
-        // Get address from form or use defaults
-        const zipCode = document.getElementById('zipCode').value;
-        
-        if (!zipCode || zipCode.length < 8) {
-            shippingContainer.innerHTML = `
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle me-2"></i>
-                    Informe o CEP para calcular o frete
-                </div>
-            `;
+        // 3. Validate terms
+        const termsCheck = document.getElementById('termsCheck');
+        if (!termsCheck || !termsCheck.checked) {
+            alert('Você precisa aceitar os Termos de Serviço para continuar.');
             return;
         }
         
-        // Show loading
-        shippingContainer.innerHTML = `
-            <div class="text-center py-2">
-                <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
-                    <span class="visually-hidden">Carregando...</span>
-                </div>
-                Calculando frete...
-            </div>
-        `;
+        // 4. Show loading
+        showLoading(true);
         
-        // Prepare shipping request data
-        const shippingData = {
-            recipient: {
-                zip: zipCode.replace(/\D/g, ''),
-                country: 'BR'
+        // 5. Prepare payment data - FIX: Use total_price directly
+        const pricingData = productData.pricing || productData.selectedVariant?.pricing;
+        
+        // Get the total price from pricing breakdown
+        const totalPrice = parseFloat(pricingData?.total_price || 
+                                    productData.selectedVariant?.price || 
+                                    productData.selectedVariant?.retail_price || 0);
+        
+        console.log('💰 Total price to charge:', totalPrice);
+        
+        // CRITICAL: Always provide a valid image URL for Mercado Pago
+        const productImageUrl = productData.thumbnailUrl || 
+                               productData.thumbnail || 
+                               productData.imageUrl || 
+                               productData.image || 
+                               'https://http2.mlstatic.com/frontend-assets/ui-nav/5.19.1/mercadolibre/180x180.png';
+        
+        const paymentRequest = {
+            title: productData.productTitle || 'Product Purchase',
+            description: `${productData.productTitle || 'Product'} by ${productData.designerName || 'Designer'}`,
+            quantity: 1,
+            unit_price: totalPrice, // FIX: Use total_price directly
+            picture_url: productImageUrl, // Required by Mercado Pago
+            email: buyerInfo.email,
+            payer_name: buyerInfo.name,
+            phone: buyerInfo.phone.replace(/\D/g, ''), // Remove formatting
+            cpf: buyerInfo.cpf?.replace(/\D/g, '') || '', // Add CPF
+            product_id: productData.id || 'custom_product',
+            external_reference: generateOrderId(),
+            
+            // Add pricing breakdown for backend
+            pricing_breakdown: pricingData || {
+                product_price: parseFloat(pricingData?.product_price || totalPrice * 0.7),
+                artist_cut: parseFloat(pricingData?.artist_cut || totalPrice * 0.25),
+                platform_fee: parseFloat(pricingData?.platform_fee || totalPrice * 0.05),
+                total_price: totalPrice
             },
-            items: [
-                {
-                    quantity: 1,
-                    variant_id: selectedProduct.selectedVariant?.id,
-                    product_id: selectedProduct.id
-                }
-            ],
-            currency: 'BRL'
+            
+            // Designer info for split payments
+            designer_info: {
+                user_id: productData.designerUserId,
+                name: productData.designerName,
+                email: productData.designerEmail,
+                pix_key: productData.pix_key,
+                pix_key_type: productData.pix_keyType
+            },
+            
+            return_url: `${window.location.origin}/success.html`,
+            cancel_url: window.location.href
         };
         
-        // Call shipping calculation function
-        const response = await fetch('https://us-central1-kauara1.cloudfunctions.net/calculateShipping', {
+        // Add shipping address if available
+        if (buyerInfo.street && buyerInfo.city && buyerInfo.state && buyerInfo.zipCode) {
+            paymentRequest.shipping_address = {
+                zip_code: buyerInfo.zipCode.replace(/\D/g, ''),
+                street_name: buyerInfo.street,
+                street_number: buyerInfo.number || 'S/N',
+                city_name: buyerInfo.city,
+                state_name: buyerInfo.state
+            };
+        }
+        
+        console.log('📤 Sending to server:', JSON.stringify(paymentRequest, null, 2));
+        
+        // 6. Create Checkout Pro payment
+        const response = await fetch(
+          `${FUNCTIONS_BASE_URL}/createCheckoutProPayment`,
+          {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
             },
-            body: JSON.stringify(shippingData)
-        });
+            body: JSON.stringify(paymentRequest)
+          }
+        );
         
-        const result = await response.json();
+        const responseData = await response.json();
         
-        if (result.success && result.shipping_options) {
-            displayShippingOptions(result.shipping_options);
-        } else {
-            throw new Error(result.error || 'Erro ao calcular frete');
+        if (!response.ok) {
+            console.error('❌ Server response error:', responseData);
+            throw new Error(responseData.error || responseData.details?.join(', ') || `Server error: ${response.status}`);
         }
         
-    } catch (error) {
-        console.error('❌ Erro ao calcular frete:', error);
-        document.getElementById('shippingOptions').innerHTML = `
-            <div class="alert alert-warning">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                Não foi possível calcular o frete. Tente novamente.
-            </div>
-        `;
+        if (!responseData.success) {
+            throw new Error(responseData.error || 'Failed to create payment');
+        }
         
-        // Show fixed shipping options as fallback
-        showFallbackShippingOptions();
+        console.log('✅ Checkout Pro payment created:', responseData);
+        
+        // 7. Store payment info
+        currentPayment = responseData;
+        
+        // 8. Show payment options or redirect
+        showPaymentOptions(responseData);
+        
+    } catch (error) {
+        console.error('❌ Checkout Pro error:', error);
+        showError(`Payment setup failed: ${error.message}`);
+    } finally {
+        showLoading(false);
     }
 }
 
-// Display shipping options
-function displayShippingOptions(shippingOptions) {
-    const container = document.getElementById('shippingOptions');
+// 7. Show payment options (simplified)
+function showPaymentOptions(paymentData) {
+    // Get the EXACT total from the displayed resumo do pedido
+    const totalElement = document.getElementById('totalPrice');
+    const displayedTotal = totalElement ? totalElement.textContent.replace('R$ ', '').replace(',', '.') : '0';
+    const totalPrice = parseFloat(displayedTotal);
     
-    if (!shippingOptions || shippingOptions.length === 0) {
-        container.innerHTML = `
-            <div class="alert alert-warning">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                Nenhuma opção de frete disponível para este CEP
+    const paymentOptionsHtml = `
+        <div class="modal fade" id="paymentOptionsModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title"><i class="fas fa-credit-card me-2"></i> Complete Your Payment</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="text-center mb-4">
+                            <i class="fas fa-shopping-bag fa-4x text-primary mb-3"></i>
+                            <h3>Almost there!</h3>
+                            <p class="lead">You'll be redirected to Mercado Pago to complete your payment</p>
+                        </div>
+                        
+                        <div class="payment-summary card mb-4">
+                            <div class="card-body">
+                                <h6 class="card-title">Order Summary</h6>
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span>Product:</span>
+                                    <span>${productData.productTitle}</span>
+                                </div>
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span>Artist:</span>
+                                    <span>${productData.designerName || 'Designer'}</span>
+                                </div>
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span>Price:</span>
+                                    <span class="fw-bold">${formatCurrency(totalPrice)}</span>
+                                </div>
+                                <hr>
+                                <p class="small text-muted mb-0">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    Order reference: ${paymentData.external_reference || 'N/A'}
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <div class="alert alert-success">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-shield-alt fa-2x me-3"></i>
+                                <div>
+                                    <h6 class="mb-1">Secure Payment</h6>
+                                    <p class="mb-0">Your payment is processed securely by Mercado Pago</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button id="redirectToCheckoutBtn" class="btn btn-primary">
+                            <i class="fas fa-lock me-2"></i> Continue to Secure Payment
+                        </button>
+                    </div>
+                </div>
             </div>
-        `;
+        </div>
+    `;
+    
+    // Remove existing modal if any
+    const existingModal = document.getElementById('paymentOptionsModal');
+    if (existingModal) existingModal.remove();
+    
+    document.body.insertAdjacentHTML('beforeend', paymentOptionsHtml);
+    const modal = new bootstrap.Modal(document.getElementById('paymentOptionsModal'));
+    
+    // Add event listener to redirect button
+    document.getElementById('redirectToCheckoutBtn').addEventListener('click', redirectToCheckout);
+    
+    modal.show();
+}
+
+// 8. Redirect to Mercado Pago Checkout
+function redirectToCheckout() {
+    if (!currentPayment) {
+        showError('Payment information not available');
         return;
     }
     
-    let html = '';
-    shippingOptions.forEach((option, index) => {
-        const isSelected = selectedShippingOption && selectedShippingOption.id === option.id;
-        
-        html += `
-            <div class="shipping-option ${isSelected ? 'selected' : ''}" 
-                 data-option='${JSON.stringify(option)}'
-                 onclick="selectShippingOption(this)">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="mb-1">${option.name}</h6>
-                        <small class="text-muted">${option.carrier} • ${option.days} dia${option.days !== 1 ? 's' : ''}</small>
-                    </div>
-                    <div class="text-end">
-                        <strong class="text-primary">R$ ${parseFloat(option.rate).toFixed(2)}</strong>
-                    </div>
-                </div>
-            </div>
-        `;
-    });
+    // Use production URL if available, otherwise sandbox
+    const checkoutUrl = currentPayment.init_point || currentPayment.sandbox_init_point;
     
-    container.innerHTML = html;
+    if (!checkoutUrl) {
+        showError('Checkout URL not available');
+        return;
+    }
     
-    // Auto-select first option if none selected
-    if (!selectedShippingOption && shippingOptions.length > 0) {
-        selectShippingOptionByData(shippingOptions[0]);
+    console.log('🌐 Redirecting to Mercado Pago:', checkoutUrl);
+    
+    // Store payment info in session for when user returns
+    sessionStorage.setItem('lastPayment', JSON.stringify({
+        external_reference: currentPayment.external_reference,
+        amount: currentPayment.amount,
+        product_title: productData.productTitle,
+        designer_name: productData.designerName,
+        timestamp: new Date().toISOString()
+    }));
+    
+    // Redirect to Mercado Pago Checkout
+    window.location.href = checkoutUrl;
+}
+
+// 9. Helper functions
+function getBuyerInfo() {
+    return {
+        name: document.getElementById('fullName')?.value || '',
+        cpf: document.getElementById('cpf')?.value || '',
+        email: document.getElementById('email')?.value || '',
+        phone: document.getElementById('phone')?.value || '',
+        zipCode: document.getElementById('zipCode')?.value || '',
+        street: document.getElementById('street')?.value || '',
+        number: document.getElementById('number')?.value || '',
+        complement: document.getElementById('complement')?.value || '',
+        neighborhood: document.getElementById('neighborhood')?.value || '',
+        city: document.getElementById('city')?.value || '',
+        state: document.getElementById('state')?.value || ''
+    };
+}
+
+function formatCurrency(value) {
+    const num = parseFloat(value) || 0;
+    return 'R$ ' + num.toFixed(2).replace('.', ',');
+}
+
+function formatCPF(e) {
+    let value = e.target.value.replace(/\D/g, '');
+    if (value.length > 11) value = value.substring(0, 11);
+    
+    if (value.length <= 11) {
+        if (value.length > 3) {
+            value = value.substring(0, 3) + '.' + value.substring(3);
+        }
+        if (value.length > 7) {
+            value = value.substring(0, 7) + '.' + value.substring(7);
+        }
+        if (value.length > 11) {
+            value = value.substring(0, 11) + '-' + value.substring(11);
+        }
+    }
+    
+    e.target.value = value;
+    validateField('cpf', value);
+}
+
+function generateOrderId() {
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 8);
+    return `KAUARA-${timestamp}-${random}`.toUpperCase();
+}
+
+function showLoading(show) {
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    if (loadingOverlay) {
+        if (show) {
+            loadingOverlay.classList.remove('d-none');
+            loadingOverlay.classList.add('d-flex');
+        } else {
+            loadingOverlay.classList.remove('d-flex');
+            loadingOverlay.classList.add('d-none');
+        }
     }
 }
 
-// Show fallback shipping options
-function showFallbackShippingOptions() {
-    const fallbackOptions = [
-        {
-            name: 'Correios - PAC',
-            rate: 15.90,
-            days: 10,
-            carrier: 'Correios',
-            id: 'pac_fallback'
-        },
-        {
-            name: 'Correios - Sedex',
-            rate: 25.90,
-            days: 5,
-            carrier: 'Correios',
-            id: 'sedex_fallback'
-        }
-    ];
+function showError(message) {
+    document.querySelectorAll('.alert-danger').forEach(alert => alert.remove());
     
-    displayShippingOptions(fallbackOptions);
-}
-
-// Select shipping option
-function selectShippingOption(element) {
-    // Remove selected class from all options
-    document.querySelectorAll('.shipping-option').forEach(opt => {
-        opt.classList.remove('selected');
-    });
+    const errorHtml = `
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <strong>Erro:</strong> ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
     
-    // Add selected class to clicked option
-    element.classList.add('selected');
-    
-    // Get option data
-    const optionData = JSON.parse(element.getAttribute('data-option'));
-    selectShippingOptionByData(optionData);
-}
-
-// Select shipping option by data
-function selectShippingOptionByData(optionData) {
-    selectedShippingOption = optionData;
-    console.log('🚚 Frete selecionado:', selectedShippingOption);
-    
-    // Update pricing
-    updatePriceBreakdown();
-}
-
-// Setup form validation
-function setupFormValidation() {
-    const form = document.getElementById('checkoutForm');
-    
-    form.addEventListener('submit', function(e) {
-        e.preventDefault();
-        processCheckout();
-    });
-    
-    // Real-time validation
-    setupRealTimeValidation();
-}
-
-// Setup real-time form validation
-function setupRealTimeValidation() {
-    const fields = ['fullName', 'email', 'phone', 'zipCode', 'street', 'number', 'neighborhood', 'city', 'state'];
-    
-    fields.forEach(fieldId => {
-        const field = document.getElementById(fieldId);
-        if (field) {
-            field.addEventListener('blur', function() {
-                validateField(this);
-            });
-            
-            field.addEventListener('input', function() {
-                clearFieldError(this);
-            });
-        }
-    });
-    
-    // Special handling for CEP (auto-calculate shipping)
-    document.getElementById('zipCode').addEventListener('blur', function() {
-        if (validateField(this)) {
-            calculateShipping();
-        }
-    });
-}
-
-// Validate individual field
-function validateField(field) {
-    const value = field.value.trim();
-    const fieldId = field.id;
-    const errorElement = document.getElementById(fieldId + 'Error');
-    
-    // Clear previous error
-    clearFieldError(field);
-    
-    let isValid = true;
-    let errorMessage = '';
-    
-    switch (fieldId) {
-        case 'fullName':
-            if (value.length < 3) {
-                errorMessage = 'Nome deve ter pelo menos 3 caracteres';
-                isValid = false;
-            }
-            break;
-            
-        case 'email':
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!emailRegex.test(value)) {
-                errorMessage = 'Email inválido';
-                isValid = false;
-            }
-            break;
-            
-        case 'phone':
-            const phoneDigits = value.replace(/\D/g, '');
-            if (phoneDigits.length < 10) {
-                errorMessage = 'Telefone inválido';
-                isValid = false;
-            }
-            break;
-            
-        case 'cpf':
-            if (!validateCPF(value)) {
-                errorMessage = 'CPF inválido';
-                isValid = false;
-            }
-            break;
-            
-        case 'zipCode':
-            const zipDigits = value.replace(/\D/g, '');
-            if (zipDigits.length !== 8) {
-                errorMessage = 'CEP inválido';
-                isValid = false;
-            }
-            break;
-            
-        case 'street':
-            if (value.length < 5) {
-                errorMessage = 'Endereço muito curto';
-                isValid = false;
-            }
-            break;
-            
-        case 'number':
-            if (!value) {
-                errorMessage = 'Número é obrigatório';
-                isValid = false;
-            }
-            break;
-            
-        case 'neighborhood':
-            if (value.length < 2) {
-                errorMessage = 'Bairro inválido';
-                isValid = false;
-            }
-            break;
-            
-        case 'city':
-            if (value.length < 2) {
-                errorMessage = 'Cidade inválida';
-                isValid = false;
-            }
-            break;
-            
-        case 'state':
-            if (!value) {
-                errorMessage = 'Selecione um estado';
-                isValid = false;
-            }
-            break;
-    }
-    
-    if (!isValid) {
-        field.classList.add('is-invalid');
-        if (errorElement) {
-            errorElement.textContent = errorMessage;
-        }
+    const container = document.querySelector('.container');
+    if (container) {
+        container.insertAdjacentHTML('afterbegin', errorHtml);
     } else {
-        field.classList.remove('is-invalid');
-        field.classList.add('is-valid');
-    }
-    
-    return isValid;
-}
-
-// Clear field error
-function clearFieldError(field) {
-    const fieldId = field.id;
-    const errorElement = document.getElementById(fieldId + 'Error');
-    
-    field.classList.remove('is-invalid');
-    if (errorElement) {
-        errorElement.textContent = '';
+        alert(message);
     }
 }
 
-// Validate entire form
-function validateForm() {
-    const fields = ['fullName', 'email', 'phone', 'cpf', 'zipCode', 'street', 'number', 'neighborhood', 'city', 'state'];
-    let isValid = true;
+// 10. Update UI for Checkout Pro (simplified)
+function updateUIForCheckoutPro() {
+    // Update page title
+    document.title = 'Finalizar Compra - ' + (productData.productTitle || 'Produto');
     
-    fields.forEach(fieldId => {
-        const field = document.getElementById(fieldId);
-        if (field && !validateField(field)) {
-            isValid = false;
-        }
-    });
-    
-    // Validate terms
-    const termsCheck = document.getElementById('termsCheck');
-    const termsError = document.getElementById('termsError');
-    
-    if (!termsCheck.checked) {
-        termsError.textContent = 'Você deve aceitar os termos e condições';
-        isValid = false;
-    } else {
-        termsError.textContent = '';
+    // Update form title
+    const formTitle = document.querySelector('h1');
+    if (formTitle) {
+        formTitle.innerHTML = '<i class="fas fa-shopping-cart text-primary me-2"></i> Finalizar Compra';
     }
     
-    // Validate shipping option
-    if (!selectedShippingOption) {
-        showError('Selecione uma opção de frete');
-        isValid = false;
+    // Update button text
+    const submitButton = document.querySelector('button[type="submit"]');
+    if (submitButton) {
+        submitButton.innerHTML = '<i class="fas fa-lock me-2"></i> Finalizar Compra e Pagar';
     }
     
-    return isValid;
+    console.log('✅ UI updated for Checkout Pro');
 }
 
-// Setup CPF mask
-function setupCPFMask() {
-    const cpfField = document.getElementById('cpf');
+// 11. Form validation functions
+function formatPhone(e) {
+    let value = e.target.value.replace(/\D/g, '');
+    if (value.length > 11) value = value.substring(0, 11);
     
-    cpfField.addEventListener('input', function(e) {
-        let value = e.target.value.replace(/\D/g, '');
-        
-        if (value.length <= 11) {
-            value = value.replace(/(\d{3})(\d)/, '$1.$2');
-            value = value.replace(/(\d{3})(\d)/, '$1.$2');
-            value = value.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+    if (value.length <= 11) {
+        if (value.length > 2) {
+            value = `(${value.substring(0, 2)}) ${value.substring(2)}`;
         }
-        
-        e.target.value = value;
-    });
+        if (value.length > 10) {
+            value = value.substring(0, 10) + '-' + value.substring(10);
+        }
+    }
+    
+    e.target.value = value;
+    validateField('phone', value);
 }
 
-// Setup CEP auto-complete
-function setupCEPAutoComplete() {
-    const cepField = document.getElementById('zipCode');
+function formatZipCode(e) {
+    let value = e.target.value.replace(/\D/g, '');
+    if (value.length > 8) value = value.substring(0, 8);
     
-    cepField.addEventListener('input', function(e) {
-        let value = e.target.value.replace(/\D/g, '');
-        
-        if (value.length > 5) {
-            value = value.replace(/(\d{5})(\d)/, '$1-$2');
-        }
-        
-        e.target.value = value;
-    });
+    if (value.length > 5) {
+        value = value.substring(0, 5) + '-' + value.substring(5);
+    }
     
-    // Auto-fill address when CEP is completed
-    cepField.addEventListener('blur', async function() {
-        const cep = this.value.replace(/\D/g, '');
-        
-        if (cep.length === 8) {
-            try {
-                await fetchAddressByCEP(cep);
-            } catch (error) {
-                console.log('Não foi possível buscar endereço pelo CEP');
-            }
-        }
-    });
+    e.target.value = value;
+    validateField('zipCode', value);
 }
 
-// Fetch address by CEP
-async function fetchAddressByCEP(cep) {
+async function fetchAddressFromCEP(e) {
+    const cep = e.target.value.replace(/\D/g, '');
+    if (cep.length !== 8) return;
+    
     try {
         const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+        
+        if (!response.ok) {
+            throw new Error(`CEP API error: ${response.status}`);
+        }
+        
         const data = await response.json();
         
         if (!data.erro) {
@@ -608,875 +586,136 @@ async function fetchAddressByCEP(cep) {
             document.getElementById('city').value = data.localidade || '';
             document.getElementById('state').value = data.uf || '';
             
-            // Trigger validation
-            validateField(document.getElementById('street'));
-            validateField(document.getElementById('neighborhood'));
-            validateField(document.getElementById('city'));
-            validateField(document.getElementById('state'));
-        }
-    } catch (error) {
-        console.log('Erro ao buscar CEP:', error);
-    }
-}
-
-// Pre-fill user data
-async function prefillUserData(user) {
-    try {
-        // Get user data from Firestore
-        const userQuery = await db.collection("users")
-            .where("firebaseUID", "==", user.uid)
-            .get();
-        
-        if (!userQuery.empty) {
-            const userData = userQuery.docs[0].data();
-            
-            // Pre-fill form fields
-            if (userData.user_Name) {
-                document.getElementById('fullName').value = userData.user_Name;
-            }
-            
-            if (user.email) {
-                document.getElementById('email').value = user.email;
-            }
-            
-            // Trigger validation for pre-filled fields
-            validateField(document.getElementById('fullName'));
-            validateField(document.getElementById('email'));
-        }
-    } catch (error) {
-        console.error('Erro ao preencher dados do usuário:', error);
-    }
-}
-
-// Process checkout
-async function processCheckout() {
-    console.log('🛒 Iniciando processo de checkout...');
-    
-    // Validate form
-    if (!validateForm()) {
-        showError('Por favor, corrija os erros no formulário');
-        return;
-    }
-    
-    // Validate product and shipping
-    if (!selectedProduct || !selectedShippingOption) {
-        showError('Informações do produto ou frete incompletas');
-        return;
-    }
-    
-    try {
-        // Show loading
-        showLoading();
-        
-        // Prepare checkout data
-        const checkoutData = {
-            productData: selectedProduct,
-            buyerInfo: getBuyerInfo(),
-            sellerId: selectedProduct.designerUserId,
-            shippingOption: selectedShippingOption
-        };
-        
-        console.log('📤 Enviando dados para checkout:', checkoutData);
-        
-        // Call Cloud Function to create Checkout Pro order
-        const response = await fetch('https://us-central1-kauara1.cloudfunctions.net/createMarketplaceOrder', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(checkoutData)
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            console.log('✅ Checkout criado com sucesso:', result);
-            
-            // Redirect to Mercado Pago Checkout Pro
-            if (result.checkout_url) {
-                window.location.href = result.checkout_url;
-            } else {
-                throw new Error('URL do checkout não encontrada');
-            }
-            
-        } else {
-            throw new Error(result.error || 'Erro ao criar checkout');
-        }
-        
-    } catch (error) {
-        console.error('❌ Erro no checkout:', error);
-        hideLoading();
-        showError(`Erro ao processar checkout: ${error.message}`);
-    }
-}
-
-// Get buyer info from form
-function getBuyerInfo() {
-    return {
-        fullName: document.getElementById('fullName').value.trim(),
-        email: document.getElementById('email').value.trim(),
-        phone: document.getElementById('phone').value.trim(),
-        cpf: document.getElementById('cpf').value.replace(/\D/g, ''),
-        zipCode: document.getElementById('zipCode').value.replace(/\D/g, ''),
-        street: document.getElementById('street').value.trim(),
-        number: document.getElementById('number').value.trim(),
-        complement: document.getElementById('complement').value.trim(),
-        neighborhood: document.getElementById('neighborhood').value.trim(),
-        city: document.getElementById('city').value.trim(),
-        state: document.getElementById('state').value
-    };
-}
-
-// Utility functions
-function formatCurrency(value) {
-    return new Intl.NumberFormat('pt-BR', {
-        style: 'currency',
-        currency: 'BRL'
-    }).format(value);
-}
-
-function validateCPF(cpf) {
-    cpf = cpf.replace(/\D/g, '');
-    
-    if (cpf.length !== 11) return false;
-    
-    // Basic CPF validation
-    let sum = 0;
-    let remainder;
-    
-    for (let i = 1; i <= 9; i++) {
-        sum = sum + parseInt(cpf.substring(i - 1, i)) * (11 - i);
-    }
-    
-    remainder = (sum * 10) % 11;
-    if ((remainder === 10) || (remainder === 11)) remainder = 0;
-    if (remainder !== parseInt(cpf.substring(9, 10))) return false;
-    
-    sum = 0;
-    for (let i = 1; i <= 10; i++) {
-        sum = sum + parseInt(cpf.substring(i - 1, i)) * (12 - i);
-    }
-    
-    remainder = (sum * 10) % 11;
-    if ((remainder === 10) || (remainder === 11)) remainder = 0;
-    if (remainder !== parseInt(cpf.substring(10, 11))) return false;
-    
-    return true;
-}
-
-function getColorName(colorCode, colorNameFromFirestore = '') {
-    const colorMap = {
-        '#ffffff': 'Branco',
-        '#000000': 'Preto',
-        '#ff0000': 'Vermelho',
-        '#00ff00': 'Verde',
-        '#0000ff': 'Azul',
-        '#ffff00': 'Amarelo',
-        '#ff00ff': 'Magenta',
-        '#00ffff': 'Ciano',
-        '#808080': 'Cinza',
-        '#c0c0c0': 'Prata',
-        '#ffa500': 'Laranja',
-        '#800080': 'Roxo',
-        '#a52a2a': 'Marrom',
-        '#ffc0cb': 'Rosa'
-    };
-    
-    if (colorNameFromFirestore && colorNameFromFirestore !== 'Default Color') {
-        return colorNameFromFirestore;
-    }
-    
-    if (!colorCode) {
-        return colorNameFromFirestore || 'Cor Indisponível';
-    }
-    
-    const normalizedColor = colorCode.toLowerCase();
-    return colorMap[normalizedColor] || colorNameFromFirestore || 'Cor Personalizada';
-}
-
-function showLoading() {
-    document.getElementById('loadingOverlay').style.display = 'flex';
-    document.getElementById('submitButton').disabled = true;
-}
-
-function hideLoading() {
-    document.getElementById('loadingOverlay').style.display = 'none';
-    document.getElementById('submitButton').disabled = false;
-}
-
-function showError(message) {
-    // Simple error display - you might want to use a more sophisticated notification system
-    alert(`Erro: ${message}`);
-}
-
-function showSuccess(message) {
-    alert(`Sucesso: ${message}`);
-}
-
-// Make functions available globally for HTML event handlers
-window.selectShippingOption = selectShippingOption;
-
-// Função para testar pagamento rapidamente
-async function testPaymentQuick() {
-    console.log('🧪 TESTE RÁPIDO DE PAGAMENTO INICIADO...');
-    
-    try {
-        // Verificar autenticação
-        const user = auth.currentUser;
-        if (!user) {
-            throw new Error('Usuário não autenticado');
-        }
-
-        // Mostrar loading
-        showLoading();
-        
-        // Dados de teste fixos
-        const testData = {
-            productData: {
-                id: 'test_product_' + Date.now(),
-                productTitle: '🧪 Produto Teste - Checkout Pro',
-                description: 'Teste de integração Checkout Pro',
-                thumbnailUrl: 'https://via.placeholder.com/300',
-                designerUserId: 'test_seller_id',
-                selectedVariant: {
-                    id: 123,
-                    color: 'Preto',
-                    color_code: '#000000',
-                    size: 'M',
-                    price: 89.90
-                },
-                pricing: {
-                    basePrice: 89.90,
-                    userMarkup: 20.00
+            ['street', 'neighborhood', 'city', 'state'].forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.dispatchEvent(new Event('change'));
                 }
-            },
-            buyerInfo: {
-                fullName: 'Teste Checkout Pro',
-                email: 'test_user_123456@testuser.com',
-                phone: '11999999999',
-                cpf: '12345678900',
-                zipCode: '01310100',
-                street: 'Avenida Paulista',
-                number: '1000',
-                complement: 'Sala 101',
-                neighborhood: 'Bela Vista',
-                city: 'São Paulo',
-                state: 'SP'
-            },
-            sellerId: 'test_seller_id',
-            shippingOption: {
-                name: 'Correios - Sedex',
-                rate: 25.90,
-                days: 5,
-                carrier: 'Correios',
-                id: 'sedex_test'
-            }
-        };
+            });
+        }
+    } catch (error) {
+        console.error('Error fetching CEP:', error.message);
+    }
+}
 
-        console.log('📤 Enviando dados de teste...', testData);
-
-        // Chamar função de teste
-        const response = await fetch('https://us-central1-kauara1.cloudfunctions.net/generateTestCheckoutPro', {
-            method: 'GET' // Mudado para GET pois a função é GET
+function setupRealTimeValidation() {
+    const requiredFields = ['fullName', 'cpf', 'email', 'phone'];
+    
+    requiredFields.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.addEventListener('change', function() {
+                validateField(fieldId, this.value);
+            });
+            field.addEventListener('input', function() {
+                if (fieldId === 'cpf') formatCPF({ target: this });
+                if (fieldId === 'phone') formatPhone({ target: this });
+                if (fieldId === 'zipCode') formatZipCode({ target: this });
+                validateField(fieldId, this.value);
+            });
+        }
+    });
+    
+    // CEP auto-fill
+    const zipCodeInput = document.getElementById('zipCode');
+    if (zipCodeInput) {
+        zipCodeInput.addEventListener('blur', async function(e) {
+            await fetchAddressFromCEP(e);
         });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-        
-        if (result.success) {
-            console.log('✅ TESTE CRIADO COM SUCESSO:', result);
-            
-            // Mostrar resultados detalhados
-            showTestResults(result);
-            
-        } else {
-            throw new Error(result.error || 'Erro ao criar teste');
-        }
-
-    } catch (error) {
-        console.error('❌ ERRO NO TESTE:', error);
-        hideLoading();
-        showError(`Erro no teste: ${error.message}`);
     }
 }
 
-// Mostrar resultados do teste
-function showTestResults(result) {
-    hideLoading();
+function validateField(fieldId, value, isRequired = true) {
+    const errorElement = document.getElementById(fieldId + 'Error');
+    if (!errorElement) return true;
     
-    const modalHtml = `
-        <div class="modal fade" id="testResultsModal" tabindex="-1">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    <div class="modal-header bg-success text-white">
-                        <h5 class="modal-title">
-                            <i class="fas fa-check-circle me-2"></i>
-                            Teste Criado com Sucesso!
-                        </h5>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <h6>📋 Informações do Teste:</h6>
-                                <table class="table table-sm">
-                                    <tr><td><strong>Test ID:</strong></td><td><code>${result.test_id}</code></td></tr>
-                                    <tr><td><strong>Preference ID:</strong></td><td><code>${result.preference_id}</code></td></tr>
-                                    <tr><td><strong>Firestore ID:</strong></td><td><code>${result.firestore_id}</code></td></tr>
-                                </table>
-                            </div>
-                            <div class="col-md-6">
-                                <h6>🎯 Ações Rápidas:</h6>
-                                <div class="d-grid gap-2">
-                                    <button class="btn btn-primary" onclick="openTestCheckout('${result.checkout_url}')">
-                                        <i class="fas fa-external-link-alt me-2"></i>
-                                        Abrir Checkout
-                                    </button>
-                                    <button class="btn btn-outline-info" onclick="checkTestPaymentInfo('${result.test_id}')">
-                                        <i class="fas fa-search me-2"></i>
-                                        Ver Payment ID
-                                    </button>
-                                    <button class="btn btn-outline-secondary" onclick="copyTestId('${result.test_id}')">
-                                        <i class="fas fa-copy me-2"></i>
-                                        Copiar Test ID
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <hr>
-                        
-                        <h6>📖 Instruções do Teste:</h6>
-                        <div class="bg-light p-3 rounded small">
-                            ${result.test_instructions ? result.test_instructions.map(instruction => 
-                                `<div class="mb-1">${instruction}</div>`
-                            ).join('') : 'Nenhuma instrução disponível'}
-                        </div>
-                        
-                        <div class="mt-3">
-                            <h6>🔗 URLs do Checkout:</h6>
-                            <div class="input-group mb-2">
-                                <input type="text" class="form-control" id="checkoutUrl" value="${result.checkout_url}" readonly>
-                                <button class="btn btn-outline-secondary" onclick="copyToClipboard('checkoutUrl')">
-                                    <i class="fas fa-copy"></i>
-                                </button>
-                            </div>
-                            <div class="input-group">
-                                <input type="text" class="form-control" id="sandboxUrl" value="${result.sandbox_url}" readonly>
-                                <button class="btn btn-outline-secondary" onclick="copyToClipboard('sandboxUrl')">
-                                    <i class="fas fa-copy"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
-                        <button type="button" class="btn btn-success" onclick="openTestCheckout('${result.checkout_url}')">
-                            <i class="fas fa-credit-card me-2"></i>
-                            Testar Pagamento
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
+    let isValid = true;
+    let errorMessage = '';
     
-    // Adicionar modal ao DOM
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    if (isRequired && !value.trim()) {
+        errorElement.textContent = 'Este campo é obrigatório';
+        errorElement.style.display = 'block';
+        
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.classList.add('is-invalid');
+            field.classList.remove('is-valid');
+        }
+        return false;
+    }
     
-    // Mostrar modal
-    const modal = new bootstrap.Modal(document.getElementById('testResultsModal'));
-    modal.show();
+    if (!isRequired && !value.trim()) {
+        errorElement.textContent = '';
+        errorElement.style.display = 'none';
+        
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.classList.remove('is-invalid', 'is-valid');
+        }
+        return true;
+    }
     
-    // Limpar modal quando fechar
-    document.getElementById('testResultsModal').addEventListener('hidden.bs.modal', function() {
-        this.remove();
-    });
+    switch(fieldId) {
+        case 'fullName':
+            isValid = value.trim().length >= 2;
+            errorMessage = isValid ? '' : 'Nome deve ter pelo menos 2 caracteres';
+            break;
+        case 'cpf':
+            const cpfDigits = value.replace(/\D/g, '');
+            isValid = cpfDigits.length === 11;
+            errorMessage = isValid ? '' : 'CPF inválido (11 dígitos)';
+            break;
+        case 'email':
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            isValid = emailRegex.test(value);
+            errorMessage = isValid ? '' : 'Email inválido (exemplo: nome@email.com)';
+            break;
+        case 'phone':
+            const phoneDigits = value.replace(/\D/g, '');
+            isValid = phoneDigits.length >= 10 && phoneDigits.length <= 11;
+            errorMessage = isValid ? '' : 'Telefone inválido (10 ou 11 dígitos)';
+            break;
+        case 'zipCode':
+            const zipDigits = value.replace(/\D/g, '');
+            isValid = zipDigits.length === 8 || value.trim() === '';
+            errorMessage = isValid ? '' : 'CEP inválido (8 dígitos)';
+            break;
+        default:
+            isValid = true;
+    }
+    
+    const field = document.getElementById(fieldId);
+    if (field) {
+        field.classList.toggle('is-invalid', !isValid);
+        field.classList.toggle('is-valid', isValid && value.trim() !== '');
+    }
+    
+    errorElement.textContent = errorMessage;
+    errorElement.style.display = errorMessage ? 'block' : 'none';
+    
+    return isValid;
 }
 
-// Verificar Payment ID do teste
-exports.getTestPaymentInfo = functions.https.onRequest((req, res) => {
-  // ✅ CRITICAL: Set CORS headers FIRST, before any other logic
-  res.set('Access-Control-Allow-Origin', '*'); // Ou use domínios específicos
-  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Device-ID, X-Requested-With, Accept, Origin');
-  res.set('Access-Control-Allow-Credentials', 'true');
-  
-  // Handle preflight OPTIONS request
-  if (req.method === 'OPTIONS') {
-    res.status(204).send('');
-    return;
-  }
-
-  // Continue with normal CORS wrapper for consistency
-  cors(req, res, async () => {
-    try {
-      const testId = req.query.test_id;
-      
-      if (!testId) {
-        return res.status(400).json({
-          success: false,
-          error: 'Parâmetro "test_id" é obrigatório'
-        });
-      }
-
-      console.log(`🔍 BUSCANDO INFORMAÇÕES DO TESTE: ${testId}`);
-      
-      // Buscar por test_id OU external_reference
-      const testQuery = await db.collection('test_checkouts')
-        .where('test_id', '==', testId)
-        .limit(1)
-        .get();
-
-      if (testQuery.empty) {
-        // Tentar buscar por external_reference
-        const externalQuery = await db.collection('test_checkouts')
-          .where('external_reference', '==', testId)
-          .limit(1)
-          .get();
-          
-        if (externalQuery.empty) {
-          return res.status(404).json({
-            success: false,
-            error: `Teste não encontrado: ${testId}`
-          });
-        }
-        
-        var testDoc = externalQuery.docs[0];
-      } else {
-        var testDoc = testQuery.docs[0];
-      }
-
-      const testData = testDoc.data();
-      
-      console.log(`✅ TESTE ENCONTRADO:`, {
-        test_id: testData.test_id,
-        payment_id: testData.payment_info?.payment_id,
-        status: testData.status
-      });
-
-      // Buscar informações atualizadas do pagamento se existir payment_id
-      let paymentDetails = null;
-      if (testData.payment_info?.payment_id) {
-        try {
-          const storeConfig = functions.config().mercadopago;
-          const paymentResponse = await axios.get(
-            `https://api.mercadopago.com/v1/payments/${testData.payment_info.payment_id}`,
-            {
-              headers: {
-                'Authorization': `Bearer ${storeConfig.token}`
-              }
+function validateForm() {
+    const requiredFields = ['fullName', 'cpf', 'email', 'phone'];
+    
+    let allValid = true;
+    
+    requiredFields.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            const isValid = validateField(fieldId, field.value, true);
+            if (!isValid) {
+                allValid = false;
+                if (allValid === false) {
+                    field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    field.focus();
+                }
             }
-          );
-          paymentDetails = paymentResponse.data;
-        } catch (paymentError) {
-          console.warn('⚠️ Erro ao buscar detalhes do pagamento:', paymentError.message);
         }
-      }
-
-      res.json({
-        success: true,
-        test_info: {
-          id: testDoc.id,
-          test_id: testData.test_id,
-          preference_id: testData.preference_id,
-          external_reference: testData.external_reference,
-          status: testData.status,
-          created_at: testData.created_at,
-          checkout_url: testData.checkout_url
-        },
-        payment_info: testData.payment_info || {
-          payment_id: null,
-          payment_status: 'pending',
-          message: 'Aguardando pagamento...'
-        },
-        payment_details: paymentDetails ? {
-          id: paymentDetails.id,
-          status: paymentDetails.status,
-          status_detail: paymentDetails.status_detail,
-          transaction_amount: paymentDetails.transaction_amount,
-          date_created: paymentDetails.date_created,
-          date_approved: paymentDetails.date_approved,
-          payment_method: paymentDetails.payment_method_id,
-          payment_type: paymentDetails.payment_type_id,
-          payer: {
-            email: paymentDetails.payer?.email,
-            name: `${paymentDetails.payer?.first_name} ${paymentDetails.payer?.last_name}`
-          }
-        } : null,
-        tracking: testData.tracking || {},
-        
-        // ✅ STATUS DO TESTE
-        test_status: getTestStatus(testData),
-        
-        // ✅ INSTRUÇÕES
-        next_steps: getNextSteps(testData)
-      });
-
-    } catch (error) {
-      console.error(`❌ ERRO AO BUSCAR TESTE ${req.query.test_id}:`, error.message);
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-  });
-});
-
-// Mostrar informações do payment
-function showPaymentInfo(result) {
-    hideLoading();
-    
-    const paymentInfo = result.payment_info;
-    const hasPaymentId = paymentInfo && paymentInfo.payment_id;
-    
-    const modalHtml = `
-        <div class="modal fade" id="paymentInfoModal" tabindex="-1">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    <div class="modal-header ${hasPaymentId ? 'bg-success text-white' : 'bg-warning'}">
-                        <h5 class="modal-title">
-                            <i class="fas ${hasPaymentId ? 'fa-check-circle' : 'fa-clock'} me-2"></i>
-                            ${hasPaymentId ? 'Payment ID Capturado!' : 'Aguardando Pagamento'}
-                        </h5>
-                        <button type="button" class="btn-close ${hasPaymentId ? 'btn-close-white' : ''}" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <h6>📊 Status do Teste:</h6>
-                                <div class="card ${hasPaymentId ? 'border-success' : 'border-warning'}">
-                                    <div class="card-body">
-                                        <h5 class="card-title ${hasPaymentId ? 'text-success' : 'text-warning'}">
-                                            ${result.test_status?.status || 'Status desconhecido'}
-                                        </h5>
-                                        <p class="card-text">${result.test_status?.description || ''}</p>
-                                        <div class="progress mb-2">
-                                            <div class="progress-bar ${hasPaymentId ? 'bg-success' : 'bg-warning'}" 
-                                                 style="width: ${result.test_status?.progress || 0}%">
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <h6>💳 Informações do Pagamento:</h6>
-                                ${hasPaymentId ? `
-                                    <table class="table table-sm table-bordered">
-                                        <tr><td><strong>Payment ID:</strong></td><td><code class="text-success">${paymentInfo.payment_id}</code></td></tr>
-                                        <tr><td><strong>Status:</strong></td><td><span class="badge bg-success">${paymentInfo.payment_status}</span></td></tr>
-                                        <tr><td><strong>Data:</strong></td><td>${new Date(paymentInfo.payment_date).toLocaleString()}</td></tr>
-                                    </table>
-                                ` : `
-                                    <div class="alert alert-warning">
-                                        <i class="fas fa-clock me-2"></i>
-                                        Aguardando pagamento...<br>
-                                        <small>Faça o pagamento no checkout para capturar o Payment ID</small>
-                                    </div>
-                                `}
-                            </div>
-                        </div>
-                        
-                        ${hasPaymentId && result.payment_details ? `
-                            <hr>
-                            <h6>📋 Detalhes do Pagamento:</h6>
-                            <div class="table-responsive">
-                                <table class="table table-sm table-striped">
-                                    <tr><td><strong>ID:</strong></td><td>${result.payment_details.id}</td></tr>
-                                    <tr><td><strong>Status:</strong></td><td>${result.payment_details.status}</td></tr>
-                                    <tr><td><strong>Valor:</strong></td><td>R$ ${result.payment_details.transaction_amount}</td></tr>
-                                    <tr><td><strong>Método:</strong></td><td>${result.payment_details.payment_method}</td></tr>
-                                    <tr><td><strong>Data Criação:</strong></td><td>${new Date(result.payment_details.date_created).toLocaleString()}</td></tr>
-                                    <tr><td><strong>Data Aprovação:</strong></td><td>${result.payment_details.date_approved ? new Date(result.payment_details.date_approved).toLocaleString() : 'N/A'}</td></tr>
-                                    <tr><td><strong>Pagador:</strong></td><td>${result.payment_details.payer?.name} (${result.payment_details.payer?.email})</td></tr>
-                                </table>
-                            </div>
-                        ` : ''}
-                        
-                        ${result.next_steps ? `
-                            <hr>
-                            <h6>🎯 Próximos Passos:</h6>
-                            <ul class="list-group list-group-flush">
-                                ${result.next_steps.map(step => `<li class="list-group-item">${step}</li>`).join('')}
-                            </ul>
-                        ` : ''}
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
-                        ${!hasPaymentId ? `
-                            <button type="button" class="btn btn-primary" onclick="checkTestPaymentInfo('${result.test_info.test_id}')">
-                                <i class="fas fa-sync-alt me-2"></i>
-                                Atualizar
-                            </button>
-                        ` : `
-                            <button type="button" class="btn btn-success" onclick="copyPaymentId('${paymentInfo.payment_id}')">
-                                <i class="fas fa-copy me-2"></i>
-                                Copiar Payment ID
-                            </button>
-                        `}
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-    const modal = new bootstrap.Modal(document.getElementById('paymentInfoModal'));
-    modal.show();
-    
-    document.getElementById('paymentInfoModal').addEventListener('hidden.bs.modal', function() {
-        this.remove();
     });
-}
-
-// Funções auxiliares para os testes
-function openTestCheckout(url) {
-    window.open(url, '_blank');
-}
-
-function copyTestId(testId) {
-    copyToClipboardValue(testId);
-    showTempAlert('Test ID copiado!', 'success');
-}
-
-function copyPaymentId(paymentId) {
-    copyToClipboardValue(paymentId);
-    showTempAlert('Payment ID copiado!', 'success');
-}
-
-function copyToClipboard(elementId) {
-    const element = document.getElementById(elementId);
-    copyToClipboardValue(element.value);
-    showTempAlert('Copiado!', 'success');
-}
-
-function copyToClipboardValue(value) {
-    navigator.clipboard.writeText(value).then(() => {
-        console.log('Texto copiado:', value);
-    }).catch(err => {
-        console.error('Erro ao copiar:', err);
-        // Fallback para older browsers
-        const textArea = document.createElement('textarea');
-        textArea.value = value;
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-    });
-}
-
-function showTempAlert(message, type = 'info') {
-    const alertHtml = `
-        <div class="alert alert-${type} alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3" 
-             style="z-index: 9999;" role="alert">
-            <i class="fas fa-${type === 'success' ? 'check' : 'info'}-circle me-2"></i>
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-    `;
     
-    document.body.insertAdjacentHTML('beforeend', alertHtml);
-    
-    // Auto-remove after 3 seconds
-    setTimeout(() => {
-        const alert = document.querySelector('.alert');
-        if (alert) {
-            alert.remove();
-        }
-    }, 3000);
+    return allValid;
 }
 
-// Listar todos os testes
-async function listAllTestPayments() {
-    console.log('📋 Listando todos os testes...');
-    
-    try {
-        showLoading();
-        
-        const response = await fetch('https://us-central1-kauara1.cloudfunctions.net/listTestPayments');
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            console.log('✅ Lista de testes:', result);
-            showTestList(result);
-        } else {
-            throw new Error(result.error || 'Erro ao listar testes');
-        }
-        
-    } catch (error) {
-        console.error('❌ Erro ao listar testes:', error);
-        hideLoading();
-        showError(`Erro: ${error.message}`);
-    }
-}
-
-// Mostrar lista de testes
-function showTestList(result) {
-    hideLoading();
-    
-    const modalHtml = `
-        <div class="modal fade" id="testListModal" tabindex="-1">
-            <div class="modal-dialog modal-xl">
-                <div class="modal-content">
-                    <div class="modal-header bg-info text-white">
-                        <h5 class="modal-title">
-                            <i class="fas fa-list me-2"></i>
-                            Lista de Testes de Pagamento
-                        </h5>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="row mb-4">
-                            <div class="col-md-3">
-                                <div class="card text-white bg-primary">
-                                    <div class="card-body text-center">
-                                        <h4>${result.stats.total}</h4>
-                                        <small>Total de Testes</small>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="card text-white bg-success">
-                                    <div class="card-body text-center">
-                                        <h4>${result.stats.with_payment_id}</h4>
-                                        <small>Com Payment ID</small>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="card text-white bg-warning">
-                                    <div class="card-body text-center">
-                                        <h4>${result.stats.status_pending}</h4>
-                                        <small>Pendentes</small>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="card text-white bg-danger">
-                                    <div class="card-body text-center">
-                                        <h4>${result.stats.status_rejected}</h4>
-                                        <small>Rejeitados</small>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="table-responsive">
-                            <table class="table table-striped table-hover">
-                                <thead class="table-dark">
-                                    <tr>
-                                        <th>Test ID</th>
-                                        <th>Payment ID</th>
-                                        <th>Status</th>
-                                        <th>Valor</th>
-                                        <th>Criado em</th>
-                                        <th>Ações</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${result.tests.map(test => `
-                                        <tr>
-                                            <td><code>${test.test_id}</code></td>
-                                            <td>
-                                                ${test.payment_id !== '❌ Não capturado' ? 
-                                                    `<code class="text-success">${test.payment_id}</code>` : 
-                                                    '<span class="text-muted">❌ Não capturado</span>'
-                                                }
-                                            </td>
-                                            <td>
-                                                <span class="badge ${getStatusBadgeClass(test.payment_status)}">
-                                                    ${test.payment_status}
-                                                </span>
-                                            </td>
-                                            <td>R$ ${test.amount}</td>
-                                            <td>${new Date(test.created_at?.toDate?.() || test.created_at).toLocaleString()}</td>
-                                            <td>
-                                                <button class="btn btn-sm btn-outline-info" onclick="checkTestPaymentInfo('${test.test_id}')">
-                                                    <i class="fas fa-search"></i>
-                                                </button>
-                                                <button class="btn btn-sm btn-outline-secondary" onclick="copyTestId('${test.test_id}')">
-                                                    <i class="fas fa-copy"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
-                        <button type="button" class="btn btn-primary" onclick="testPaymentQuick()">
-                            <i class="fas fa-plus me-2"></i>
-                            Novo Teste
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-    const modal = new bootstrap.Modal(document.getElementById('testListModal'));
-    modal.show();
-    
-    document.getElementById('testListModal').addEventListener('hidden.bs.modal', function() {
-        this.remove();
-    });
-}
-
-function getStatusBadgeClass(status) {
-    switch(status) {
-        case 'approved': return 'bg-success';
-        case 'pending': return 'bg-warning';
-        case 'rejected': return 'bg-danger';
-        default: return 'bg-secondary';
-    }
-}
-
-// Adicionar botão de teste à interface
-function addTestButtonToUI() {
-    const testButtonHtml = `
-        <div class="position-fixed bottom-0 end-0 m-3" style="z-index: 1000;">
-            <div class="btn-group-vertical">
-                <button class="btn btn-warning btn-lg shadow" onclick="testPaymentQuick()" title="Teste Rápido de Pagamento">
-                    <i class="fas fa-bolt me-2"></i>
-                    Teste Rápido
-                </button>
-                <button class="btn btn-info btn-sm shadow mt-2" onclick="listAllTestPayments()" title="Ver Todos os Testes">
-                    <i class="fas fa-list me-2"></i>
-                    Listar Testes
-                </button>
-                <button class="btn btn-outline-dark btn-sm shadow mt-2" onclick="debugAuthState()" title="Debug Auth">
-                    <i class="fas fa-bug me-2"></i>
-                    Debug Auth
-                </button>
-            </div>
-        </div>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', testButtonHtml);
-}
-
-// Inicializar botões de teste quando a página carregar
-document.addEventListener('DOMContentLoaded', function() {
-    // Adicionar após um pequeno delay para garantir que tudo carregou
-    setTimeout(addTestButtonToUI, 1000);
-});
-
-// Make functions available globally
-window.testPaymentQuick = testPaymentQuick;
-window.checkTestPaymentInfo = checkTestPaymentInfo;
-window.listAllTestPayments = listAllTestPayments;
-window.openTestCheckout = openTestCheckout;
-window.copyTestId = copyTestId;
-window.copyPaymentId = copyPaymentId;
-window.copyToClipboard = copyToClipboard;
+console.log('✅ Production checkout system loaded');

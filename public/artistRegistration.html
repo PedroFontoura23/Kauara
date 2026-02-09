@@ -24,6 +24,15 @@
         opacity: 0.65;
         pointer-events: none;
     }
+    #profilePicturePreview {
+        max-width: 150px;
+        max-height: 150px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 3px solid #f0f0f0;
+        margin-bottom: 15px;
+        display: none;
+    }
     </style>
 </head>
 <body>
@@ -41,6 +50,17 @@
                 <div class="card shadow">
                     <div class="card-body p-4">
                         <h2 class="card-title text-center mb-4">Your Artist Profile</h2>
+
+                        <!-- Profile Picture Section -->
+                        <div class="text-center mb-4">
+                            <img id="profilePicturePreview" alt="Profile Picture" class="img-fluid">
+                            <div class="mt-2">
+                                <button id="uploadPictureBtn" class="btn btn-outline-secondary btn-sm">
+                                    Change Picture
+                                </button>
+                                <input type="file" id="profilePicture" accept="image/*" style="display: none;">
+                            </div>
+                        </div>
 
                         <!-- Artist Benefits -->
                         <div class="alert alert-info">
@@ -62,6 +82,10 @@
                                     <input type="text" class="form-control" id="fullName" readonly>
                                 </div>
                                 <div class="mb-3">
+                                    <label for="email" class="form-label">Email</label>
+                                    <input type="email" class="form-control" id="email" readonly>
+                                </div>
+                                <div class="mb-3">
                                     <label for="cpfCnpj" class="form-label">CPF/CNPJ</label>
                                     <input type="text" class="form-control" id="cpfCnpj" readonly>
                                 </div>
@@ -73,21 +97,32 @@
                                     <label for="phone" class="form-label">Phone</label>
                                     <input type="tel" class="form-control" id="phone" readonly>
                                 </div>
-                                <button type="button" id="editInfoBtn" class="btn btn-outline-primary">Edit Information</button>
-                                <button type="button" id="saveInfoBtn" class="btn btn-primary" style="display:none">Save Changes</button>
+                                <div class="mb-3">
+                                    <label for="bio" class="form-label">Bio / Artist Description</label>
+                                    <textarea class="form-control" id="bio" rows="4" readonly></textarea>
+                                    <div class="form-text">Tell people about yourself and your art</div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="website" class="form-label">Website / Portfolio</label>
+                                    <input type="url" class="form-control" id="website" placeholder="https://" readonly>
+                                    <div class="form-text">Link to your portfolio or social media</div>
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <button type="button" id="editInfoBtn" class="btn btn-outline-primary">Edit Information</button>
+                                    <button type="button" id="saveInfoBtn" class="btn btn-primary" style="display:none">Save Changes</button>
+                                </div>
                             </form>
                         </div>
 
                         <!-- Mercado Pago Integration -->
-                        <div id="mercadoPagoSection" class="mb-4">
-                            <h3 class="h5 mb-3">Mercado Pago Connection</h3>
-                            <div id="mpRequirements" class="alert alert-warning" style="display: none;">
-                                Termine de salvar a sua informação antes de registrar sua conta Mercado Pago.
+                        <div id="pixKeySection" class="mb-4">
+                            <h3 class="h5 mb-3">Chave PIX para Pagamentos</h3>
+                            <div id="pixStatus" class="mb-2">
+                                Status: <span class="text-danger">Não Conectado</span>
                             </div>
-                            <p id="mpStatus" class="mb-2">Status: <span id="mpConnectionStatus">Not Connected</span></p>
-                            <button id="connectMercadoPago" class="btn btn-success disabled">
-                                <img src="/images/mercado-pago-logo.png" alt="Mercado Pago" height="24" class="me-2">
-                                Connect to Mercado Pago
+                            <button id="connectPixBtn" class="btn btn-success">
+                                <i class="bi bi-qr-code me-2"></i>
+                                Conectar Chave PIX
                             </button>
                         </div>
                     </div>
@@ -114,3 +149,4 @@
     <script src="/javascript/artist-registration.js"></script>
 </body>
 </html>
+[file content end]
