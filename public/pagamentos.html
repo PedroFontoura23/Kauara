@@ -1,450 +1,653 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="
         default-src 'self';
         script-src 'self' https://cdn.jsdelivr.net https://www.gstatic.com https://cdnjs.cloudflare.com https://viacep.com.br 'unsafe-inline';
-        style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline';
+        style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com 'unsafe-inline';
         img-src 'self' data: https:;
-        font-src 'self' https://cdnjs.cloudflare.com;
+        font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com;
         connect-src 'self' https://us-central1-kauara1.cloudfunctions.net https://viacep.com.br https://cdn.jsdelivr.net https://www.gstatic.com;
     ">
-    <title>Finalizar Compra - Kauara</title>
+    <title>Finalizar Compra — Kauara</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
     <style>
-        /* Custom styles */
-        .product-summary {
-            border: 1px solid #e0e0e0;
-            border-radius: 10px;
-            padding: 20px;
-            background: #f8f9fa;
+        :root {
+            --ink:      #111111;
+            --bg:       #F4F2EE;
+            --surface:  #FFFFFF;
+            --border:   #E0DDD7;
+            --muted:    #888580;
+            --accent:   #1A56DB;
+            --green:    #1A7A4A;
+            --green-bg: #EAF7F0;
+            --green-bd: #A8DBBF;
+            --radius:   10px;
         }
-        .color-indicator {
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 8px;
-            border: 2px solid #ddd;
+
+        *, *::before, *::after { box-sizing: border-box; }
+
+        body {
+            background: var(--bg);
+            font-family: 'DM Sans', sans-serif;
+            color: var(--ink);
+            font-size: 0.925rem;
+            line-height: 1.55;
         }
-        .loading-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(255,255,255,0.95);
-            justify-content: center;
+
+        /* ── page header ── */
+        .page-header {
+            padding: 2rem 0 1.6rem;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 2rem;
+        }
+        .page-header h1 {
+            font-family: 'Syne', sans-serif;
+            font-size: 1.65rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            margin-bottom: 0.2rem;
+        }
+        .page-header .sub { color: var(--muted); font-size: 0.87rem; margin: 0; }
+
+        .secure-badge {
+            display: inline-flex;
             align-items: center;
-            z-index: 9999;
-            backdrop-filter: blur(5px);
+            gap: 6px;
+            font-size: 0.76rem;
+            font-weight: 500;
+            color: var(--green);
+            background: var(--green-bg);
+            border: 1px solid var(--green-bd);
+            border-radius: 99px;
+            padding: 3px 11px;
+            margin-top: 0.5rem;
         }
-        .price-breakdown {
-            background: white;
-            border-radius: 8px;
-            padding: 15px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .error-message {
-            color: #dc3545;
-            font-size: 0.875rem;
-            margin-top: 5px;
-        }
-        .form-control:invalid {
-            border-color: #dc3545;
-        }
-        .split-info {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 15px;
-            border-radius: 10px;
-            margin-top: 20px;
-        }
-        .product-image-container {
-            position: relative;
-            display: inline-block;
-            width: 80px;
-            height: 80px;
+
+        /* ── card ── */
+        .k-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: 0 1px 8px rgba(0,0,0,0.06);
             overflow: hidden;
-            border-radius: 8px;
+        }
+        .k-card-head {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 0.85rem 1.2rem;
+            border-bottom: 1px solid var(--border);
+            background: #FAFAF8;
+        }
+        .k-card-head h5 {
+            font-family: 'Syne', sans-serif;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin: 0;
+            flex: 1;
+        }
+        .k-icon {
+            width: 26px; height: 26px;
+            border-radius: 6px;
+            background: var(--ink);
+            color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.62rem;
             flex-shrink: 0;
         }
-        .product-image {
-            position: relative;
-            width: 100%;
-            height: auto;
-            z-index: 1;
-            border-radius: 8px;
+        .k-card-body { padding: 1.2rem; }
+
+        /* ── product items ── */
+        .product-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 0;
+        }
+        .product-item + .product-item { border-top: 1px solid var(--border); }
+        .product-item img {
+            width: 50px; height: 50px;
+            border-radius: 7px;
             object-fit: cover;
+            border: 1px solid var(--border);
+            flex-shrink: 0;
+            background: var(--bg);
         }
-        .color-layer {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border-radius: 8px;
+        .product-item .pi-info { flex: 1; min-width: 0; }
+        .product-item .pi-title {
+            font-weight: 600;
+            font-size: 0.87rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-        .security-badge {
+        .product-item .pi-meta {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-top: 3px;
+        }
+        .product-item .pi-price {
+            font-family: 'Syne', sans-serif;
+            font-weight: 700;
+            font-size: 0.97rem;
+            white-space: nowrap;
+        }
+        .pi-tag {
+            font-size: 0.68rem;
+            font-weight: 600;
+            background: #EFEDE9;
+            color: #555;
+            border-radius: 4px;
+            padding: 1px 6px;
+        }
+        .pi-designer { font-size: 0.73rem; color: var(--muted); }
+
+        /* ── price breakdown rows ── */
+        .bd-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            padding: 5px 0;
+            font-size: 0.875rem;
+        }
+        .bd-row .bd-label { color: var(--muted); }
+        .bd-row .bd-val   { font-weight: 500; }
+
+        /* platform fee — visually quieter */
+        .bd-row.bd-small {
+            font-size: 0.78rem;
+            opacity: 0.7;
+            padding: 3px 0;
+        }
+
+        .bd-sep {
+            border: none;
+            border-top: 1px dashed var(--border);
+            margin: 8px 0;
+        }
+        .bd-sep-solid {
+            border: none;
+            border-top: 2px solid var(--ink);
+            margin: 10px 0 8px;
+        }
+
+        /* subtotal row */
+        .bd-row.bd-subtotal .bd-label { font-weight: 600; color: var(--ink); }
+
+        /* shipping row */
+        .bd-row.bd-shipping .bd-label { color: var(--ink); font-weight: 500; }
+
+        /* total row */
+        .bd-row.bd-total { padding: 6px 0 2px; }
+        .bd-row.bd-total .bd-label {
+            font-family: 'Syne', sans-serif;
+            font-weight: 700;
+            font-size: 1rem;
+        }
+        .bd-row.bd-total .bd-val {
+            font-family: 'Syne', sans-serif;
+            font-weight: 800;
+            font-size: 1.3rem;
+            color: var(--accent);
+        }
+
+        /* shipping status pulse dot */
+        .shipping-state {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.77rem;
+            color: var(--muted);
+            padding: 3px 0 0 2px;
+        }
+        .s-dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: #F5A623;
+            flex-shrink: 0;
+            animation: blink 1.4s ease-in-out infinite;
+        }
+        .s-dot.ready { background: var(--green); animation: none; }
+        @keyframes blink {
+            0%,100% { opacity:1; transform:scale(1); }
+            50%      { opacity:.4; transform:scale(.75); }
+        }
+
+        #shippingBreakdown {
+            display: none;
+            margin-top: 5px;
+            font-size: 0.76rem;
+            color: var(--muted);
+            background: var(--bg);
+            border-radius: 6px;
+            padding: 6px 10px;
+        }
+        #shippingBreakdown.visible { display: block; }
+
+        /* ── sticky summary ── */
+        @media (min-width: 992px) {
+            .summary-sticky { position: sticky; top: 1.5rem; }
+        }
+
+        /* ── form ── */
+        .form-section-label {
+            font-family: 'Syne', sans-serif;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--muted);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 6px;
+            margin: 1.4rem 0 0.9rem;
+        }
+        .form-section-label:first-child { margin-top: 0; }
+
+        .form-label {
             font-size: 0.8rem;
-            padding: 8px 12px;
-            border-radius: 20px;
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
+            font-weight: 600;
+            color: #444;
+            margin-bottom: 4px;
         }
-        .split-info-hidden {
-            display: none;
+        .form-control, .form-select {
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.9rem;
+            padding: 0.5rem 0.75rem;
+            background: #FAFAF8;
+            transition: border-color .15s, box-shadow .15s;
         }
-        .loading-overlay-content {
-            text-align: center;
+        .form-control:focus, .form-select:focus {
+            border-color: var(--ink);
+            box-shadow: 0 0 0 3px rgba(17,17,17,.07);
+            background: #fff;
+            outline: none;
         }
-        .loading-overlay-spinner {
-            width: 3rem;
-            height: 3rem;
-            margin-bottom: 1rem;
+        .error-message {
+            font-size: 0.76rem;
+            color: #C0392B;
+            margin-top: 3px;
+            min-height: 1em;
         }
-        .loading-overlay-progress {
-            height: 6px;
-            width: 200px;
-            margin-top: 1rem;
+
+        /* ── buttons ── */
+        .btn-pay {
+            width: 100%;
+            background: var(--ink);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            padding: 0.875rem 1.25rem;
+            font-family: 'Syne', sans-serif;
+            font-weight: 700;
+            font-size: 1rem;
+            letter-spacing: .02em;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            transition: background .15s, transform .1s;
         }
-        
-        /* Utility classes */
-        .d-flex {
-            display: flex !important;
+        .btn-pay:hover:not(:disabled) { background: #222; }
+        .btn-pay:active:not(:disabled) { transform: scale(.99); }
+        .btn-pay:disabled { background: #B5B2AC; cursor: not-allowed; }
+
+        .btn-back {
+            width: 100%;
+            background: transparent;
+            color: var(--muted);
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
+            padding: .65rem 1.25rem;
+            font-family: 'DM Sans', sans-serif;
+            font-size: .88rem;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+            transition: border-color .15s, color .15s;
         }
-        .d-none {
-            display: none !important;
+        .btn-back:hover { border-color: var(--ink); color: var(--ink); }
+
+        /* ── payment badges ── */
+        .pm-row { display: flex; gap: 7px; flex-wrap: wrap; margin-top: .6rem; }
+        .pm-badge {
+            display: flex; align-items: center; gap: 5px;
+            background: #EFEDE9;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px 10px;
+            font-size: .74rem;
+            font-weight: 600;
+            color: #444;
         }
-        
-        /* Fixed styles for loading overlay */
+
+        /* ── terms ── */
+        .terms-check .form-check-input:checked {
+            background-color: var(--ink);
+            border-color: var(--ink);
+        }
+        .terms-check a { color: var(--ink); font-weight: 600; }
+
+        /* ── loading overlay ── */
         #loadingOverlay {
+            position: fixed; inset: 0;
+            background: rgba(244,242,238,.92);
+            backdrop-filter: blur(6px);
+            z-index: 9999;
             display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+        }
+        #loadingOverlay.active { display: flex; }
+        .ld-spinner {
+            width: 40px; height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--ink);
+            border-radius: 50%;
+            animation: spin .75s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #loadingOverlay p {
+            font-family: 'Syne', sans-serif;
+            font-weight: 700;
+            font-size: .95rem;
+            margin: 0;
+        }
+        #loadingOverlay small { color: var(--muted); font-size: .8rem; }
+
+        .ssl-note {
+            display: flex; align-items: center; justify-content: center; gap: 5px;
+            font-size: .73rem; color: var(--muted); margin-top: .7rem;
         }
     </style>
 </head>
 <body>
-    <div class="container py-4">
-        <!-- Header -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <h1 class="h3 mb-0">
-                    <i class="fas fa-shopping-cart text-primary me-2"></i>
-                    Finalizar Compra
-                </h1>
-                <p class="text-muted">Complete suas informações para finalizar o pedido</p>
-                <div class="security-badge d-inline-flex align-items-center">
-                    <i class="fas fa-lock text-success me-2"></i>
-                    <span>Pagamento 100% seguro via Mercado Pago</span>
-                </div>
-            </div>
-        </div>
+<div class="container" style="max-width:1060px;">
 
-        <div class="row">
-            <!-- Left Column - Product Summary -->
-            <div class="col-lg-5 mb-4">
-                <div class="product-summary">
-                    <h4 class="mb-3">
-                        <i class="fas fa-box me-2"></i>
-                        Resumo do Pedido
-                    </h4>
-                    
-                    <!-- Product Info -->
-                    <div id="productInfo" class="mb-4">
-                        <div class="d-flex align-items-start mb-3">
-                            <!-- Product Image Container with Color Layer -->
-                            <div id="productImageContainer" class="product-image-container me-3">
-                                <!-- Color layer will be inserted here by JavaScript -->
-                                <img id="productImage" src="" alt="Product" class="product-image">
-                            </div>
-                            <div>
-                                <h6 id="productTitle" class="mb-1">Carregando...</h6>
-                                <div id="variantInfo" class="text-muted small">
-                                    <div class="mb-1">
-                                        <span class="badge bg-secondary me-1">Carregando...</span>
-                                        <span class="badge bg-info">Carregando...</span>
-                                    </div>
-                                </div>
-                                <!-- Variant Color Display -->
-                                <div id="variantColorDisplay" class="mt-1 small"></div>
-                                <div id="artistInfo" class="mt-2">
-                                    <small class="text-muted">
-                                        <i class="fas fa-palette me-1"></i>
-                                        <span id="artistName">Artista</span>
-                                    </small>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Split Information -->
-                    <div id="splitInfo" class="split-info split-info-hidden">
-                        <h6 class="mb-2">
-                            <i class="fas fa-share-alt me-2"></i>
-                            Split Configurado
-                        </h6>
-                        <div class="d-flex justify-content-between small">
-                            <span>Valor para Artista:</span>
-                            <strong id="artistSplitAmount">R$ 0,00</strong>
-                        </div>
-                        <div class="d-flex justify-content-between small">
-                            <span>Taxa da Plataforma:</span>
-                            <strong id="platformSplitAmount">R$ 0,00</strong>
-                        </div>
-                        <div class="mt-2">
-                            <small>
-                                <i class="fas fa-info-circle me-1"></i>
-                                O valor será transferido automaticamente para o artista
-                            </small>
-                        </div>
-                    </div>
-
-                    <!-- Price Breakdown -->
-                    <div class="price-breakdown mt-3">
-                        <h6 class="mb-3">
-                            <i class="fas fa-receipt me-2"></i>
-                            Detalhes do Valor
-                        </h6>
-                        <div class="d-flex justify-content-between mb-2">
-                            <span>Produto:</span>
-                            <span id="productPrice">R$ 0,00</span>
-                        </div>
-                        <div class="d-flex justify-content-between mb-2">
-                            <span>Arte do Designer:</span>
-                            <span id="artistMarkup">R$ 0,00</span>
-                        </div>
-                        <div class="d-flex justify-content-between mb-2">
-                            <span>Taxa da Plataforma (5%):</span>
-                            <span id="platformFee">R$ 0,00</span>
-                        </div>
-                        <hr>
-                        <div class="d-flex justify-content-between fw-bold fs-5">
-                            <span>Total:</span>
-                            <span id="totalPrice" class="text-primary">R$ 0,00</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Right Column - Checkout Form -->
-            <div class="col-lg-7">
-                <div class="card shadow-sm">
-                    <div class="card-header bg-primary text-white">
-                        <h5 class="mb-0">
-                            <i class="fas fa-user-circle me-2"></i>
-                            Informações Pessoais
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <form id="checkoutForm">
-                            <!-- CSRF Token (would be generated server-side in production) -->
-                            <input type="hidden" id="csrfToken" name="csrfToken" value="">
-                            
-                            <!-- Personal Information -->
-                            <div class="row mb-3">
-                                <div class="col-md-6">
-                                    <label for="fullName" class="form-label">
-                                        <i class="fas fa-user me-1"></i>
-                                        Nome Completo *
-                                    </label>
-                                    <input type="text" class="form-control" id="fullName" required 
-                                           maxlength="100" 
-                                           title="Digite seu nome completo (mínimo 2 caracteres)">
-                                    <div class="error-message" id="fullNameError"></div>
-                                </div>
-                                <div class="col-md-6">
-                                    <label for="cpf" class="form-label">
-                                        <i class="fas fa-id-card me-1"></i>
-                                        CPF *
-                                    </label>
-                                    <input type="text" class="form-control" id="cpf" 
-                                           placeholder="000.000.000-00" required
-                                           title="Digite um CPF válido no formato 000.000.000-00">
-                                    <div class="error-message" id="cpfError"></div>
-                                </div>
-                            </div>
-
-                            <div class="row mb-3">
-                                <div class="col-md-6">
-                                    <label for="email" class="form-label">
-                                        <i class="fas fa-envelope me-1"></i>
-                                        Email *
-                                    </label>
-                                    <input type="email" class="form-control" id="email" required
-                                           maxlength="100" 
-                                           title="Digite um email válido">
-                                    <div class="error-message" id="emailError"></div>
-                                </div>
-                                <div class="col-md-6">
-                                    <label for="phone" class="form-label">
-                                        <i class="fas fa-phone me-1"></i>
-                                        Telefone *
-                                    </label>
-                                    <input type="tel" class="form-control" id="phone" 
-                                           placeholder="(11) 99999-9999" required
-                                           title="Digite um telefone válido no formato (11) 99999-9999">
-                                    <div class="error-message" id="phoneError"></div>
-                                </div>
-                            </div>
-
-                            <!-- Address Information (optional) -->
-                            <div class="mt-4 mb-3">
-                                <h6>
-                                    <i class="fas fa-home me-2"></i>
-                                    Endereço (opcional)
-                                </h6>
-                                <small class="text-muted">Forneça seu endereço se desejar receber informações adicionais</small>
-                            </div>
-                            
-                            <div class="row mb-3">
-                                <div class="col-md-3">
-                                    <label for="zipCode" class="form-label">CEP</label>
-                                    <input type="text" class="form-control" id="zipCode" 
-                                           placeholder="00000-000"
-                                           title="Digite um CEP válido no formato 00000-000">
-                                </div>
-                                <div class="col-md-9">
-                                    <label for="street" class="form-label">Endereço</label>
-                                    <input type="text" class="form-control" id="street"
-                                           maxlength="200">
-                                </div>
-                            </div>
-
-                            <div class="row mb-3">
-                                <div class="col-md-3">
-                                    <label for="number" class="form-label">Número</label>
-                                    <input type="text" class="form-control" id="number"
-                                           maxlength="10">
-                                </div>
-                                <div class="col-md-5">
-                                    <label for="complement" class="form-label">Complemento</label>
-                                    <input type="text" class="form-control" id="complement"
-                                           maxlength="50">
-                                </div>
-                                <div class="col-md-4">
-                                    <label for="neighborhood" class="form-label">Bairro</label>
-                                    <input type="text" class="form-control" id="neighborhood"
-                                           maxlength="100">
-                                </div>
-                            </div>
-
-                            <div class="row mb-4">
-                                <div class="col-md-6">
-                                    <label for="city" class="form-label">Cidade</label>
-                                    <input type="text" class="form-control" id="city"
-                                           maxlength="100">
-                                </div>
-                                <div class="col-md-6">
-                                    <label for="state" class="form-label">Estado</label>
-                                    <select class="form-select" id="state">
-                                        <option value="">Selecione...</option>
-                                        <option value="AC">Acre</option>
-                                        <option value="AL">Alagoas</option>
-                                        <option value="AP">Amapá</option>
-                                        <option value="AM">Amazonas</option>
-                                        <option value="BA">Bahia</option>
-                                        <option value="CE">Ceará</option>
-                                        <option value="DF">Distrito Federal</option>
-                                        <option value="ES">Espírito Santo</option>
-                                        <option value="GO">Goiás</option>
-                                        <option value="MA">Maranhão</option>
-                                        <option value="MT">Mato Grosso</option>
-                                        <option value="MS">Mato Grosso do Sul</option>
-                                        <option value="MG">Minas Gerais</option>
-                                        <option value="PA">Pará</option>
-                                        <option value="PB">Paraíba</option>
-                                        <option value="PR">Paraná</option>
-                                        <option value="PE">Pernambuco</option>
-                                        <option value="PI">Piauí</option>
-                                        <option value="RJ">Rio de Janeiro</option>
-                                        <option value="RN">Rio Grande do Norte</option>
-                                        <option value="RS">Rio Grande do Sul</option>
-                                        <option value="RO">Rondônia</option>
-                                        <option value="RR">Roraima</option>
-                                        <option value="SC">Santa Catarina</option>
-                                        <option value="SP">São Paulo</option>
-                                        <option value="SE">Sergipe</option>
-                                        <option value="TO">Tocantins</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <!-- Terms and Conditions -->
-                            <div class="form-check mb-4">
-                                <input class="form-check-input" type="checkbox" id="termsCheck" required>
-                                <label class="form-check-label" for="termsCheck">
-                                    Concordo com os <a href="/termos.html" target="_blank" rel="noopener noreferrer">Termos de Serviço</a> 
-                                    e <a href="/privacidade.html" target="_blank" rel="noopener noreferrer">Política de Privacidade</a>
-                                </label>
-                                <div class="error-message" id="termsError"></div>
-                            </div>
-
-                            <!-- Payment Method Info -->
-                            <div class="alert alert-info mb-4">
-                                <div class="d-flex">
-                                    <i class="fas fa-info-circle fa-2x me-3"></i>
-                                    <div>
-                                        <h6 class="alert-heading mb-2">Forma de Pagamento</h6>
-                                        <p class="mb-0">
-                                            Você será redirecionado para o Mercado Pago para concluir o pagamento.
-                                            Aceitamos cartões, PIX, boleto e mais.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Submit Button -->
-                            <div class="d-grid gap-2">
-                                <button type="submit" class="btn btn-primary btn-lg" id="submitButton">
-                                    <i class="fas fa-lock me-2"></i>
-                                    Finalizar Compra e Pagar
-                                </button>
-                                <button type="button" class="btn btn-outline-secondary" id="backButton">
-                                    <i class="fas fa-arrow-left me-2"></i>
-                                    Voltar
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-
-                <!-- Security Info -->
-                <div class="mt-3 text-center">
-                    <small class="text-muted">
-                        <i class="fas fa-shield-alt me-1"></i>
-                        Transações protegidas com criptografia SSL de 256 bits
-                    </small>
-                </div>
-            </div>
+    <!-- ── Page Header ── -->
+    <div class="page-header">
+        <h1>Finalizar Compra</h1>
+        <p class="sub">Revise seu pedido e preencha seus dados para concluir</p>
+        <div class="secure-badge">
+            <i class="fas fa-lock" style="font-size:.65rem;"></i>
+            Pagamento 100% seguro — Mercado Pago
         </div>
     </div>
 
-    <!-- Loading Overlay -->
-    <div id="loadingOverlay" class="loading-overlay d-none">
-        <div class="loading-overlay-content">
-            <div class="spinner-border text-primary loading-overlay-spinner" role="status">
-                <span class="visually-hidden">Processando...</span>
-            </div>
-            <h5>Criando seu pedido...</h5>
-            <p class="text-muted">Estamos preparando tudo para você</p>
-            <div class="progress loading-overlay-progress">
-                <div class="progress-bar progress-bar-striped progress-bar-animated"></div>
+    <div class="row g-4 pb-5">
+
+        <!-- ══ LEFT — Order Summary ══ -->
+        <div class="col-lg-5">
+            <div class="summary-sticky">
+
+                <!-- Products card -->
+                <div class="k-card mb-3">
+                    <div class="k-card-head">
+                        <div class="k-icon"><i class="fas fa-bag-shopping"></i></div>
+                        <h5>Produtos</h5>
+                        <span id="cartCountBadge"
+                              style="font-size:.71rem;font-weight:600;background:#EFEDE9;border:1px solid var(--border);border-radius:99px;padding:1px 9px;"></span>
+                    </div>
+                    <div class="k-card-body" id="productsContainer">
+                        <!-- injetado pelo JS -->
+                    </div>
+                </div>
+
+                <!-- Price breakdown card -->
+                <div class="k-card">
+                    <div class="k-card-head">
+                        <div class="k-icon"><i class="fas fa-receipt"></i></div>
+                        <h5>Resumo do Pagamento</h5>
+                    </div>
+                    <div class="k-card-body">
+
+                        <!--
+                            Layout lógico:
+                            Produto(s)          = custo base Printful (product_price)
+                            Arte do designer    = artist_cut (só aparece se > 0)
+                            Taxa plataforma 5%  = platform_fee (discreta, só aparece se > 0)
+                            ─────────────────
+                            Subtotal            = soma dos três acima
+                            Frete               = calculado pela cloud function
+                            ═════════════════
+                            Total               = subtotal + frete
+                        -->
+
+                        <div class="bd-row">
+                            <span class="bd-label">Produto(s)</span>
+                            <span class="bd-val" id="productPrice">—</span>
+                        </div>
+
+                        <!-- Shown only when artist_cut > 0 -->
+                        <div class="bd-row" id="artistCutRow" style="display:none;">
+                            <span class="bd-label">Arte do designer</span>
+                            <span class="bd-val" id="artistMarkup">—</span>
+                        </div>
+
+                        <!-- Shown only when platform_fee > 0 — visually quieter -->
+                        <div class="bd-row bd-small" id="platformFeeRow" style="display:none;">
+                            <span class="bd-label">Taxa da plataforma (5%)</span>
+                            <span class="bd-val" id="platformFee">—</span>
+                        </div>
+
+                        <hr class="bd-sep">
+
+                        <div class="bd-row bd-subtotal">
+                            <span class="bd-label">Subtotal</span>
+                            <span class="bd-val" id="subtotalPrice">—</span>
+                        </div>
+
+                        <div class="bd-row bd-shipping" style="margin-top:4px;">
+                            <span class="bd-label">
+                                <i class="fas fa-truck me-1" style="font-size:.78rem;opacity:.7;"></i>Frete
+                            </span>
+                            <span class="bd-val" id="shippingPrice">—</span>
+                        </div>
+
+                        <div class="shipping-state" id="shippingState">
+                            <span class="s-dot" id="shippingDot"></span>
+                            <span id="shippingStatusText">Calculando frete automaticamente…</span>
+                        </div>
+                        <div id="shippingBreakdown"></div>
+
+                        <hr class="bd-sep-solid">
+
+                        <div class="bd-row bd-total">
+                            <span class="bd-label">Total</span>
+                            <span class="bd-val" id="totalPrice">—</span>
+                        </div>
+
+                    </div>
+                </div>
+
             </div>
         </div>
-    </div>
 
-    <!-- Firebase and Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
-    
-    <!-- Payment Script -->
-    <script src="/javascript/pagamentos.js?v=2.2"></script>
+        <!-- ══ RIGHT — Checkout Form ══ -->
+        <div class="col-lg-7">
+            <div class="k-card">
+                <div class="k-card-head">
+                    <div class="k-icon"><i class="fas fa-user"></i></div>
+                    <h5>Seus Dados</h5>
+                </div>
+                <div class="k-card-body">
+                    <form id="checkoutForm" novalidate>
+
+                        <div class="form-section-label">Identificação</div>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label for="fullName" class="form-label">Nome Completo *</label>
+                                <input type="text" class="form-control" id="fullName" required
+                                       maxlength="100" placeholder="Seu nome completo">
+                                <div class="error-message" id="fullNameError"></div>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="cpf" class="form-label">CPF *</label>
+                                <input type="text" class="form-control" id="cpf"
+                                       placeholder="000.000.000-00" required>
+                                <div class="error-message" id="cpfError"></div>
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mb-2">
+                            <div class="col-md-6">
+                                <label for="email" class="form-label">Email *</label>
+                                <input type="email" class="form-control" id="email" required
+                                       maxlength="100" placeholder="seu@email.com">
+                                <div class="error-message" id="emailError"></div>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="phone" class="form-label">Telefone *</label>
+                                <input type="tel" class="form-control" id="phone"
+                                       placeholder="(11) 99999-9999" required>
+                                <div class="error-message" id="phoneError"></div>
+                            </div>
+                        </div>
+
+                        <div class="form-section-label">Endereço de Entrega</div>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <label for="zipCode" class="form-label">CEP</label>
+                                <input type="text" class="form-control" id="zipCode"
+                                       placeholder="00000-000">
+                                <div class="error-message" id="zipCodeError"></div>
+                            </div>
+                            <div class="col-md-8">
+                                <label for="street" class="form-label">Endereço</label>
+                                <input type="text" class="form-control" id="street"
+                                       maxlength="200" placeholder="Rua, Av.…">
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-4">
+                                <label for="number" class="form-label">Número</label>
+                                <input type="text" class="form-control" id="number"
+                                       maxlength="10" placeholder="123">
+                            </div>
+                            <div class="col-4">
+                                <label for="complement" class="form-label">Complemento</label>
+                                <input type="text" class="form-control" id="complement"
+                                       maxlength="50" placeholder="Apto…">
+                            </div>
+                            <div class="col-4">
+                                <label for="neighborhood" class="form-label">Bairro</label>
+                                <input type="text" class="form-control" id="neighborhood"
+                                       maxlength="100">
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-6">
+                                <label for="city" class="form-label">Cidade</label>
+                                <input type="text" class="form-control" id="city" maxlength="100">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="state" class="form-label">Estado</label>
+                                <select class="form-select" id="state">
+                                    <option value="">Selecione…</option>
+                                    <option value="AC">Acre</option>
+                                    <option value="AL">Alagoas</option>
+                                    <option value="AP">Amapá</option>
+                                    <option value="AM">Amazonas</option>
+                                    <option value="BA">Bahia</option>
+                                    <option value="CE">Ceará</option>
+                                    <option value="DF">Distrito Federal</option>
+                                    <option value="ES">Espírito Santo</option>
+                                    <option value="GO">Goiás</option>
+                                    <option value="MA">Maranhão</option>
+                                    <option value="MT">Mato Grosso</option>
+                                    <option value="MS">Mato Grosso do Sul</option>
+                                    <option value="MG">Minas Gerais</option>
+                                    <option value="PA">Pará</option>
+                                    <option value="PB">Paraíba</option>
+                                    <option value="PR">Paraná</option>
+                                    <option value="PE">Pernambuco</option>
+                                    <option value="PI">Piauí</option>
+                                    <option value="RJ">Rio de Janeiro</option>
+                                    <option value="RN">Rio Grande do Norte</option>
+                                    <option value="RS">Rio Grande do Sul</option>
+                                    <option value="RO">Rondônia</option>
+                                    <option value="RR">Roraima</option>
+                                    <option value="SC">Santa Catarina</option>
+                                    <option value="SP">São Paulo</option>
+                                    <option value="SE">Sergipe</option>
+                                    <option value="TO">Tocantins</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-section-label">Pagamento</div>
+
+                        <p style="font-size:.85rem;color:#666;margin-bottom:.5rem;">
+                            Você será redirecionado ao Mercado Pago para finalizar:
+                        </p>
+                        <div class="pm-row mb-4">
+                            <div class="pm-badge"><i class="fas fa-credit-card"></i> Cartão</div>
+                            <div class="pm-badge"><i class="fas fa-qrcode"></i> PIX</div>
+                            <div class="pm-badge"><i class="fas fa-barcode"></i> Boleto</div>
+                        </div>
+
+                        <div class="form-check terms-check mb-4" style="font-size:.85rem;">
+                            <input class="form-check-input" type="checkbox" id="termsCheck" required>
+                            <label class="form-check-label" for="termsCheck">
+                                Concordo com os
+                                <a href="/termos.html" target="_blank">Termos de Serviço</a>
+                                e a
+                                <a href="/privacidade.html" target="_blank">Política de Privacidade</a>
+                            </label>
+                            <div class="error-message" id="termsError"></div>
+                        </div>
+
+                        <div class="d-flex flex-column gap-2">
+                            <button type="submit" class="btn-pay" id="submitButton">
+                                <i class="fas fa-lock"></i>
+                                Finalizar e Pagar
+                            </button>
+                            <button type="button" class="btn-back" id="backButton">
+                                <i class="fas fa-arrow-left"></i>
+                                Voltar ao Carrinho
+                            </button>
+                        </div>
+
+                    </form>
+                </div>
+            </div>
+            <div class="ssl-note">
+                <i class="fas fa-shield-alt"></i>
+                Transações protegidas com SSL 256-bit
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay">
+    <div class="ld-spinner"></div>
+    <p>Preparando seu pedido…</p>
+    <small>Aguarde um momento</small>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+<script src="/javascript/pagamentos.js?v=3.0"></script>
 </body>
 </html>

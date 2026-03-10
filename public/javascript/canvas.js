@@ -32,13 +32,17 @@ try {
 
 // Constants
 const DPI = 300;
-const TWO_SIDED_PRODUCTS = [71, 146]; // tshirts, hoodies
+const TWO_SIDED_PRODUCTS = [71, 146, 509]; // tshirts, hoodies
 const PLATFORM_FEE_PERCENTAGE = 0.05; // 5% platform fee
 
 // Physical dimensions for Printful (in inches)
 const PHYSICAL_PRINT_AREAS = {
   71: { front: { widthInches: 20, heightInches: 24 }, back: { widthInches: 14, heightInches: 16 } },
   146: { front: { widthInches: 14, heightInches: 14 }, back: { widthInches: 14, heightInches: 16 } },
+  509: { // Men's Fitted
+    front: { widthInches: 8.74, heightInches: 10.43 }, // Converted from 25.5/30 cm at 2.54 cm/inch
+    back: { widthInches: 12.99, heightInches: 16.54 }  // Converted from 33/42 cm at 2.54 cm/inch
+  },
   19: { default: { widthInches: 8.5, heightInches: 3.5 } }
 };
 
@@ -68,8 +72,14 @@ const state = {
   side: 'front',
   overlayImage: null,
   overlayX: 0, overlayY: 0, overlayW: 0, overlayH: 0,
+  overlayRotation: 0, // degrees: 0, 90, 180, 270
   isDragging: false,
+  isResizing: false,
+  resizeHandle: null, // 'tl','tr','bl','br'
   dragStartX: 0, dragStartY: 0,
+  resizeStartX: 0, resizeStartY: 0,
+  resizeStartW: 0, resizeStartH: 0,
+  resizeStartOX: 0, resizeStartOY: 0,
   scale: 1.0,
   isArtMode: false,
   bgColor: '#ffffff',
@@ -236,6 +246,7 @@ function handleBgColorChange(event) {
     if (!state.isArtMode) return;
     
     state.bgColor = event.target.value;
+    console.log('🎨 bgColor changed to:', state.bgColor);
     renderCanvas();
 }
 
@@ -282,7 +293,8 @@ async function fetchProductPricing() {
       try {
         const requestBody = {
           productId: state.product.id,
-          variantId: variant.id
+          variantId: variant.id,
+          size: variant.size || 'default'  // ← ADD THIS LINE
         };
         
         const response = await fetch('https://us-central1-kauara1.cloudfunctions.net/getProductPricing', {
@@ -312,7 +324,7 @@ async function fetchProductPricing() {
           };
           
           state.variantPricing.set(variant.id, pricingData);
-          console.log(`✅ Variant ${variant.id} pricing:`, pricingData);
+          console.log(`✅ Variant ${variant.id} (${variant.size}) pricing:`, pricingData);
           return { variantId: variant.id, pricing: pricingData, success: true };
         } else {
           throw new Error(`API returned success:false - ${result.error}`);
@@ -540,11 +552,69 @@ function setupArtMode() {
 function renderCanvas() {
     if (!state.currentModule) return;
     
+    // Monkey-patch ctx.drawImage to intercept overlay draws and apply rotation
+    const originalDrawImage = ctx.drawImage.bind(ctx);
+    const rotation = (state.overlayRotation || 0) * Math.PI / 180;
+
+    if (state.overlayImage && rotation !== 0) {
+        ctx.drawImage = function(...args) {
+            const img = args[0];
+            if (img === state.overlayImage) {
+                // args: (img, x, y, w, h) — standard 5-arg form used by modules
+                const [, dx, dy, dw, dh] = args;
+                const cx = dx + dw / 2;
+                const cy = dy + dh / 2;
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(rotation);
+                ctx.translate(-dw / 2, -dh / 2);
+                originalDrawImage(img, 0, 0, dw, dh);
+                ctx.restore();
+            } else {
+                originalDrawImage(...args);
+            }
+        };
+    }
+
     if (state.isArtMode) {
         state.currentModule.renderCanvas(state, elements, ctx);
     } else {
         state.currentModule.renderCanvas(state, elements, ctx, state.moduleState.baseImages, state.moduleState.imagesLoaded);
     }
+
+    // Restore original drawImage
+    ctx.drawImage = originalDrawImage;
+
+    // Draw Photoshop-style transform overlay if image is loaded
+    if (state.overlayImage) {
+        drawTransformHandles(ctx);
+    }
+}
+
+function drawTransformHandles(ctx) {
+    const { overlayX: x, overlayY: y, overlayW: w, overlayH: h } = state;
+    const hs = HANDLE_SIZE;
+
+    ctx.save();
+
+    // Dashed bounding box
+    ctx.strokeStyle = 'rgba(0, 120, 255, 0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 3]);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+
+    // Corner handles
+    const handles = getResizeHandles();
+    for (const pos of Object.values(handles)) {
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = 'rgba(0, 120, 255, 1)';
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(pos.x - hs / 2, pos.y - hs / 2, hs, hs);
+        ctx.strokeRect(pos.x - hs / 2, pos.y - hs / 2, hs, hs);
+    }
+
+    ctx.restore();
 }
 
 function loadSessionData() {
@@ -676,6 +746,32 @@ function handleScaleChange(event) {
     renderCanvas();
 }
 
+function handleRotateImage() {
+    if (!state.overlayImage) return;
+    state.overlayRotation = ((state.overlayRotation || 0) + 90) % 360;
+    // Swap W/H on 90/270 to maintain bounding box
+    if (state.overlayRotation % 180 !== 0) {
+        // 90 or 270: swap width/height to fill same area
+        const cx = state.overlayX + state.overlayW / 2;
+        const cy = state.overlayY + state.overlayH / 2;
+        const tmp = state.overlayW;
+        state.overlayW = state.overlayH;
+        state.overlayH = tmp;
+        state.overlayX = cx - state.overlayW / 2;
+        state.overlayY = cy - state.overlayH / 2;
+    } else {
+        // 0 or 180: restore original aspect from image
+        const cx = state.overlayX + state.overlayW / 2;
+        const cy = state.overlayY + state.overlayH / 2;
+        const tmp = state.overlayW;
+        state.overlayW = state.overlayH;
+        state.overlayH = tmp;
+        state.overlayX = cx - state.overlayW / 2;
+        state.overlayY = cy - state.overlayH / 2;
+    }
+    renderCanvas();
+}
+
 function handleSideSwitch(newSide) {
     if (!state.currentModule?.handleSideSwitch) return;
     
@@ -767,39 +863,130 @@ function scheduleRender() {
   }
 }
 
-function handlePointerDown(event) {
-  if (!state.overlayImage) return;
-  
-  const pointerPos = getPointerPosition(event);
-  if (isPointInOverlay(pointerPos)) {
-    state.isDragging = true;
-    state.dragStartX = pointerPos.x - state.overlayX;
-    state.dragStartY = pointerPos.y - state.overlayY;
-    elements.canvas.style.cursor = 'grabbing';
-    
-    if (event.type.includes('touch')) {
-      event.preventDefault();
+const HANDLE_SIZE = 10; // px in canvas coords
+
+function getResizeHandles() {
+    const { overlayX: x, overlayY: y, overlayW: w, overlayH: h } = state;
+    return {
+        tl: { x: x,       y: y },
+        tr: { x: x + w,   y: y },
+        bl: { x: x,       y: y + h },
+        br: { x: x + w,   y: y + h },
+    };
+}
+
+function getHandleAtPoint(point) {
+    const handles = getResizeHandles();
+    for (const [key, pos] of Object.entries(handles)) {
+        if (Math.abs(point.x - pos.x) <= HANDLE_SIZE && Math.abs(point.y - pos.y) <= HANDLE_SIZE) {
+            return key;
+        }
     }
-  }
+    return null;
+}
+
+function getResizeCursor(handle) {
+    const cursors = { tl: 'nw-resize', tr: 'ne-resize', bl: 'sw-resize', br: 'se-resize' };
+    return cursors[handle] || 'default';
+}
+
+function handlePointerDown(event) {
+    if (!state.overlayImage) return;
+    const pointerPos = getPointerPosition(event);
+    const handle = getHandleAtPoint(pointerPos);
+
+    if (handle) {
+        state.isResizing = true;
+        state.resizeHandle = handle;
+        state.resizeStartX = pointerPos.x;
+        state.resizeStartY = pointerPos.y;
+        state.resizeStartW = state.overlayW;
+        state.resizeStartH = state.overlayH;
+        state.resizeStartOX = state.overlayX;
+        state.resizeStartOY = state.overlayY;
+        elements.canvas.style.cursor = getResizeCursor(handle);
+        if (event.type.includes('touch')) event.preventDefault();
+    } else if (isPointInOverlay(pointerPos)) {
+        state.isDragging = true;
+        state.dragStartX = pointerPos.x - state.overlayX;
+        state.dragStartY = pointerPos.y - state.overlayY;
+        elements.canvas.style.cursor = 'grabbing';
+        if (event.type.includes('touch')) event.preventDefault();
+    }
 }
 
 function handlePointerMove(event) {
-  if (!state.overlayImage) return;
-  
-  const pointerPos = getPointerPosition(event);
-  
-  if (state.isDragging) {
-    state.overlayX = pointerPos.x - state.dragStartX;
-    state.overlayY = pointerPos.y - state.dragStartY;
-    scheduleRender();
-  } else {
-    elements.canvas.style.cursor = isPointInOverlay(pointerPos) ? 'grab' : 'default';
-  }
+    if (!state.overlayImage) return;
+    const pointerPos = getPointerPosition(event);
+
+    if (state.isResizing) {
+        const dx = pointerPos.x - state.resizeStartX;
+        const dy = pointerPos.y - state.resizeStartY;
+        const handle = state.resizeHandle;
+        const aspectRatio = state.resizeStartW / state.resizeStartH;
+
+        let newW = state.resizeStartW;
+        let newH = state.resizeStartH;
+        let newX = state.resizeStartOX;
+        let newY = state.resizeStartOY;
+
+        // Constrain proportionally (hold Shift to constrain — always constrain for simplicity)
+        if (handle === 'br') {
+            newW = Math.max(20, state.resizeStartW + dx);
+            newH = newW / aspectRatio;
+        } else if (handle === 'bl') {
+            newW = Math.max(20, state.resizeStartW - dx);
+            newH = newW / aspectRatio;
+            newX = state.resizeStartOX + state.resizeStartW - newW;
+        } else if (handle === 'tr') {
+            newW = Math.max(20, state.resizeStartW + dx);
+            newH = newW / aspectRatio;
+            newY = state.resizeStartOY + state.resizeStartH - newH;
+        } else if (handle === 'tl') {
+            newW = Math.max(20, state.resizeStartW - dx);
+            newH = newW / aspectRatio;
+            newX = state.resizeStartOX + state.resizeStartW - newW;
+            newY = state.resizeStartOY + state.resizeStartH - newH;
+        }
+
+        state.overlayW = newW;
+        state.overlayH = newH;
+        state.overlayX = newX;
+        state.overlayY = newY;
+
+        // Sync scale state so slider stays in sync
+        if (state.currentModule?.handleScaleChange) {
+            const printArea = state.currentModule.getPrintArea?.(state);
+            if (printArea) {
+                state.scale = newW / printArea.width;
+                const sliderValue = Math.round(state.scale * 100);
+                const scaleSlider = document.getElementById('scale-slider');
+                const scaleValue = document.getElementById('scale-value');
+                if (scaleSlider) scaleSlider.value = sliderValue;
+                if (scaleValue) scaleValue.textContent = `${sliderValue}%`;
+            }
+        }
+
+        scheduleRender();
+    } else if (state.isDragging) {
+        state.overlayX = pointerPos.x - state.dragStartX;
+        state.overlayY = pointerPos.y - state.dragStartY;
+        scheduleRender();
+    } else {
+        const handle = getHandleAtPoint(pointerPos);
+        if (handle) {
+            elements.canvas.style.cursor = getResizeCursor(handle);
+        } else {
+            elements.canvas.style.cursor = isPointInOverlay(pointerPos) ? 'grab' : 'default';
+        }
+    }
 }
 
 function handlePointerUp() {
-  state.isDragging = false;
-  elements.canvas.style.cursor = 'default';
+    state.isDragging = false;
+    state.isResizing = false;
+    state.resizeHandle = null;
+    elements.canvas.style.cursor = 'default';
 }
 
 function getPointerPosition(event) {
@@ -885,6 +1072,8 @@ async function handleSaveArt() {
     const artData = tempCanvas.toDataURL('image/png');
     const filename = `${firestoreUserId}-${artName.replace(/\s+/g, '-').toLowerCase()}`;
     
+    console.log('💾 Saving art with bgColor:', state.bgColor);
+    
     const artId = await saveArtToFirebase(
       artData, 
       filename, 
@@ -892,7 +1081,8 @@ async function handleSaveArt() {
       firestoreUserId,
       state.artPrice,
       state.artPlatformFee,
-      state.artTotalPrice
+      state.artTotalPrice,
+      state.bgColor
     );
     
     alert('Art saved successfully!');
@@ -907,7 +1097,7 @@ async function handleSaveArt() {
   }
 }
 
-async function saveArtToFirebase(artData, filename, artName, userId, price, platformFee, totalPrice) {
+async function saveArtToFirebase(artData, filename, artName, userId, price, platformFee, totalPrice, bgColor = '#ffffff') {
   try {
     const response = await fetch('https://us-central1-kauara1.cloudfunctions.net/saveArt', {
       method: 'POST',
@@ -921,7 +1111,8 @@ async function saveArtToFirebase(artData, filename, artName, userId, price, plat
           userId: userId,
           price: roundToTwoDecimals(price),
           platformFee: roundToTwoDecimals(platformFee),
-          totalPrice: roundToTwoDecimals(totalPrice)
+          totalPrice: roundToTwoDecimals(totalPrice),
+          bgColor: bgColor
       })
     });
 
@@ -1415,11 +1606,9 @@ async function createThumbnail(saveSide, printArea) {
   const ctx = canvas.getContext('2d');
   const size = 800;
   canvas.width = canvas.height = size;
-  
-  // Use transparent background instead of color
+
   ctx.clearRect(0, 0, size, size);
-  
-  // FIX: Use the correct base image for the save side
+
   const baseImage = state.moduleState.baseImages?.[saveSide];
   if (baseImage && baseImage.complete) {
     const scale = Math.min(size / baseImage.width, size / baseImage.height);
@@ -1428,34 +1617,74 @@ async function createThumbnail(saveSide, printArea) {
     const x = (size - w) / 2;
     const y = (size - h) / 2;
     ctx.drawImage(baseImage, x, y, w, h);
-    
-    // Overlay design
+
     if (printArea && state.overlayImage) {
-      const thumbPrintAreaX = (printArea.x / baseImage.width) * w;
-      const thumbPrintAreaY = (printArea.y / baseImage.height) * h;
+      // Map print area into thumbnail space, accounting for the centering offset (x, y)
+      const thumbPrintAreaX = x + (printArea.x / baseImage.width) * w;
+      const thumbPrintAreaY = y + (printArea.y / baseImage.height) * h;
       const thumbPrintAreaW = (printArea.width / baseImage.width) * w;
       const thumbPrintAreaH = (printArea.height / baseImage.height) * h;
-      
-      const thumbOverlayX = thumbPrintAreaX + ((state.overlayX - printArea.x) / printArea.width) * thumbPrintAreaW;
-      const thumbOverlayY = thumbPrintAreaY + ((state.overlayY - printArea.y) / printArea.height) * thumbPrintAreaH;
-      const thumbOverlayW = (state.overlayW / printArea.width) * thumbPrintAreaW;
-      const thumbOverlayH = (state.overlayH / printArea.height) * thumbPrintAreaH;
-      
-      ctx.drawImage(state.overlayImage, thumbOverlayX, thumbOverlayY, thumbOverlayW, thumbOverlayH);
+
+      // Map overlay position into thumbnail space using the same scale
+      const thumbOverlayX = x + (state.overlayX / baseImage.width) * w;
+      const thumbOverlayY = y + (state.overlayY / baseImage.height) * h;
+      const thumbOverlayW = (state.overlayW / baseImage.width) * w;
+      const thumbOverlayH = (state.overlayH / baseImage.height) * h;
+
+      // Clip to print area so the design never bleeds outside its bounds
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(thumbPrintAreaX, thumbPrintAreaY, thumbPrintAreaW, thumbPrintAreaH);
+      ctx.clip();
+
+      // Apply rotation around overlay center
+      const rotation = (state.overlayRotation || 0) * Math.PI / 180;
+      if (rotation !== 0) {
+        const cx = thumbOverlayX + thumbOverlayW / 2;
+        const cy = thumbOverlayY + thumbOverlayH / 2;
+        ctx.translate(cx, cy);
+        ctx.rotate(rotation);
+        ctx.drawImage(state.overlayImage, -thumbOverlayW / 2, -thumbOverlayH / 2, thumbOverlayW, thumbOverlayH);
+      } else {
+        ctx.drawImage(state.overlayImage, thumbOverlayX, thumbOverlayY, thumbOverlayW, thumbOverlayH);
+      }
+
+      ctx.restore();
     }
   } else {
-    // Fallback: if no base image, just show the design on transparent background
+    // Fallback: no base image — show design clipped to a centered print-area-proportioned region
     if (state.overlayImage && printArea) {
-      const thumbOverlayW = (state.overlayW / printArea.width) * size;
-      const thumbOverlayH = (state.overlayH / printArea.height) * size;
-      const thumbOverlayX = (size - thumbOverlayW) / 2;
-      const thumbOverlayY = (size - thumbOverlayH) / 2;
-      
-      ctx.drawImage(state.overlayImage, thumbOverlayX, thumbOverlayY, thumbOverlayW, thumbOverlayH);
+      const thumbPrintAreaW = (printArea.width / (printArea.width + printArea.x * 2)) * size;
+      const thumbPrintAreaH = (printArea.height / (printArea.height + printArea.y * 2)) * size;
+      const thumbPrintAreaX = (size - thumbPrintAreaW) / 2;
+      const thumbPrintAreaY = (size - thumbPrintAreaH) / 2;
+
+      const thumbOverlayW = (state.overlayW / printArea.width) * thumbPrintAreaW;
+      const thumbOverlayH = (state.overlayH / printArea.height) * thumbPrintAreaH;
+      const thumbOverlayX = thumbPrintAreaX + ((state.overlayX - printArea.x) / printArea.width) * thumbPrintAreaW;
+      const thumbOverlayY = thumbPrintAreaY + ((state.overlayY - printArea.y) / printArea.height) * thumbPrintAreaH;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(thumbPrintAreaX, thumbPrintAreaY, thumbPrintAreaW, thumbPrintAreaH);
+      ctx.clip();
+
+      const rotation = (state.overlayRotation || 0) * Math.PI / 180;
+      if (rotation !== 0) {
+        const cx = thumbOverlayX + thumbOverlayW / 2;
+        const cy = thumbOverlayY + thumbOverlayH / 2;
+        ctx.translate(cx, cy);
+        ctx.rotate(rotation);
+        ctx.drawImage(state.overlayImage, -thumbOverlayW / 2, -thumbOverlayH / 2, thumbOverlayW, thumbOverlayH);
+      } else {
+        ctx.drawImage(state.overlayImage, thumbOverlayX, thumbOverlayY, thumbOverlayW, thumbOverlayH);
+      }
+
+      ctx.restore();
     }
   }
-  
-  return canvas.toDataURL('image/png'); // Use PNG to preserve transparency
+
+  return canvas.toDataURL('image/png');
 }
 
 function setupEventListeners(isArtMode) {
@@ -1480,6 +1709,12 @@ function setupEventListeners(isArtMode) {
     
     document.getElementById('upload-btn').addEventListener('click', () => elements.uploadInput.click());
     elements.uploadInput.addEventListener('change', handleFileUpload);
+
+    // Rotate button
+    const rotateBtn = document.getElementById('rotate-btn');
+    if (rotateBtn) {
+        rotateBtn.addEventListener('click', handleRotateImage);
+    }
     elements.saveBtn.addEventListener('click', async () => {
         try {
             await handleSaveProduct();

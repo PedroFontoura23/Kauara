@@ -30,6 +30,19 @@ export const PRINT_AREAS = {
       xCm: 2.6,
       yCm: 1.36,
     }
+  },
+  509: { // Men's Fitted
+    front: {
+      widthCm: 25.5 / 11.5,
+      heightCm: 30 / 11.5,
+      xCm: 1.45,
+      yCm: 1,
+    },
+    back: {
+      widthCm: 33 / 10.2,
+      heightCm: 42 / 10.2,
+      xCm: 2.5,
+      yCm: 0.8,
+    }
   }
-
 };

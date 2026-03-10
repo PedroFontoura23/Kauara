@@ -1,9 +1,12 @@
 const $ = id => document.getElementById(id);
 const toggle = (el, show) => {
-    if (show) {
-        el.classList.remove('hidden');
+    if (!el) return;
+    // Elements using the 'hidden' CSS class (art container)
+    if (el.classList.contains('hidden') || el.id === 'selected-art-info') {
+        show ? el.classList.remove('hidden') : el.classList.add('hidden');
     } else {
-        el.classList.add('hidden');
+        // Elements using inline style.display (loading, error, description)
+        el.style.display = show ? '' : 'none';
     }
 };
 
@@ -25,7 +28,7 @@ let products = [], selectedProduct, selectedColors = [], baseImage = new Image()
 let hoverTimeout = null;
 
 // Product type classification - same as original
-const TWO_SIDED_PRODUCTS = [71, 146]; // tshirts, hoodies
+const TWO_SIDED_PRODUCTS = [71, 146, 509]; // tshirts, hoodies, men's fitted
 
 // Get selected art from URL parameters or session storage
 let selectedArt = null;
@@ -124,34 +127,30 @@ function waitForFirebase() {
     return new Promise((resolve) => {
         let attempts = 0;
         const maxAttempts = 50;
-        const timeoutMs = 3000;
-        
-        const checkFirebase = () => {
-            attempts++;
-            
-            if (typeof firebase !== 'undefined' && firebase.firestore) {
-                console.log("Firebase is ready");
-                resolve(true);
-                return;
-            } 
-            
-            if (attempts >= maxAttempts) {
-                console.warn('Firebase initialization timeout');
-                resolve(false);
-                return;
-            }
-            
-            setTimeout(checkFirebase, 100);
-        };
-        
+
         const overallTimeout = setTimeout(() => {
             console.warn('Firebase initialization overall timeout');
             resolve(false);
-        }, timeoutMs);
-        
-        checkFirebase().then(() => {
-            clearTimeout(overallTimeout);
-        });
+        }, 3000);
+
+        const checkFirebase = () => {
+            attempts++;
+            if (typeof firebase !== 'undefined' && firebase.firestore) {
+                console.log("Firebase is ready");
+                clearTimeout(overallTimeout);
+                resolve(true);
+                return;
+            }
+            if (attempts >= maxAttempts) {
+                console.warn('Firebase initialization timeout');
+                clearTimeout(overallTimeout);
+                resolve(false);
+                return;
+            }
+            setTimeout(checkFirebase, 100);
+        };
+
+        checkFirebase();
     });
 }
 
@@ -317,7 +316,7 @@ function showVariantModal(product) {
   const productType = TWO_SIDED_PRODUCTS.includes(product.id) ? 'two-sided' : 'one-sided';
   const typeInfo = productType === 'two-sided' ? '(Front & Back Printing)' : '(Single Side Printing)';
   
-  modalEl.querySelector('h3').textContent = `Choose colors for ${escapeHtml(product.title)} ${typeInfo}`;
+  modalEl.querySelector('h3').textContent = `Choose a color for ${escapeHtml(product.title)} ${typeInfo}`;
   
   // Load appropriate base image
   loadBaseOverlay(product.id).then(() => renderShirtColor('#ffffff'));
@@ -328,7 +327,7 @@ function showVariantModal(product) {
 
   variantSelectionEl.innerHTML = `
     <div class="variant-section">
-      <div class="section-title">Available Colors</div>
+      <div class="section-title">Available Colors (select one)</div>
       <div class="variant-selection-grid" data-type="color">
         ${colorArray.map(c => {
           const v = product.variants.find(vv => (vv.color||'N/A') === c);
@@ -367,23 +366,22 @@ function handleColorHoverEnd() {
   }
 }
 
-// Update selected colors display
+// Update selected color display (single selection)
 function updateSelectedColors() {
-  selectedColorsEl.innerHTML = selectedColors.map((color, index) => `
+  selectedColorsEl.innerHTML = selectedColors.length > 0 ? `
     <div class="selected-color">
-      <div class="selected-color-dot" style="background:${color.hex}"></div>
-      <span>${escapeHtml(color.name)}</span>
-      <span class="remove-color" onclick="removeSelectedColor(${index})">&times;</span>
+      <div class="selected-color-dot" style="background:${selectedColors[0].hex}"></div>
+      <span>${escapeHtml(selectedColors[0].name)}</span>
     </div>
-  `).join('') || '<div style="color:#999;font-size:0.9rem">No colors selected yet</div>';
+  ` : '<div style="color:#999;font-size:0.9rem">No color selected yet</div>';
 
   confirmBtn.disabled = selectedColors.length === 0;
 }
 
-// Add color to selection
+// Add color to selection (max 1)
 function addSelectedColor(colorName, hex) {
   if (!selectedColors.some(c => c.name === colorName)) {
-    selectedColors.push({ name: colorName, hex });
+    selectedColors = [{ name: colorName, hex }];
     updateSelectedColors();
     renderShirtColor(hex);
   }
@@ -421,44 +419,23 @@ variantSelectionEl.addEventListener('click', e => {
   const hex = opt.dataset.hex;
   
   if (opt.classList.contains('selected')) {
+    // Deselect current
     opt.classList.remove('selected');
-    const index = selectedColors.findIndex(c => c.name === colorName);
-    if (index !== -1) {
-      removeSelectedColor(index);
-    }
+    selectedColors = [];
+    updateSelectedColors();
+    renderShirtColor('#ffffff');
   } else {
+    // Deselect any previously selected color first
+    document.querySelectorAll('#variant-selection .variant-option.selected')
+      .forEach(el => el.classList.remove('selected'));
     opt.classList.add('selected');
     addSelectedColor(colorName, hex);
   }
 });
-function updateSelectedVariantDisplay() {
-  const selectedColorEl = document.getElementById('selected-color');
-  const selectedSizeEl = document.getElementById('selected-size');
-  const variantDetailsEl = document.getElementById('variant-details');
-  const artNameDisplayEl = document.getElementById('art-name-display');
-  
-  if (state.selectedVariant) {
-    if (selectedColorEl) {
-      selectedColorEl.textContent = state.selectedVariant.color || 'Default';
-      selectedColorEl.style.color = state.selectedVariant.color_code || '#000';
-    }
-    if (selectedSizeEl) {
-      selectedSizeEl.textContent = state.selectedVariant.size || 'One Size';
-    }
-    if (variantDetailsEl) {
-      variantDetailsEl.textContent = `${state.selectedVariant.color || 'Default'} - ${state.selectedVariant.size || 'One Size'}`;
-    }
-  }
-  
-  if (artNameDisplayEl && state.selectedArt) {
-    artNameDisplayEl.textContent = state.selectedArt.name || 'Selected Art';
-  }
-}
-
 // Enhanced confirm button with proper art handling
 confirmBtn.addEventListener('click', () => {
     if (!selectedProduct || selectedColors.length === 0) {
-        alert('Please select at least one color variant.');
+        alert('Please select a color variant.');
         return;
     }
     
@@ -476,7 +453,7 @@ confirmBtn.addEventListener('click', () => {
     });
     const validVariants = variants.filter(v => v.id);
 
-    if (variants.length === 0) {
+    if (validVariants.length === 0) {
         alert('No valid variants found for selected colors.');
         return;
     }
@@ -501,7 +478,7 @@ confirmBtn.addEventListener('click', () => {
     
     // Store product and variant data
     sessionStorage.setItem('selectedProduct', JSON.stringify(selectedProduct));
-    sessionStorage.setItem('selectedVariants', JSON.stringify(variants));
+    sessionStorage.setItem('selectedVariants', JSON.stringify(validVariants));
     
     // Store the Firestore user ID in both locations for compatibility
     sessionStorage.setItem('designerFirestoreUserId', firestoreUserId);
@@ -510,7 +487,7 @@ confirmBtn.addEventListener('click', () => {
     console.log("Navigation data prepared:");
     console.log("- Selected Art:", selectedArt);
     console.log("- Selected Product:", selectedProduct);
-    console.log("- Selected Variants:", variants);
+    console.log("- Selected Variants:", validVariants);
     console.log("- User ID:", firestoreUserId);
     console.log("- Product Type:", productType);
     

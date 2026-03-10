@@ -3,77 +3,194 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pagamento Aprovado - Kauara Store</title>
+    <title>Pagamento Confirmado - Kauara</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background: #f8f9fa; }
-        .success-container { max-width: 600px; margin: 100px auto; }
+        .success-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .success-card {
+            max-width: 500px;
+            width: 90%;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        .checkmark {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: #4CAF50;
+            color: white;
+            font-size: 40px;
+            line-height: 80px;
+            text-align: center;
+            margin: 0 auto 20px;
+            animation: scaleIn 0.5s ease;
+        }
+        @keyframes scaleIn {
+            from { transform: scale(0); }
+            to { transform: scale(1); }
+        }
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
-    <div class="container success-container">
-        <div class="card shadow">
-            <div class="card-header bg-success text-white">
-                <h3 class="mb-0"><i class="fas fa-check-circle me-2"></i> Pagamento Aprovado!</h3>
+    <div class="success-container">
+        <div class="success-card card text-center">
+            <div class="checkmark">✓</div>
+            <h2 class="mb-3">Pagamento Confirmado!</h2>
+            <p class="text-muted mb-4">Seu pedido foi processado com sucesso.</p>
+            
+            <div id="orderInfo" class="alert alert-info mb-4 d-none">
+                <strong>Pedido:</strong> <span id="orderId"></span><br>
+                <strong>Status:</strong> <span id="paymentStatus"></span><br>
+                <strong>Valor:</strong> <span id="orderAmount"></span>
             </div>
-            <div class="card-body text-center py-5">
-                <i class="fas fa-check-circle fa-5x text-success mb-4"></i>
-                <h4 class="mb-3">Seu pagamento foi aprovado com sucesso!</h4>
-                <p class="text-muted mb-4">Obrigado por sua compra. Você receberá um e-mail com os detalhes do pedido.</p>
-                
-                <div id="paymentDetails" class="alert alert-info text-start">
-                    <p class="mb-1"><strong>ID do Pagamento:</strong> <span id="paymentId">Carregando...</span></p>
-                    <p class="mb-1"><strong>Status:</strong> <span id="paymentStatus">Carregando...</span></p>
-                    <p class="mb-0"><strong>Referência:</strong> <span id="externalRef">Carregando...</span></p>
-                </div>
-                
-                <a href="https://kauava.com" class="btn btn-primary btn-lg">
-                    <i class="fas fa-home me-2"></i> Voltar para a Loja
-                </a>
+            
+            <div id="loadingMessage" class="mb-3">
+                <span class="loading-spinner"></span>
+                <span>Atualizando informações do pedido...</span>
+            </div>
+            
+            <div id="errorMessage" class="alert alert-danger d-none mb-3"></div>
+            
+            <div class="d-grid gap-2">
+                <a href="/index.html" class="btn btn-primary">Voltar para Loja</a>
+                <a href="/carrinho.html" class="btn btn-outline-secondary">Ver Meus Pedidos</a>
             </div>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://kit.fontawesome.com/your-fontawesome-kit.js" crossorigin="anonymous"></script>
     <script>
-        // Extrai parâmetros da URL
-        const urlParams = new URLSearchParams(window.location.search);
-        
-        // Elementos DOM
-        const paymentIdEl = document.getElementById('paymentId');
-        const paymentStatusEl = document.getElementById('paymentStatus');
-        const externalRefEl = document.getElementById('externalRef');
-        
-        // Preenche dados do pagamento
-        const paymentId = urlParams.get('payment_id') || urlParams.get('preference_id');
-        const collectionStatus = urlParams.get('collection_status');
-        const externalRef = urlParams.get('external_reference');
-        
-        paymentIdEl.textContent = paymentId || 'Não disponível';
-        externalRefEl.textContent = externalRef || 'Não disponível';
-        
-        // Traduz status
-        const statusMap = {
-            'approved': 'Aprovado',
-            'pending': 'Pendente',
-            'in_process': 'Em processo',
-            'rejected': 'Rejeitado'
-        };
-        
-        paymentStatusEl.textContent = statusMap[collectionStatus] || collectionStatus || 'Não disponível';
-        
-        // Salva no localStorage para possível uso posterior
-        if (paymentId) {
-            localStorage.setItem('lastPaymentId', paymentId);
+        // success.js - Handles return from Mercado Pago
+        console.log('✅ Success page loaded - processing payment confirmation');
+
+        async function handlePaymentReturn() {
+            try {
+                // Get parameters from URL (Mercado Pago returns these)
+                const urlParams = new URLSearchParams(window.location.search);
+                const paymentId = urlParams.get('payment_id');
+                const status = urlParams.get('status');
+                const externalReference = urlParams.get('external_reference');
+                const preferenceId = urlParams.get('preference_id');
+                
+                console.log('📦 Return parameters:', {
+                    payment_id: paymentId,
+                    status: status,
+                    external_reference: externalReference,
+                    preference_id: preferenceId
+                });
+
+                // Show order info if we have it
+                if (externalReference) {
+                    document.getElementById('orderId').textContent = externalReference;
+                    document.getElementById('orderInfo').classList.remove('d-none');
+                    
+                    // Fetch complete order details
+                    try {
+                        const response = await fetch(
+                            `https://us-central1-kauara1.cloudfunctions.net/getOrderDetails?order_id=${externalReference}`
+                        );
+                        
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data.success && data.order) {
+                                const order = data.order;
+                                document.getElementById('paymentStatus').textContent = 
+                                    order.status === 'approved' ? 'Aprovado' : order.status;
+                                document.getElementById('orderAmount').textContent = 
+                                    new Intl.NumberFormat('pt-BR', { 
+                                        style: 'currency', 
+                                        currency: 'BRL' 
+                                    }).format(order.total_amount || 0);
+                            }
+                        }
+                    } catch (fetchError) {
+                        console.warn('Could not fetch order details:', fetchError);
+                    }
+                }
+
+                // Clear loading message
+                document.getElementById('loadingMessage').style.display = 'none';
+
+                // Clear cart from session storage
+                sessionStorage.removeItem('cartToPay');
+                sessionStorage.removeItem('selectedProduct');
+                
+                // Show success based on status
+                if (status === 'approved' || status === 'success') {
+                    console.log('🎉 Payment approved!');
+                } else if (status === 'pending') {
+                    document.querySelector('.checkmark').style.background = '#ffc107';
+                    document.querySelector('h2').textContent = 'Pagamento Pendente';
+                    document.querySelector('.text-muted').textContent = 
+                        'Seu pagamento está sendo processado. Você receberá uma confirmação por email.';
+                } else if (status === 'failure') {
+                    document.querySelector('.checkmark').style.background = '#dc3545';
+                    document.querySelector('.checkmark').innerHTML = '✗';
+                    document.querySelector('h2').textContent = 'Pagamento Não Concluído';
+                    document.querySelector('.text-muted').textContent = 
+                        'Houve um problema com seu pagamento. Tente novamente.';
+                }
+
+            } catch (error) {
+                console.error('❌ Error processing return:', error);
+                document.getElementById('loadingMessage').style.display = 'none';
+                document.getElementById('errorMessage').textContent = 
+                    'Erro ao processar retorno: ' + error.message;
+                document.getElementById('errorMessage').classList.remove('d-none');
+            }
         }
-        
-        console.log('✅ Payment success parameters:', {
-            payment_id: paymentId,
-            status: collectionStatus,
-            external_reference: externalRef,
-            allParams: Object.fromEntries(urlParams)
-        });
+
+        // Execute when page loads
+        handlePaymentReturn();
+
+        // Also check payment status via webhook confirmation after 2 seconds
+        setTimeout(async () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const externalReference = urlParams.get('external_reference');
+            
+            if (externalReference) {
+                try {
+                    const response = await fetch(
+                        `https://us-central1-kauara1.cloudfunctions.net/getPaymentStatus?external_reference=${externalReference}`
+                    );
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.success && data.payment) {
+                            console.log('📊 Updated payment status:', data.payment);
+                            
+                            // Update UI with latest status from webhook
+                            if (data.payment.status === 'approved') {
+                                // Ensure success UI
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Status check failed:', e);
+                }
+            }
+        }, 2000);
     </script>
 </body>
 </html>

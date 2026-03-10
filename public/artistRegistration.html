@@ -3,150 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kauara - Artist Page</title>
+    <title>Kauara – Become an Artist</title>
+    <!-- Bootstrap 5 & icons (for functionality only) -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase.js"></script>
-    <script src="https://sdk.mercadopago.com/js/v2"></script>
-    <style>
-    #mpConnectionStatus {
-        padding: 3px 8px;
-        border-radius: 4px;
-    }
-    #mpConnectionStatus[data-status="connected"] {
-        background-color: #d4edda;
-        color: #155724;
-    }
-    #mpConnectionStatus[data-status="disconnected"] {
-        background-color: #f8d7da;
-        color: #721c24;
-    }
-    .btn.disabled {
-        opacity: 0.65;
-        pointer-events: none;
-    }
-    #profilePicturePreview {
-        max-width: 150px;
-        max-height: 150px;
-        border-radius: 50%;
-        object-fit: cover;
-        border: 3px solid #f0f0f0;
-        margin-bottom: 15px;
-        display: none;
-    }
-    </style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
 </head>
 <body>
-    <header class="text-center py-4 bg-light">
-        <div class="container d-flex justify-content-between align-items-center">
-            <button onclick="window.location.href='profile.html'" class="btn btn-secondary">← Back to Profile</button>
-            <h1 class="h3 mb-0">Artist Page</h1>
-            <div class="invisible"></div>
+    <!-- Hero Section with CTA -->
+    <section>
+        <div>
+            <h1>✨ Lorem ipsum dolor</h1>
+            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+            <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
+            <button id="showArtistModalBtn">
+                <i class="bi bi-palette me-2"></i>Register as artist
+            </button>
         </div>
-    </header>
+    </section>
 
-    <main class="container my-5">
-        <div class="row justify-content-center">
-            <div class="col-lg-8">
-                <div class="card shadow">
-                    <div class="card-body p-4">
-                        <h2 class="card-title text-center mb-4">Your Artist Profile</h2>
-
-                        <!-- Profile Picture Section -->
-                        <div class="text-center mb-4">
-                            <img id="profilePicturePreview" alt="Profile Picture" class="img-fluid">
-                            <div class="mt-2">
-                                <button id="uploadPictureBtn" class="btn btn-outline-secondary btn-sm">
-                                    Change Picture
-                                </button>
-                                <input type="file" id="profilePicture" accept="image/*" style="display: none;">
-                            </div>
-                        </div>
-
-                        <!-- Artist Benefits -->
-                        <div class="alert alert-info">
-                            <h5>Seja um artista!</h5>
-                            <ul>
-                                <li>Venda a sua arte usando produtos de linha</li>
-                                <li>Receba pagamento diretamente via Mercado Pago</li>
-                                <li>Ganhe 90% do preço da sua arte (10% taxa da plataforma)</li>
-                                <li>Mostre sua arte para o mundo de uma forma segura e justa!</li>
-                            </ul>
-                        </div>
-
-                        <!-- Artist Information -->
-                        <div id="artistInfo" class="mb-4">
-                            <h3 class="h5 mb-3">Your Information</h3>
-                            <form id="artistInfoForm">
-                                <div class="mb-3">
-                                    <label for="fullName" class="form-label">Full Name</label>
-                                    <input type="text" class="form-control" id="fullName" readonly>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="email" class="form-label">Email</label>
-                                    <input type="email" class="form-control" id="email" readonly>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="cpfCnpj" class="form-label">CPF/CNPJ</label>
-                                    <input type="text" class="form-control" id="cpfCnpj" readonly>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="address" class="form-label">Full Address</label>
-                                    <textarea class="form-control" id="address" rows="3" readonly></textarea>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="phone" class="form-label">Phone</label>
-                                    <input type="tel" class="form-control" id="phone" readonly>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="bio" class="form-label">Bio / Artist Description</label>
-                                    <textarea class="form-control" id="bio" rows="4" readonly></textarea>
-                                    <div class="form-text">Tell people about yourself and your art</div>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="website" class="form-label">Website / Portfolio</label>
-                                    <input type="url" class="form-control" id="website" placeholder="https://" readonly>
-                                    <div class="form-text">Link to your portfolio or social media</div>
-                                </div>
-                                <div class="d-flex gap-2">
-                                    <button type="button" id="editInfoBtn" class="btn btn-outline-primary">Edit Information</button>
-                                    <button type="button" id="saveInfoBtn" class="btn btn-primary" style="display:none">Save Changes</button>
-                                </div>
-                            </form>
-                        </div>
-
-                        <!-- Mercado Pago Integration -->
-                        <div id="pixKeySection" class="mb-4">
-                            <h3 class="h5 mb-3">Chave PIX para Pagamentos</h3>
-                            <div id="pixStatus" class="mb-2">
-                                Status: <span class="text-danger">Não Conectado</span>
-                            </div>
-                            <button id="connectPixBtn" class="btn btn-success">
-                                <i class="bi bi-qr-code me-2"></i>
-                                Conectar Chave PIX
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </main>
-
-    <!-- Loading Indicator -->
-    <div id="loadingIndicator" style="display: none;">
-        <div style="text-align: center; padding: 20px;">
-            <div style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 2s linear infinite; margin: 0 auto;"></div>
-            <p>Processing...</p>
-        </div>
-        <style>
-            @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-        </style>
-    </div>
-
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-storage.js"></script>
+    
+    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Artist Registration JS -->
     <script src="/javascript/artist-registration.js"></script>
 </body>
 </html>
-[file content end]

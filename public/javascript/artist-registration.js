@@ -16,831 +16,377 @@ document.addEventListener("DOMContentLoaded", function() {
     
     const auth = firebase.auth();
     const db = firebase.firestore();
+    const storage = firebase.storage();
     
-    // Elements
-    const fullNameInput = document.getElementById("fullName");
-    const emailInput = document.getElementById("email");
-    const phoneInput = document.getElementById("phone");
-    const addressInput = document.getElementById("address");
-    const bioInput = document.getElementById("bio");
-    const websiteInput = document.getElementById("website");
-    const cpfCnpjInput = document.getElementById("cpfCnpj");
-    const editInfoBtn = document.getElementById("editInfoBtn");
-    const saveInfoBtn = document.getElementById("saveInfoBtn");
-    const profilePictureInput = document.getElementById("profilePicture");
-    const profilePicturePreview = document.getElementById("profilePicturePreview");
-    const uploadPictureBtn = document.getElementById("uploadPictureBtn");
-    
-    // New PIX elements
-    const pixKeySection = document.getElementById("pixKeySection");
-    const pixStatus = document.getElementById("pixStatus");
-    const connectPixBtn = document.getElementById("connectPixBtn");
-    
-    // Initialize page
-    function initializePage() {
-        // Check if user is logged in
-        auth.onAuthStateChanged(async (user) => {
-            if (!user) {
-                window.location.href = "/login.html";
-                return;
-            }
-            
-            try {
-                const userId = await getUserIdFromUid(user.uid);
-                await loadUserProfile(userId);
-                
-                // Setup event listeners
-                setupEventListeners(userId);
-                
-                // Check PIX key status
-                await checkPixKeyStatus(userId);
-                
-            } catch (error) {
-                console.error("Error initializing page:", error);
-                alert("Error loading profile. Please refresh the page.");
-            }
-        });
-    }
-    
-    // Load user profile data
-    async function loadUserProfile(userId) {
-        try {
-            const userDoc = await db.collection("users").doc(userId).get();
-            
-            if (!userDoc.exists) {
-                console.warn("User document not found, creating basic profile...");
-                await createBasicProfile(userId);
-                return;
-            }
-            
-            const userData = userDoc.data();
-            
-            // Populate form fields with null checks
-            if (fullNameInput) {
-                fullNameInput.value = userData.displayName || userData.user_Name || userData.user_FullName || userData.fullLegalName || '';
-            }
-            
-            if (emailInput) {
-                emailInput.value = userData.email || '';
-            }
-            
-            if (bioInput) {
-                bioInput.value = userData.bio || userData.user_Bio || '';
-            }
-            
-            if (websiteInput) {
-                websiteInput.value = userData.website || '';
-            }
-            
-            if (cpfCnpjInput) {
-                cpfCnpjInput.value = userData.cpfCnpj || '';
-            }
-            
-            // Load profile picture - handle Base64 string directly
-            if (profilePicturePreview && userData.profilePicture) {
-                // Check if it's a Base64 string (starts with data:image)
-                if (userData.profilePicture.startsWith('data:image')) {
-                    profilePicturePreview.src = userData.profilePicture;
-                } else if (userData.profilePicture.startsWith('/9j/')) {
-                    // It's a Base64 string without the data URI prefix
-                    profilePicturePreview.src = `data:image/jpeg;base64,${userData.profilePicture}`;
-                } else if (userData.profilePicture.startsWith('http')) {
-                    // It's a URL (from previous Firebase Storage implementation)
-                    profilePicturePreview.src = userData.profilePicture;
-                } else {
-                    // Assume it's a Base64 string
-                    profilePicturePreview.src = `data:image/jpeg;base64,${userData.profilePicture}`;
-                }
-                profilePicturePreview.style.display = 'block';
-            }
-            
-            // Load contact info
-            const contactId = `contact_${userId.split("_")[1]}`;
-            const contactDoc = await db.collection("contact").doc(contactId).get();
-            if (contactDoc.exists) {
-                const contactData = contactDoc.data();
-                if (phoneInput) {
-                    phoneInput.value = contactData.contactTelephone || '';
-                }
-                if (addressInput) {
-                    addressInput.value = contactData.address || userData.address || '';
-                }
-            }
-            
-            console.log("Profile loaded successfully");
-            
-        } catch (error) {
-            console.error("Error loading user profile:", error);
-            throw error;
-        }
-    }
-    
-    // Check PIX key status
-    async function checkPixKeyStatus(userId) {
-        try {
-            const userDoc = await db.collection("users").doc(userId).get();
-            
-            if (!userDoc.exists) {
-                updatePixUI(false);
-                return;
-            }
-            
-            const userData = userDoc.data();
-            const hasPixKey = userData.pix_key && userData.pix_keyType;
-            
-            updatePixUI(hasPixKey, userData.pix_keyType, userData.pix_key);
-            
-        } catch (error) {
-            console.error("Error checking PIX key status:", error);
-            updatePixUI(false);
-        }
-    }
-    
-    // Update PIX UI based on status
-    function updatePixUI(hasPixKey, keyType = null, keyValue = null) {
-        if (pixStatus && connectPixBtn) {
-            if (hasPixKey) {
-                // Format the key for display
-                let displayKey = keyValue;
-                if (keyType === 'phone') {
-                    // Format phone: (11) 99999-9999
-                    displayKey = formatPhoneNumber(keyValue);
-                } else if (keyType === 'email') {
-                    // Email already good
-                    displayKey = keyValue;
-                } else if (keyType === 'cpf') {
-                    // Format CPF: 123.456.789-10
-                    displayKey = formatCPF(keyValue);
-                } else if (keyType === 'cnpj') {
-                    // Format CNPJ: 12.345.678/0001-90
-                    displayKey = formatCNPJ(keyValue);
-                }
-                
-                pixStatus.innerHTML = `Status: <span class="text-success">Conectado</span><br>
-                                      Chave PIX: <strong>${displayKey}</strong><br>
-                                      Tipo: <strong>${getKeyTypeLabel(keyType)}</strong>`;
-                connectPixBtn.textContent = "Editar Chave PIX";
-                connectPixBtn.classList.remove("btn-success");
-                connectPixBtn.classList.add("btn-warning");
-            } else {
-                pixStatus.innerHTML = 'Status: <span class="text-danger">Não Conectado</span>';
-                connectPixBtn.textContent = "Conectar Chave PIX";
-                connectPixBtn.classList.remove("btn-warning");
-                connectPixBtn.classList.add("btn-success");
-            }
-        }
-    }
-    
-    // Format phone number (Brazilian format)
-    function formatPhoneNumber(phone) {
-        // Remove all non-digits
-        const cleaned = phone.replace(/\D/g, '');
-        
-        // Check if it's a valid Brazilian phone number
-        if (cleaned.length === 11) {
-            return `(${cleaned.substring(0,2)}) ${cleaned.substring(2,7)}-${cleaned.substring(7)}`;
-        } else if (cleaned.length === 10) {
-            return `(${cleaned.substring(0,2)}) ${cleaned.substring(2,6)}-${cleaned.substring(6)}`;
-        }
-        return phone;
-    }
-    
-    // Format CPF
-    function formatCPF(cpf) {
-        const cleaned = cpf.replace(/\D/g, '');
-        if (cleaned.length === 11) {
-            return `${cleaned.substring(0,3)}.${cleaned.substring(3,6)}.${cleaned.substring(6,9)}-${cleaned.substring(9)}`;
-        }
-        return cpf;
-    }
-    
-    // Format CNPJ
-    function formatCNPJ(cnpj) {
-        const cleaned = cnpj.replace(/\D/g, '');
-        if (cleaned.length === 14) {
-            return `${cleaned.substring(0,2)}.${cleaned.substring(2,5)}.${cleaned.substring(5,8)}/${cleaned.substring(8,12)}-${cleaned.substring(12)}`;
-        }
-        return cnpj;
-    }
-    
-    // Get Portuguese label for key type
-    function getKeyTypeLabel(keyType) {
-        const labels = {
-            'phone': 'Telefone',
-            'email': 'E-mail',
-            'cpf': 'CPF',
-            'cnpj': 'CNPJ'
-        };
-        return labels[keyType] || keyType;
-    }
-    
-    // Show PIX key modal/popup
-    function showPixKeyModal(userId, existingKeyType = null, existingKey = null) {
-        // Create modal overlay
-        const overlay = document.createElement('div');
-        overlay.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10000;
-        `;
-        
-        // Create modal content
-        const modal = document.createElement('div');
-        modal.style.cssText = `
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            width: 90%;
-            max-width: 500px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-        `;
-        
-        // Modal title
-        const title = document.createElement('h3');
-        title.textContent = existingKeyType ? 'Editar Chave PIX' : 'Conectar Chave PIX';
-        title.style.marginBottom = '20px';
-        
-        // Key type selection
-        const typeLabel = document.createElement('label');
-        typeLabel.textContent = 'Tipo de Chave:';
-        typeLabel.style.display = 'block';
-        typeLabel.style.marginBottom = '5px';
-        typeLabel.style.fontWeight = 'bold';
-        
-        const typeSelect = document.createElement('select');
-        typeSelect.id = 'pixKeyType';
-        typeSelect.style.cssText = `
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 20px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 16px;
-        `;
-        
-        // Add options
-        const options = [
-            { value: 'phone', text: 'Telefone' },
-            { value: 'email', text: 'E-mail' },
-            { value: 'cpf', text: 'CPF' },
-            { value: 'cnpj', text: 'CNPJ' }
-        ];
-        
-        options.forEach(option => {
-            const opt = document.createElement('option');
-            opt.value = option.value;
-            opt.textContent = option.text;
-            if (existingKeyType === option.value) {
-                opt.selected = true;
-            }
-            typeSelect.appendChild(opt);
-        });
-        
-        // Key input (initially hidden)
-        const keyLabel = document.createElement('label');
-        keyLabel.textContent = 'Chave PIX:';
-        keyLabel.style.display = 'block';
-        keyLabel.style.marginBottom = '5px';
-        keyLabel.style.fontWeight = 'bold';
-        keyLabel.style.display = 'none';
-        
-        const keyInput = document.createElement('input');
-        keyInput.id = 'pixKeyValue';
-        keyInput.type = 'text';
-        keyInput.style.cssText = `
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 20px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 16px;
-            display: none;
-        `;
-        
-        if (existingKey) {
-            keyInput.value = existingKey;
-        }
-        
-        // Placeholder and validation based on type
-        function updateKeyInput() {
-            const type = typeSelect.value;
-            keyLabel.style.display = 'block';
-            keyInput.style.display = 'block';
-            
-            switch(type) {
-                case 'phone':
-                    keyInput.placeholder = 'Digite o telefone (ex: 11999998888)';
-                    keyInput.type = 'tel';
-                    keyInput.pattern = '[0-9]{10,11}';
-                    keyInput.title = 'Digite 10 ou 11 dígitos (DDD + número)';
-                    break;
-                case 'email':
-                    keyInput.placeholder = 'Digite o e-mail';
-                    keyInput.type = 'email';
-                    break;
-                case 'cpf':
-                    keyInput.placeholder = 'Digite o CPF (apenas números)';
-                    keyInput.type = 'text';
-                    keyInput.pattern = '[0-9]{11}';
-                    keyInput.title = 'Digite 11 dígitos';
-                    break;
-                case 'cnpj':
-                    keyInput.placeholder = 'Digite o CNPJ (apenas números)';
-                    keyInput.type = 'text';
-                    keyInput.pattern = '[0-9]{14}';
-                    keyInput.title = 'Digite 14 dígitos';
-                    break;
-            }
-            
-            // Auto-fill based on existing data
-            if (type === 'email' && !existingKey) {
-                keyInput.value = emailInput?.value || '';
-            } else if ((type === 'cpf' || type === 'cnpj') && !existingKey) {
-                keyInput.value = cpfCnpjInput?.value || '';
-            } else if (type === 'phone' && !existingKey) {
-                keyInput.value = phoneInput?.value?.replace(/\D/g, '') || '';
-            }
-        }
-        
-        // Initial update
-        updateKeyInput();
-        typeSelect.addEventListener('change', updateKeyInput);
-        
-        // Button container
-        const buttonContainer = document.createElement('div');
-        buttonContainer.style.cssText = `
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-            margin-top: 20px;
-        `;
-        
-        // Cancel button
-        const cancelBtn = document.createElement('button');
-        cancelBtn.textContent = 'Cancelar';
-        cancelBtn.className = 'btn btn-secondary';
-        cancelBtn.addEventListener('click', () => {
-            document.body.removeChild(overlay);
-        });
-        
-        // Save button
-        const saveBtn = document.createElement('button');
-        saveBtn.textContent = existingKeyType ? 'Atualizar' : 'Salvar';
-        saveBtn.className = 'btn btn-primary';
-        saveBtn.addEventListener('click', async () => {
-            const keyType = typeSelect.value;
-            let keyValue = keyInput.value.trim();
-            
-            // Validation
-            if (!keyValue) {
-                alert('Por favor, digite a chave PIX');
-                return;
-            }
-            
-            // Clean input based on type
-            if (keyType === 'phone') {
-                keyValue = keyValue.replace(/\D/g, '');
-                if (keyValue.length < 10 || keyValue.length > 11) {
-                    alert('Telefone inválido. Digite 10 ou 11 dígitos (DDD + número)');
-                    return;
-                }
-            } else if (keyType === 'cpf') {
-                keyValue = keyValue.replace(/\D/g, '');
-                if (keyValue.length !== 11) {
-                    alert('CPF inválido. Digite 11 dígitos');
-                    return;
-                }
-            } else if (keyType === 'cnpj') {
-                keyValue = keyValue.replace(/\D/g, '');
-                if (keyValue.length !== 14) {
-                    alert('CNPJ inválido. Digite 14 dígitos');
-                    return;
-                }
-            } else if (keyType === 'email') {
-                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (!emailRegex.test(keyValue)) {
-                    alert('E-mail inválido');
-                    return;
-                }
-            }
-            
-            try {
-                // Prepare update data
-                const updateData = {
-                    pix_keyType: keyType,
-                    pix_key: keyValue,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                };
-                
-                // If this is a new PIX key (not editing existing), set artista to true
-                if (!existingKeyType) {
-                    updateData.artista = true;
-                }
-                
-                // Save to Firestore
-                await db.collection("users").doc(userId).update(updateData);
-                
-                showNotification('Chave PIX salva com sucesso!', 'success');
-                document.body.removeChild(overlay);
-                
-                // Refresh UI
-                await checkPixKeyStatus(userId);
-                
-            } catch (error) {
-                console.error('Error saving PIX key:', error);
-                showNotification('Erro ao salvar chave PIX. Tente novamente.', 'error');
-            }
-        });
-        
-        // Assemble modal
-        buttonContainer.appendChild(cancelBtn);
-        buttonContainer.appendChild(saveBtn);
-        
-        modal.appendChild(title);
-        modal.appendChild(typeLabel);
-        modal.appendChild(typeSelect);
-        modal.appendChild(keyLabel);
-        modal.appendChild(keyInput);
-        modal.appendChild(buttonContainer);
-        overlay.appendChild(modal);
-        
-        // Close modal when clicking outside
-        overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) {
-                document.body.removeChild(overlay);
-            }
-        });
-        
-        // Add to page
-        document.body.appendChild(overlay);
-        
-        // Focus on key input
-        setTimeout(() => keyInput.focus(), 100);
-    }
-    
-    // Create basic profile if doesn't exist
-    async function createBasicProfile(userId) {
-        const user = auth.currentUser;
-        
-        const basicProfile = {
-            displayName: user.displayName || '',
-            email: user.email || '',
-            profilePicture: '',
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-        
-        await db.collection("users").doc(userId).set(basicProfile, { merge: true });
-        console.log("Basic profile created");
-    }
-    
-    // Setup event listeners
-    function setupEventListeners(userId) {
-        // Edit/Save buttons
-        if (editInfoBtn) {
-            editInfoBtn.addEventListener("click", () => {
-                enableFormEditing();
-            });
-        }
-        
-        if (saveInfoBtn) {
-            saveInfoBtn.addEventListener("click", async () => {
-                await saveProfile(userId);
-            });
-        }
-        
-        // Profile picture upload
-        if (uploadPictureBtn && profilePictureInput) {
-            uploadPictureBtn.addEventListener("click", () => {
-                profilePictureInput.click();
-            });
-            
-            profilePictureInput.addEventListener("change", async (event) => {
-                await uploadProfilePicture(event.target.files[0], userId);
-            });
-        }
-        
-        // PIX key button
-        if (connectPixBtn) {
-            connectPixBtn.addEventListener("click", async () => {
-                const userDoc = await db.collection("users").doc(userId).get();
-                const userData = userDoc.data();
-                
-                showPixKeyModal(
-                    userId, 
-                    userData.pix_keyType, 
-                    userData.pix_key
-                );
-            });
-        }
-        
-        // Enter key to save
-        document.addEventListener("keydown", (event) => {
-            if (event.key === "Enter" && saveInfoBtn && saveInfoBtn.style.display !== "none") {
-                saveProfile(userId);
-            }
-        });
-    }
-    
-    // Enable form editing
-    function enableFormEditing() {
-        const fields = [fullNameInput, cpfCnpjInput, addressInput, phoneInput, bioInput, websiteInput].filter(field => field !== null);
-        
-        fields.forEach(field => {
-            field.removeAttribute("readonly");
-            field.classList.add("editable");
-        });
-        
-        if (editInfoBtn) {
-            editInfoBtn.style.display = "none";
-        }
-        
-        if (saveInfoBtn) {
-            saveInfoBtn.style.display = "inline-block";
-        }
-        
-        // Focus on first editable field
-        if (fullNameInput) {
-            fullNameInput.focus();
-        }
-    }
-    
-    // Disable form editing
-    function disableFormEditing() {
-        const fields = [fullNameInput, cpfCnpjInput, addressInput, phoneInput, bioInput, websiteInput].filter(field => field !== null);
-        
-        fields.forEach(field => {
-            field.setAttribute("readonly", true);
-            field.classList.remove("editable");
-        });
-        
-        if (editInfoBtn) {
-            editInfoBtn.style.display = "inline-block";
-        }
-        
-        if (saveInfoBtn) {
-            saveInfoBtn.style.display = "none";
-        }
-    }
-    
-    // Save profile data
-    async function saveProfile(userId) {
-        try {
-            // Basic validation
-            if (fullNameInput && !fullNameInput.value.trim()) {
-                alert("Please enter your name");
-                fullNameInput.focus();
-                return;
-            }
-            
-            if (cpfCnpjInput && !cpfCnpjInput.value.trim()) {
-                alert("Please enter your CPF/CNPJ");
-                cpfCnpjInput.focus();
-                return;
-            }
-            
-            if (addressInput && !addressInput.value.trim()) {
-                alert("Please enter your address");
-                addressInput.focus();
-                return;
-            }
-            
-            const userUpdateData = {
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            };
-            
-            // Update user document with all available fields
-            if (fullNameInput) {
-                userUpdateData.displayName = fullNameInput.value.trim();
-                userUpdateData.user_FullName = fullNameInput.value.trim();
-                userUpdateData.fullLegalName = fullNameInput.value.trim();
-            }
-            
-            if (cpfCnpjInput) {
-                userUpdateData.cpfCnpj = cpfCnpjInput.value.trim();
-            }
-            
-            if (addressInput) {
-                userUpdateData.address = addressInput.value.trim();
-            }
-            
-            if (bioInput) {
-                userUpdateData.bio = bioInput.value.trim();
-                userUpdateData.user_Bio = bioInput.value.trim();
-            }
-            
-            if (websiteInput) {
-                userUpdateData.website = websiteInput.value.trim();
-            }
-            
-            await db.collection("users").doc(userId).update(userUpdateData);
-            
-            // Update contact document
-            const contactId = `contact_${userId.split("_")[1]}`;
-            const contactUpdateData = {
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            };
-            
-            if (phoneInput) {
-                contactUpdateData.contactTelephone = phoneInput.value.trim();
-            }
-            
-            if (addressInput) {
-                contactUpdateData.address = addressInput.value.trim();
-            }
-            
-            await db.collection("contact").doc(contactId).set(contactUpdateData, { merge: true });
-            
-            // Disable editing
-            disableFormEditing();
-            
-            // Show success message
-            showNotification("Profile saved successfully!", "success");
-            
-            console.log("Profile saved successfully");
-            
-        } catch (error) {
-            console.error("Error saving profile:", error);
-            showNotification("Error saving profile. Please try again.", "error");
-        }
-    }
-    
-    // Upload new profile picture (converted to Base64)
-    async function uploadProfilePicture(file, userId) {
-        if (!file || !uploadPictureBtn || !profilePicturePreview) return;
-        
-        try {
-            // Check file size (max 2MB for Base64 - Base64 increases size by ~33%)
-            if (file.size > 2 * 1024 * 1024) {
-                alert("File size must be less than 2MB");
-                return;
-            }
-            
-            // Check file type
-            if (!file.type.match('image.*')) {
-                alert("Please select an image file");
-                return;
-            }
-            
-            // Show loading state
-            uploadPictureBtn.disabled = true;
-            uploadPictureBtn.textContent = "Uploading...";
-            
-            // Convert image to Base64
-            const reader = new FileReader();
-            
-            reader.onload = async function(event) {
-                try {
-                    const base64String = event.target.result;
-                    
-                    // Update user document with Base64 image string
-                    await db.collection("users").doc(userId).update({
-                        profilePicture: base64String,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    // Update preview
-                    profilePicturePreview.src = base64String;
-                    profilePicturePreview.style.display = 'block';
-                    
-                    // Reset button
-                    uploadPictureBtn.disabled = false;
-                    uploadPictureBtn.textContent = "Change Picture";
-                    
-                    // Show success message
-                    showNotification("Profile picture updated!", "success");
-                    
-                    console.log("Profile picture uploaded successfully as Base64");
-                    
-                } catch (error) {
-                    console.error("Error saving Base64 image:", error);
-                    
-                    // Reset button
-                    uploadPictureBtn.disabled = false;
-                    uploadPictureBtn.textContent = "Change Picture";
-                    
-                    showNotification("Error uploading picture. Please try again.", "error");
-                }
-            };
-            
-            reader.onerror = function(error) {
-                console.error("Error reading file:", error);
-                
-                // Reset button
-                uploadPictureBtn.disabled = false;
-                uploadPictureBtn.textContent = "Change Picture";
-                
-                showNotification("Error reading image file. Please try again.", "error");
-            };
-            
-            // Read the file as Base64
-            reader.readAsDataURL(file);
-            
-        } catch (error) {
-            console.error("Error uploading profile picture:", error);
-            
-            // Reset button
-            if (uploadPictureBtn) {
-                uploadPictureBtn.disabled = false;
-                uploadPictureBtn.textContent = "Change Picture";
-            }
-            
-            showNotification("Error uploading picture. Please try again.", "error");
-        }
-    }
+    // Global variables
+    let currentUser = null;
+    let currentUserId = null;
+    let userDataLoaded = false;
     
     // Helper function to show notifications
     function showNotification(message, type = "info") {
-        // Create notification element
-        const notification = document.createElement("div");
-        notification.className = `notification ${type}`;
-        notification.textContent = message;
-        
-        // Style the notification
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 15px 20px;
-            border-radius: 4px;
-            color: white;
-            font-weight: 500;
-            z-index: 1000;
-            animation: slideIn 0.3s ease;
+        const notif = document.createElement("div");
+        notif.className = `notification ${type}`;
+        notif.textContent = message;
+        notif.style.cssText = `
+            position: fixed; top: 20px; right: 20px; padding: 15px 20px; border-radius: 40px;
+            color: white; font-weight: 500; z-index: 9999; background: ${type === 'success' ? '#4CAF50' : (type === 'error' ? '#F44336' : '#2196F3')};
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2); animation: slideIn 0.2s;
         `;
-        
-        if (type === "success") {
-            notification.style.backgroundColor = "#4CAF50";
-        } else if (type === "error") {
-            notification.style.backgroundColor = "#F44336";
-        } else {
-            notification.style.backgroundColor = "#2196F3";
-        }
-        
-        // Add to page
-        document.body.appendChild(notification);
-        
-        // Remove after 3 seconds
-        setTimeout(() => {
-            notification.style.animation = "slideOut 0.3s ease";
-            setTimeout(() => {
-                if (notification.parentNode) {
-                    document.body.removeChild(notification);
-                }
-            }, 300);
-        }, 3000);
+        document.body.appendChild(notif);
+        setTimeout(() => { 
+            notif.style.opacity = '0'; 
+            setTimeout(() => notif.remove(), 300); 
+        }, 2800);
     }
     
-    // Helper function to get Firestore user ID from Firebase UID
-    async function getUserIdFromUid(uid) {
-        const querySnapshot = await db.collection("users")
-            .where("firebaseUID", "==", uid)
-            .limit(1)
-            .get();
-            
-        if (!querySnapshot.empty) {
-            return querySnapshot.docs[0].id;
+    // Get/resolve user ID
+    async function resolveUserId(uid, userObj) {
+        // Search by firebaseUID
+        const q = await db.collection("users").where("firebaseUID", "==", uid).limit(1).get();
+        if (!q.empty) {
+            return q.docs[0].id;
         }
-        
-        // If no user found with firebaseUID, try to find by email
-        const user = auth.currentUser;
-        if (user && user.email) {
-            const emailQuery = await db.collection("users")
-                .where("email", "==", user.email)
-                .limit(1)
-                .get();
-                
+        // Try by email
+        if (userObj && userObj.email) {
+            const emailQuery = await db.collection("users").where("email", "==", userObj.email).limit(1).get();
             if (!emailQuery.empty) {
-                const userDoc = emailQuery.docs[0];
-                // Update the document with firebaseUID
-                await userDoc.ref.update({
-                    firebaseUID: uid
-                });
-                return userDoc.id;
+                const doc = emailQuery.docs[0];
+                await doc.ref.update({ firebaseUID: uid });
+                return doc.id;
             }
         }
-        
-        // Create new user document
-        const newUserRef = db.collection("users").doc();
-        await newUserRef.set({
+        // Create new minimal document
+        const newRef = db.collection("users").doc();
+        await newRef.set({
             firebaseUID: uid,
-            email: user.email || '',
-            displayName: user.displayName || '',
+            email: userObj?.email || '',
+            displayName: userObj?.displayName || '',
+            artista: false,           // Default artista is false
+            aspirante: false,         // Default aspirante is false
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
-        
-        return newUserRef.id;
+        return newRef.id;
     }
     
-    // Add CSS for animations
+    // Authentication state observer
+    auth.onAuthStateChanged(async (user) => {
+        if (!user) {
+            console.warn("No user logged in");
+            // In production, redirect to login
+            // window.location.href = "/login.html";
+            return;
+        }
+        
+        try {
+            currentUser = user;
+            currentUserId = await resolveUserId(user.uid, user);
+            
+            // Load user profile
+            const userDoc = await db.collection("users").doc(currentUserId).get();
+            if (userDoc.exists) {
+                window._cachedUserData = userDoc.data() || {};
+            } else {
+                window._cachedUserData = {};
+            }
+            
+            // Load contact data
+            const contactId = `contact_${currentUserId.split('_')[1] || ''}`;
+            const contactDoc = await db.collection("contact").doc(contactId).get();
+            window._cachedContactData = contactDoc.exists ? contactDoc.data() : {};
+            
+            userDataLoaded = true;
+            console.log("User data loaded for", currentUserId);
+        } catch (e) {
+            console.error("Error loading user profile", e);
+            userDataLoaded = true;
+        }
+    });
+    
+    // Open artist registration modal
+    async function openArtistModal() {
+        // Wait for data if not loaded
+        if (!userDataLoaded) {
+            showNotification("Loading your profile...", "info");
+            for (let i = 0; i < 20; i++) {
+                await new Promise(r => setTimeout(r, 100));
+                if (userDataLoaded) break;
+            }
+        }
+        
+        const userDocData = window._cachedUserData || {};
+        const contactData = window._cachedContactData || {};
+        
+        // Extract fields
+        const fullName = userDocData.displayName || userDocData.user_Name || userDocData.user_FullName || userDocData.fullLegalName || '';
+        const email = userDocData.email || (currentUser ? currentUser.email : '');
+        const cpfCnpj = userDocData.cpfCnpj || '';
+        const address = userDocData.address || contactData.address || '';
+        const phone = contactData.contactTelephone || '';
+        const bio = userDocData.bio || userDocData.user_Bio || '';
+        const website = userDocData.website || '';
+        const pixKeyType = userDocData.pix_keyType || 'phone';
+        const pixKey = userDocData.pix_key || '';
+        const profilePicture = userDocData.profilePicture || '';
+        
+        // Build modal
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.id = 'dynamicArtistOverlay';
+        
+        overlay.innerHTML = `
+            <div class="artist-modal">
+                <button class="modal-close" id="closeModalBtn">&times;</button>
+                <h2 class="modal-title">🎨 complete artist registration</h2>
+                
+                <div class="form-section">
+                    <div class="d-flex align-items-center mb-3">
+                        <img id="modalProfilePreview" src="https://via.placeholder.com/70?text=pic" alt="preview">
+                        <div>
+                            <label for="modalProfileUpload" class="btn btn-outline-secondary btn-sm">📸 change profile picture</label>
+                            <input type="file" id="modalProfileUpload" accept="image/*" class="hidden-input">
+                            <p class="text-muted small mb-0 mt-1">will be saved as Base64</p>
+                        </div>
+                    </div>
+                    
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Full name</label>
+                            <input type="text" id="modalFullName" class="form-control" value="${escapeHtml(fullName)}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Email</label>
+                            <input type="email" id="modalEmail" class="form-control" value="${escapeHtml(email)}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">CPF/CNPJ</label>
+                            <input type="text" id="modalCpfCnpj" class="form-control" value="${escapeHtml(cpfCnpj)}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Phone</label>
+                            <input type="tel" id="modalPhone" class="form-control" value="${escapeHtml(phone)}">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Full address</label>
+                            <textarea id="modalAddress" class="form-control" rows="2">${escapeHtml(address)}</textarea>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Bio / artist statement</label>
+                            <textarea id="modalBio" class="form-control" rows="3">${escapeHtml(bio)}</textarea>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Website / portfolio</label>
+                            <input type="url" id="modalWebsite" class="form-control" value="${escapeHtml(website)}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">PIX Key Type</label>
+                            <select id="modalPixType" class="form-control">
+                                <option value="phone" ${pixKeyType === 'phone' ? 'selected' : ''}>Telefone</option>
+                                <option value="email" ${pixKeyType === 'email' ? 'selected' : ''}>E-mail</option>
+                                <option value="cpf" ${pixKeyType === 'cpf' ? 'selected' : ''}>CPF</option>
+                                <option value="cnpj" ${pixKeyType === 'cnpj' ? 'selected' : ''}>CNPJ</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">PIX Key</label>
+                            <input type="text" id="modalPixKey" class="form-control" value="${escapeHtml(pixKey)}">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Registration Art: 5 to 10 images -->
+                <div class="form-section">
+                    <h5 class="mb-3"><i class="bi bi-images me-2"></i>Portfolio samples (5‑10 images)</h5>
+                    <div class="image-upload-grid" id="artworkGrid"></div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="counter-hint" id="imageCounter">0 / 10 uploaded (min 5)</span>
+                        <button type="button" id="addArtworkBtn" class="btn btn-sm btn-outline-dark">
+                            <i class="bi bi-plus-lg"></i> add image
+                        </button>
+                    </div>
+                    <input type="file" id="artworkFileInput" accept="image/*" multiple class="hidden-input">
+                </div>
+                
+                <button id="finalRegisterBtn" class="btn-register-submit mt-4">save & become artist</button>
+                <p class="text-muted small text-center mt-3">by registering you agree to platform terms</p>
+            </div>
+        `;
+        
+        document.body.appendChild(overlay);
+        
+        // Set existing profile picture
+        const profilePreview = document.getElementById('modalProfilePreview');
+        const profileUpload = document.getElementById('modalProfileUpload');
+        let profileBase64 = profilePicture || null;
+        
+        if (profilePicture) {
+            if (profilePicture.startsWith('data:image')) {
+                profilePreview.src = profilePicture;
+            } else if (profilePicture.startsWith('http')) {
+                profilePreview.src = profilePicture;
+            } else {
+                profilePreview.src = `data:image/jpeg;base64,${profilePicture}`;
+            }
+        }
+        
+        profileUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    profileBase64 = ev.target.result;
+                    profilePreview.src = profileBase64;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        // Artwork grid logic
+        const grid = document.getElementById('artworkGrid');
+        const fileInput = document.getElementById('artworkFileInput');
+        const addBtn = document.getElementById('addArtworkBtn');
+        const counterSpan = document.getElementById('imageCounter');
+        const maxImages = 10, minImages = 5;
+        let artworkFiles = [];
+        
+        function renderArtworkGrid() {
+            grid.innerHTML = '';
+            artworkFiles.forEach((file, index) => {
+                const card = document.createElement('div');
+                card.className = 'upload-card';
+                const url = URL.createObjectURL(file);
+                card.innerHTML = `<img class="preview-img" src="${url}"><button class="remove-btn" data-index="${index}"><i class="bi bi-x"></i></button>`;
+                card.querySelector('.remove-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    artworkFiles.splice(index, 1);
+                    renderArtworkGrid();
+                });
+                grid.appendChild(card);
+            });
+            for (let i = artworkFiles.length; i < maxImages; i++) {
+                const empty = document.createElement('div');
+                empty.className = 'upload-card empty-placeholder';
+                empty.innerHTML = `<span class="placeholder-icon"><i class="bi bi-plus-circle"></i></span>`;
+                empty.addEventListener('click', () => fileInput.click());
+                grid.appendChild(empty);
+            }
+            counterSpan.innerText = `${artworkFiles.length} / ${maxImages} (min ${minImages})`;
+        }
+        
+        fileInput.addEventListener('change', (e) => {
+            const newFiles = Array.from(e.target.files);
+            const slots = maxImages - artworkFiles.length;
+            if (newFiles.length > slots) {
+                showNotification(`You can only add ${slots} more image(s)`, 'error');
+                artworkFiles.push(...newFiles.slice(0, slots));
+            } else {
+                artworkFiles.push(...newFiles);
+            }
+            renderArtworkGrid();
+            fileInput.value = '';
+        });
+        
+        addBtn.addEventListener('click', () => fileInput.click());
+        renderArtworkGrid();
+        
+        // Close modal
+        document.getElementById('closeModalBtn').addEventListener('click', () => overlay.remove());
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        
+        // Final submit
+        document.getElementById('finalRegisterBtn').addEventListener('click', async () => {
+            if (artworkFiles.length < minImages) {
+                showNotification(`Upload at least ${minImages} artwork images.`, 'error');
+                return;
+            }
+            
+            const fullName = document.getElementById('modalFullName').value.trim();
+            const email = document.getElementById('modalEmail').value.trim();
+            const cpfCnpj = document.getElementById('modalCpfCnpj').value.trim();
+            const phone = document.getElementById('modalPhone').value.trim();
+            const address = document.getElementById('modalAddress').value.trim();
+            const bio = document.getElementById('modalBio').value.trim();
+            const website = document.getElementById('modalWebsite').value.trim();
+            const pixType = document.getElementById('modalPixType').value;
+            const pixKey = document.getElementById('modalPixKey').value.trim();
+            
+            if (!fullName || !email || !cpfCnpj || !phone || !address) {
+                showNotification('Fill required fields: name, email, CPF, phone, address', 'error');
+                return;
+            }
+            
+            const btn = document.getElementById('finalRegisterBtn');
+            btn.disabled = true; 
+            btn.innerHTML = '<span class="loading-spinner"></span> saving...';
+            
+            try {
+                // Upload artwork to storage
+                const artworkUrls = [];
+                for (let i = 0; i < artworkFiles.length; i++) {
+                    const file = artworkFiles[i];
+                    const ext = file.name.split('.').pop();
+                    const path = `registration_art/${currentUserId}/${Date.now()}_${i}.${ext}`;
+                    const ref = storage.ref().child(path);
+                    await ref.put(file);
+                    const url = await ref.getDownloadURL();
+                    artworkUrls.push(url);
+                }
+                
+                // Prepare update - CHANGES MADE HERE
+                const userUpdate = {
+                    displayName: fullName,
+                    user_FullName: fullName,
+                    fullLegalName: fullName,
+                    email,
+                    cpfCnpj,
+                    address,
+                    bio,
+                    user_Bio: bio,
+                    website,
+                    pix_keyType: pixType,
+                    pix_key: pixKey,
+                    artista: false,           // Explicitly set artista to false
+                    aspirante: true,           // Set aspirante to true
+                    registrationArtwork: artworkUrls,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                if (profileBase64) userUpdate.profilePicture = profileBase64;
+                
+                await db.collection("users").doc(currentUserId).set(userUpdate, { merge: true });
+                
+                // Contact update
+                const contactId = `contact_${currentUserId.split('_')[1] || 'demo'}`;
+                await db.collection("contact").doc(contactId).set({
+                    contactTelephone: phone,
+                    address,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                
+                showNotification('Artist registration complete! 🎉', 'success');
+                overlay.remove();
+            } catch (err) {
+                console.error(err);
+                showNotification('Error: ' + err.message, 'error');
+                btn.disabled = false; 
+                btn.textContent = 'save & become artist';
+            }
+        });
+    }
+    
+    // Escape helper
+    function escapeHtml(unsafe) {
+        if (!unsafe) return '';
+        return unsafe.replace(/[&<>"]/g, function(m) {
+            if (m === '&') return '&amp;'; 
+            if (m === '<') return '&lt;'; 
+            if (m === '>') return '&gt;'; 
+            if (m === '"') return '&quot;';
+            return m;
+        });
+    }
+    
+    // Add CSS animations
     const style = document.createElement("style");
     style.textContent = `
         @keyframes slideIn {
@@ -851,29 +397,15 @@ document.addEventListener("DOMContentLoaded", function() {
             from { transform: translateX(0); opacity: 1; }
             to { transform: translateX(100%); opacity: 0; }
         }
-        input.editable, textarea.editable {
-            background-color: #f9f9f9;
-            border-color: #4CAF50;
-        }
-        #profilePicturePreview {
-            max-width: 150px;
-            max-height: 150px;
-            border-radius: 50%;
-            object-fit: cover;
-            border: 3px solid #f0f0f0;
-            margin-bottom: 15px;
-        }
-        .pix-connected {
-            color: #28a745;
-            font-weight: bold;
-        }
-        .pix-disconnected {
-            color: #dc3545;
-            font-weight: bold;
-        }
+        .hidden-input { display: none; }
     `;
     document.head.appendChild(style);
     
-    // Initialize the page
-    initializePage();
+    // Open modal on button click
+    const showModalBtn = document.getElementById('showArtistModalBtn');
+    if (showModalBtn) {
+        showModalBtn.addEventListener('click', () => {
+            openArtistModal();
+        });
+    }
 });

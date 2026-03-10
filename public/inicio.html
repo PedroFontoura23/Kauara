@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kauara.com</title>
+    <meta property="og:site_name" content="Kauava">
+    <meta name="description" content="Kauava - Connect with artists and discover community posts, arts, and products.">
+    <title>Kauava.com</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
@@ -159,7 +161,7 @@
                 <!-- Copyright -->
                 <div class="row mt-3">
                     <div class="col-12 text-center">
-                        <small class="text-muted">© 2025 Kauara. Todos os direitos reservados.</small>
+                        <small class="text-muted">© 2025 Kauava. Todos os direitos reservados.</small>
                     </div>
                 </div>
             </div>
@@ -171,10 +173,11 @@
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title" id="modalTitle">Login or Register</h5>
-                        <div id="errorMessage" style="color: red; display: none;"></div>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
+                        <div id="errorMessage" style="color: red; display: none; margin-bottom: 10px;"></div>
+                        <div id="resendContainer" style="margin-bottom: 10px;"></div>
                         <!-- Form for Login -->
                         <div id="loginForm">
                             <h5>Login</h5>
@@ -263,11 +266,13 @@
     </script>
 
     <!-- Scripts -->
-    <script src="/javascript/app.js"></script>
-    <script src="/javascript/rating.js"></script>
+    <script src="/javascript/shared-likes.js"></script>
+    <script src="/javascript/shared-comments.js"></script>
     <script src="/javascript/shared-posts.js"></script>
     <script src="/javascript/shared-art.js"></script>
-    <script src="/javascript/shared-products.js"></script> <!-- Add this line -->
+    <script src="/javascript/shared-products.js"></script>
+    <script src="/javascript/app.js"></script>
+    <script src="/javascript/rating.js"></script>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>

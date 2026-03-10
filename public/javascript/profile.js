@@ -42,7 +42,6 @@ document.addEventListener("DOMContentLoaded", function () {
       if (postModalEl && typeof bootstrap !== 'undefined') postModal = new bootstrap.Modal(postModalEl);
       if (postCropModalEl && typeof bootstrap !== 'undefined') postCropModal = new bootstrap.Modal(postCropModalEl);
       
-      console.log("Modals initialized successfully");
     } catch (modalError) {
       console.error("Error initializing modals:", modalError);
     }
@@ -102,35 +101,12 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  async function getPrintfulKey() {
-      const db = firebase.firestore();
-      try {
-          const doc = await db.collection("config").doc("api_keys").get();
-          if (doc.exists) {
-              const encryptedKey = doc.data().printful_api_encrypted;
-              const ENCRYPTION_SECRET = "your-secret-key";
-              if (typeof CryptoJS !== 'undefined') {
-                const bytes = CryptoJS.AES.decrypt(encryptedKey, ENCRYPTION_SECRET);
-                const decryptedKey = bytes.toString(CryptoJS.enc.Utf8);
-                return decryptedKey;
-              } else {
-                console.error("CryptoJS is not loaded");
-                return null;
-              }
-          } else {
-              console.error("Nenhuma chave encontrada no Firestore.");
-              return null;
-          }
-      } catch (error) {
-          console.error("Erro ao buscar chave:", error);
-          return null;
-      }
-  }
+  // NOTE: API keys must never be fetched or decrypted client-side.
+  // Use a Cloud Function to proxy any Printful API calls instead.
 
   // Add this event listener for the "Create Post" button
   if (addPostButton) {
     addPostButton.addEventListener("click", () => {
-      console.log("Create Post button clicked!");
       if (postModal) postModal.show();
     });
   }
@@ -170,20 +146,12 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   // displayArt function (only user's art)
-  function displayArt() {
-    const user = auth.currentUser;
-    if (!user) {
-      console.error("No user is logged in.");
-      return;
-    }
-    getUserIdFromUid(user.uid).then((firestoreUserId) => {
-      const artManager = initializeArtManager('artContainer');
-      if (artManager) {
+  function displayArt(firestoreUserId) {
+    if (!firestoreUserId) return;
+    const artManager = initializeArtManager('artContainer');
+    if (artManager) {
         artManager.displayArts(firestoreUserId, firestoreUserId);
-      }
-    }).catch((error) => {
-      console.error("Error fetching user ID:", error);
-    });
+    }
   }
 
   // Handle image upload and cropping
@@ -271,7 +239,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // Function to save the post to Firestore
   async function savePostToFirestore(text, base64Image, userId) {
-    console.log("UserID:", userId);
     if (!userId) {
       alert("User ID is missing.");
       return;
@@ -311,29 +278,20 @@ document.addEventListener("DOMContentLoaded", function () {
       }
 
       alert("Post successfully created!");
-      displayPosts();
+      displayPosts(userId);
     } catch (error) {
       console.error("Error adding post:", error);
       alert("Failed to create post.");
     }
   }
 
-  // Helper function to get user ID format (e.g., "user_1", "user_2")
+  // Helper function to get Firestore user_<id> from Firebase UID
   async function getUserIdFromUid(uid) {
-    console.log("Fetching Firestore user ID for UID:", uid);
-    const querySnapshot = await db.collection("users").where("firebaseUID", "==", uid).get();
-    console.log(`Query result: ${querySnapshot.size} documents found`);
-    
+    const querySnapshot = await db.collection("users").where("firebaseUID", "==", uid).limit(1).get();
     if (!querySnapshot.empty) {
-      const doc = querySnapshot.docs[0];
-      console.log("User document found:", {
-        id: doc.id,
-        data: doc.data()
-      });
-      return doc.id;
+      return querySnapshot.docs[0].id;
     } else {
-      console.error("No user document found for UID:", uid);
-      throw new Error(`No user found for UID: ${uid}`);
+      throw new Error("User not found.");
     }
   }
 
@@ -341,8 +299,6 @@ document.addEventListener("DOMContentLoaded", function () {
   auth.onAuthStateChanged((user) => {
       if (user) {
           getUserIdFromUid(user.uid).then(async (firestoreUserId) => {
-              console.log(`Logging in as: ${firestoreUserId}`);
-
               // Fetch user document first
               const userDocRef = db.collection("users").doc(firestoreUserId);
               const userDoc = await userDocRef.get();
@@ -374,7 +330,6 @@ document.addEventListener("DOMContentLoaded", function () {
                   }
 
                   // Explicitly fetch ratings
-                  console.log("Calling fetchUserRatings for ID:", firestoreUserId);
                   fetchUserRatings(firestoreUserId);
                   
                   // ✅ Start loading posts, art & products without waiting for ratings
@@ -401,9 +356,6 @@ document.addEventListener("DOMContentLoaded", function () {
               const averageRating = userData.averageRating || 0;
               const totalRatings = userData.totalRatings || 0;
 
-              console.log("Average Rating from Firestore:", averageRating);
-              console.log("Total Ratings from Firestore:", totalRatings);
-
               // Update the DOM with the fetched values
               const averageRatingEl = document.getElementById("averageRating");
               const numberOfRatingsEl = document.getElementById("numberOfRatings");
@@ -411,7 +363,6 @@ document.addEventListener("DOMContentLoaded", function () {
               if (averageRatingEl) averageRatingEl.textContent = `${averageRating} ⭐`;
               if (numberOfRatingsEl) numberOfRatingsEl.textContent = `(${totalRatings} ${totalRatings === 1 ? 'rating' : 'ratings'})`;
           } else {
-              console.error("User document not found for ID:", userId);
               const averageRatingEl = document.getElementById("averageRating");
               const numberOfRatingsEl = document.getElementById("numberOfRatings");
               
@@ -428,24 +379,12 @@ document.addEventListener("DOMContentLoaded", function () {
       }
   }
 
-  // Update the displayProducts function to use the firestoreUserId
-  function displayProducts() {
-    const user = auth.currentUser;
-
-    if (!user) {
-      console.error("No user is logged in.");
-      return;
-    }
-
-    getUserIdFromUid(user.uid).then((firestoreUserId) => {
-      const productManager = initializeProductManager('productsContainer');
-      if (productManager) {
-        // Always filter by the current user's ID on the profile page
+  function displayProducts(firestoreUserId) {
+    if (!firestoreUserId) return;
+    const productManager = initializeProductManager('productsContainer');
+    if (productManager) {
         productManager.displayProducts(firestoreUserId, firestoreUserId);
-      }
-    }).catch((error) => {
-      console.error("Error fetching user ID:", error);
-    });
+    }
   }
 
   // Image compression function
@@ -679,7 +618,6 @@ document.addEventListener("DOMContentLoaded", function () {
             
             // Sign out from Firebase
             await auth.signOut();
-            console.log("User signed out from Firebase");
             window.location.href = "inicio.html";
         } catch (error) {
             console.error("Error during logout:", error);
@@ -709,186 +647,72 @@ document.addEventListener("DOMContentLoaded", function () {
   // Function to delete the user account and all their posts, comments
   async function deleteUserAccountAndPosts(user) {
     try {
-      console.log("=== Starting Account Deletion Process ===");
-      console.log("Current User:", {
-        uid: user.uid,
-        email: user.email,
-        providerData: user.providerData,
-        lastSignInTime: user.metadata.lastSignInTime
-      });
-
-      // Step 0: Reauthenticate the user
-      console.log("Step 0: Initiating reauthentication...");
       await reauthenticateUser(user);
-      console.log("Reauthentication successful!");
 
-      // Step 1: Get Firestore user ID
-      console.log("Step 1: Fetching Firestore user ID for UID:", user.uid);
       const firestoreUserId = await getUserIdFromUid(user.uid);
-      console.log("Firestore User ID retrieved:", firestoreUserId);
-      console.log("User object after reauthentication:", {
-        uid: user.uid,
-        email: user.email
-      });
 
-      // Helper function to safely delete collection documents with detailed logging
+      // Helper: batch-delete all docs matching a field value
       async function safeDeleteCollection(collectionName, fieldName, fieldValue) {
-        console.log(`Attempting to delete from collection '${collectionName}' where ${fieldName} = ${fieldValue}`);
         const snapshot = await db.collection(collectionName).where(fieldName, "==", fieldValue).get();
-        console.log(`Query result for '${collectionName}': ${snapshot.size} documents found`);
-        
-        if (snapshot.empty) {
-          console.log(`No documents to delete in '${collectionName}'`);
-          return 0;
-        }
-
-        console.log(`Documents to delete from '${collectionName}':`, snapshot.docs.map(doc => ({
-          id: doc.id,
-          data: doc.data()
-        })));
-
+        if (snapshot.empty) return;
         const batch = db.batch();
-        snapshot.docs.forEach(doc => {
-          console.log(`Adding delete operation for document ${doc.id} in '${collectionName}'`);
-          batch.delete(doc.ref);
-        });
-
-        console.log(`Committing batch delete for ${snapshot.size} documents in '${collectionName}'`);
+        snapshot.docs.forEach(doc => batch.delete(doc.ref));
         await batch.commit();
-        console.log(`Successfully deleted ${snapshot.size} documents from '${collectionName}'`);
-        return snapshot.size;
       }
 
       // Step 2: Delete user's comments and likes
-      console.log("Step 2: Deleting user's comments and likes...");
-      const commentLikesDeleted = await safeDeleteCollection("comment_likes", "foreignUserId", firestoreUserId);
-      const commentsDeleted = await safeDeleteCollection("comments", "foreignUserId", firestoreUserId);
-      const likesDeleted = await safeDeleteCollection("likes", "foreignUserId", firestoreUserId);
-      console.log("Summary of Step 2:", {
-        commentLikesDeleted,
-        commentsDeleted,
-        likesDeleted
-      });
+      await safeDeleteCollection("comment_likes", "foreignUserId", firestoreUserId);
+      await safeDeleteCollection("comments", "foreignUserId", firestoreUserId);
+      await safeDeleteCollection("likes", "foreignUserId", firestoreUserId);
 
       // Step 3: Delete products and ratings
-      console.log("Step 3: Deleting products and ratings...");
-      const productRatingsDeleted = await safeDeleteCollection("product_ratings", "RaterForeignUserId", firestoreUserId);
-      const ratingsDeleted = await safeDeleteCollection("ratings", "raterUid", user.uid);
-      const productsDeleted = await safeDeleteCollection("products", "userId", firestoreUserId);
-      console.log("Summary of Step 3:", {
-        productRatingsDeleted,
-        ratingsDeleted,
-        productsDeleted
-      });
+      await safeDeleteCollection("product_ratings", "RaterForeignUserId", firestoreUserId);
+      await safeDeleteCollection("ratings", "raterUid", user.uid);
+      await safeDeleteCollection("products", "userId", firestoreUserId);
 
       // Step 4: Handle posts and their dependent objects
-      console.log("Step 4: Fetching and deleting user's posts...");
       const postsSnapshot = await db.collection("posts").where("foreignUserId", "==", firestoreUserId).get();
-      console.log(`Found ${postsSnapshot.size} posts to delete`);
-      
       if (!postsSnapshot.empty) {
         for (const postDoc of postsSnapshot.docs) {
           const postId = postDoc.id;
-          console.log(`Processing post ${postId}:`, postDoc.data());
-
-          console.log(`Deleting comments for post ${postId}`);
-          const postCommentsDeleted = await safeDeleteCollection("comments", "foreignPostId", postId);
-          console.log(`Deleted ${postCommentsDeleted} comments for post ${postId}`);
-
-          console.log(`Deleting likes for post ${postId}`);
-          const postLikesDeleted = await safeDeleteCollection("likes", "postId", postId);
-          console.log(`Deleted ${postLikesDeleted} likes for post ${postId}`);
-
-          console.log(`Deleting post ${postId} itself`);
+          await safeDeleteCollection("comments", "foreignPostId", postId);
+          await safeDeleteCollection("likes", "postId", postId);
           await postDoc.ref.delete();
-          console.log(`Post ${postId} deleted successfully`);
         }
-      } else {
-        console.log("No posts found to delete");
       }
 
-      // Step 5: Delete contact
-      console.log("Step 5: Deleting contact document...");
+      // Step 5: Delete contact document
       const contactId = `contact_${firestoreUserId.split('_')[1]}`;
-      console.log("Generated contact ID:", contactId);
       const contactDoc = await db.collection("contact").doc(contactId).get();
       if (contactDoc.exists) {
-        console.log("Contact document found:", contactDoc.data());
         await db.collection("contact").doc(contactId).delete();
-        console.log(`Contact document ${contactId} deleted successfully`);
-      } else {
-        console.log(`Contact document ${contactId} not found`);
       }
 
       // Step 6: Delete user document
-      console.log("Step 6: Deleting user document...");
-      const userDoc = await db.collection("users").doc(firestoreUserId).get();
-      if (userDoc.exists) {
-        console.log("User document found:", userDoc.data());
-        await db.collection("users").doc(firestoreUserId).delete();
-        console.log(`User document ${firestoreUserId} deleted successfully`);
-      } else {
-        console.log(`User document ${firestoreUserId} not found`);
-      }
+      await db.collection("users").doc(firestoreUserId).delete();
 
-      // Step 7: Delete authentication
-      console.log("Step 7: Deleting Firebase Authentication record...");
-      console.log("User object before deletion:", {
-        uid: user.uid,
-        email: user.email
-      });
+      // Step 7: Delete Firebase Auth record and sign out
       await user.delete();
-      console.log("Firebase Authentication record deleted successfully");
-
-      // Step 8: Log out and redirect
-      console.log("Step 8: Signing out and redirecting...");
       await auth.signOut();
-      console.log("User signed out successfully");
       alert("Your account and all associated data have been deleted.");
-      console.log("Redirecting to inicio.html");
       window.location.href = "inicio.html";
 
-      console.log("=== Account Deletion Process Completed Successfully ===");
     } catch (error) {
-      console.error("=== Error During Account Deletion ===");
-      console.error("Error details:", {
-        message: error.message,
-        code: error.code,
-        stack: error.stack
-      });
-      console.error("User state at error:", {
-        uid: user?.uid,
-        email: user?.email
-      });
-      alert("Failed to delete account and associated data: " + error.message);
+      console.error("Account deletion error:", error.code || error.message);
+      alert("Failed to delete account. Please try again.");
       throw error;
     }
   }
 
-  // Reauthentication helper with logging
+  // Reauthentication helper
   async function reauthenticateUser(user) {
-    console.log("Reauthentication started for user:", {
-      uid: user.uid,
-      email: user.email
-    });
     const providerId = user.providerData[0]?.providerId;
-    console.log("Detected provider ID:", providerId);
-
     if (providerId === "password") {
-      const email = user.email;
-      console.log("Prompting user to re-enter password for email:", email);
       const password = prompt("Please re-enter your password to confirm account deletion:");
-      if (!password) {
-        console.log("User canceled reauthentication by not providing a password");
-        throw new Error("Reauthentication canceled by user.");
-      }
-      console.log("Password provided; creating credential...");
-      const credential = firebase.auth.EmailAuthProvider.credential(email, password);
-      console.log("Reauthenticating with credential...");
+      if (!password) throw new Error("Reauthentication canceled.");
+      const credential = firebase.auth.EmailAuthProvider.credential(user.email, password);
       await user.reauthenticateWithCredential(credential);
-      console.log("Reauthentication completed successfully");
     } else {
-      console.log("Unsupported provider detected:", providerId);
       throw new Error("Reauthentication for this provider is not implemented.");
     }
   }
@@ -906,23 +730,12 @@ document.addEventListener("DOMContentLoaded", function () {
       return date.toLocaleString('en-US', options);
   }
 
-  function displayPosts() {
-      const user = auth.currentUser;
-
-      if (!user) {
-          console.error("No user is logged in.");
-          return;
+  function displayPosts(firestoreUserId) {
+      if (!firestoreUserId) return;
+      const postManager = initializePostManager('allPostsContainer');
+      if (postManager) {
+          postManager.displayPosts(firestoreUserId, firestoreUserId);
       }
-
-      getUserIdFromUid(user.uid).then((firestoreUserId) => {
-          const postManager = initializePostManager('allPostsContainer');
-          if (postManager) {
-            // Always filter by the current user's ID on the profile page
-            postManager.displayPosts(firestoreUserId, firestoreUserId);
-          }
-      }).catch((error) => {
-          console.error("Error fetching user ID:", error);
-      });
   }
 
   // Show the "Create Product" button if the user is an artist
@@ -936,7 +749,6 @@ document.addEventListener("DOMContentLoaded", function () {
             if (userData?.artista) {
                 if (artistaBadge) artistaBadge.style.display = "inline";
                 if (createProductButton) createProductButton.style.display = "block";
-                console.log("✅ User is an artist!");
             }
           } catch (error) {
             console.error("Error in auth state change handler:", error);
@@ -944,64 +756,8 @@ document.addEventListener("DOMContentLoaded", function () {
       }
   });
 
-  // Wait for external scripts to load before initializing managers
-  function waitForDependencies() {
-    return new Promise((resolve) => {
-      const checkDependencies = () => {
-        // Check if all required dependencies are loaded
-        const dependenciesLoaded = 
-          typeof firebase !== 'undefined' &&
-          (typeof PostManager !== 'undefined' || document.querySelector('script[src*="shared-posts"]')) &&
-          (typeof ProductManager !== 'undefined' || document.querySelector('script[src*="products"]')) &&
-          (typeof ArtManager !== 'undefined' || document.querySelector('script[src*="art"]'));
-
-        if (dependenciesLoaded) {
-          resolve();
-        } else {
-          setTimeout(checkDependencies, 100);
-        }
-      };
-      checkDependencies();
-    });
-  }
-
-  // Initialize after dependencies are loaded
-  waitForDependencies().then(() => {
-    console.log("Dependencies loaded, initializing managers...");
-    
-    // Initialize ArtManager if available
-    const artContainer = document.getElementById('artContainer');
-    if (artContainer && typeof ArtManager !== 'undefined') {
-      const artManager = initializeArtManager('artContainer');
-      if (artManager) {
-        artManager.displayArts();
-      }
-    } else {
-      console.warn("ArtManager not available or art container not found");
-    }
-
-    // Initialize ProductManager if available
-    const productsContainer = document.getElementById('productsContainer');
-    if (productsContainer && typeof ProductManager !== 'undefined') {
-      const productManager = initializeProductManager('productsContainer');
-      if (productManager) {
-        productManager.displayProducts();
-      }
-    } else {
-      console.warn("ProductManager not available or products container not found");
-    }
-
-    // Initialize PostManager if available
-    const postsContainer = document.getElementById('allPostsContainer');
-    if (postsContainer && typeof PostManager !== 'undefined') {
-      const postManager = initializePostManager('allPostsContainer');
-      if (postManager) {
-        postManager.displayPosts();
-      }
-    } else {
-      console.warn("PostManager not available or posts container not found");
-    }
-  });
+  // Content is loaded via onAuthStateChanged below, which always passes
+  // the verified firestoreUserId so only that user's content is shown.
 
   // Handle page visibility changes to refresh data when returning to the page
   document.addEventListener('visibilitychange', function() {
