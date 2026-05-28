@@ -189,7 +189,9 @@ class RatingSystem {
                 html += `
                     <button type="button" 
                             class="btn ${userRating === i ? 'btn-warning' : 'btn-outline-warning'}"
-                            onclick="ratingSystem.submitRating(${i})">
+                            data-action="submitRating"
+                            data-product-id="${this.productId}"
+                            data-value="${i}">
                         ${i} ⭐
                     </button>
                 `;
@@ -359,9 +361,9 @@ class ProductRatingSystem {
                 html += `
                     <button type="button" 
                             class="btn ${this.userRating === i ? 'btn-warning' : 'btn-outline-warning'}"
-                            onmouseover="this.style.opacity='0.8'"
-                            onmouseout="this.style.opacity='1'"
-                            onclick="productRatingSystems['${this.productId}'].submitRating(${i})">
+                            data-action="submitRating"
+                            data-product-id="${this.productId}"
+                            data-value="${i}">
                         ${i} ⭐
                     </button>
                 `;

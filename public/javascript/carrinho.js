@@ -1,316 +1,841 @@
 // carrinho.js
-document.addEventListener('DOMContentLoaded', function() {
+// Firestore é a fonte de verdade. localStorage é apenas cache offline.
+// Fluxo: login → carrega do Firestore → onSnapshot mantém tudo sincronizado em tempo real.
+
+// =============================================
+// INICIALIZAÇÃO
+// =============================================
+
+document.addEventListener('DOMContentLoaded', function () {
+    // Renderiza imediatamente com o cache local (evita tela em branco)
     renderCart();
-    
+
     // Botão de limpar carrinho
     const clearCartBtn = document.getElementById('clearCartButton');
-    if (clearCartBtn) {
-        clearCartBtn.addEventListener('click', clearCart);
-    }
-    
+    if (clearCartBtn) clearCartBtn.addEventListener('click', clearCart);
+
+    // Botão principal de pagamento (sidebar)
+    const checkoutBtn = document.getElementById('checkoutButton');
+    if (checkoutBtn) checkoutBtn.addEventListener('click', checkoutSelected);
+
     // Botão de limpar histórico de compras
     const clearHistoryBtn = document.getElementById('clearHistoryButton');
-    if (clearHistoryBtn) {
-        clearHistoryBtn.addEventListener('click', clearPurchaseHistory);
+    if (clearHistoryBtn) clearHistoryBtn.addEventListener('click', clearPurchaseHistory);
+
+    // Botão de sincronização manual
+    const syncBtn = document.getElementById('syncOrdersBtn');
+    if (syncBtn) {
+        syncBtn.addEventListener('click', async () => {
+            syncBtn.disabled = true;
+            syncBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Sincronizando...';
+            try {
+                await checkRecentlyApprovedOrders();
+                showToast('Pedidos sincronizados com sucesso!', 'success');
+            } catch (error) {
+                showToast('Erro ao sincronizar: ' + error.message, 'error');
+            } finally {
+                syncBtn.disabled = false;
+                syncBtn.innerHTML = '<i class="fas fa-sync-alt me-1"></i>Sincronizar Pedidos';
+            }
+        });
     }
-    
-    // Verificar se há produtos comprados na sessão (quando voltar do pagamento)
+
+    // Verifica se voltou de um pagamento
     checkForNewPurchases();
+
+    // Auto-atualiza status de pedidos na carga
+    autoRefreshAllOrderStatuses();
+
+    // CORREÇÃO: Verificar se veio de uma página de sucesso
+    const urlParams = new URLSearchParams(window.location.search);
+    const forceRefresh = urlParams.get('refresh') === 'true';
+    const pendingOrder = sessionStorage.getItem('pendingOrderCheck');
+    
+    if (forceRefresh || pendingOrder) {
+        console.log('🔄 Forçando verificação de pedidos pendentes...');
+        sessionStorage.removeItem('pendingOrderCheck');
+        
+        // Aguardar um pouco e forçar verificação
+        setTimeout(async () => {
+            await checkRecentlyApprovedOrders();
+            // Remover parâmetro da URL sem recarregar
+            const newUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, newUrl);
+        }, 1000);
+    }
+
+    // Escuta mudanças de autenticação — inicia ou cancela o sync do Firestore.
+    const auth = _auth();
+    const db   = _db();
+    if (auth && db) {
+        auth.onAuthStateChanged(async user => {
+            if (user) {
+                try {
+                    let firestoreUserId = sessionStorage.getItem('currentFirestoreUserId');
+                    if (!firestoreUserId) {
+                        const q = await db.collection('users').where('firebaseUID', '==', user.uid).get();
+                        if (!q.empty) {
+                            firestoreUserId = q.docs[0].id;
+                            sessionStorage.setItem('currentFirestoreUserId', firestoreUserId);
+                        }
+                    }
+                    if (firestoreUserId) {
+                        initFirestoreSync(firestoreUserId);
+                    } else {
+                        console.warn('Nao foi possivel resolver firestoreUserId para uid:', user.uid);
+                    }
+                } catch (e) {
+                    console.error('Erro ao resolver firestoreUserId no onAuthStateChanged:', e);
+                }
+            } else {
+                if (_cartUnsub)      { _cartUnsub();      _cartUnsub      = null; }
+                if (_purchasedUnsub) { _purchasedUnsub(); _purchasedUnsub = null; }
+                sessionStorage.removeItem('currentFirestoreUserId');
+                sessionStorage.removeItem('lastFirestoreUserId');
+                localStorage.removeItem('cart');
+                localStorage.removeItem('purchasedItems');
+                renderCart();
+                console.log('Usuario deslogado — carrinho limpo');
+            }
+        });
+    }
 });
 
 // =============================================
-// VERIFICAR NOVAS COMPRAS APÓS PAGAMENTO
+// HELPERS FIREBASE
 // =============================================
 
-function checkForNewPurchases() {
-    // NOTE: cartIndicesToRemove is intentionally NOT cleared here on page load.
-    // Items are only removed from the cart after payment is confirmed as approved
-    // (inside checkPaymentStatus when status === 'approved').
-    // Returning to this page after cancelling payment must leave the cart intact.
+function _db() {
+    if (typeof firebase !== 'undefined' && firebase.firestore) return firebase.firestore();
+    return null;
+}
 
+function _auth() {
+    if (typeof firebase !== 'undefined' && firebase.auth) return firebase.auth();
+    return null;
+}
+
+async function getCurrentUserId() {
+    const cached = sessionStorage.getItem('currentFirestoreUserId');
+    if (cached) return cached;
+    const auth = _auth();
+    const db   = _db();
+    if (!auth || !db) return null;
+    const user = auth.currentUser;
+    if (!user) return null;
+    try {
+        const q = await db.collection('users').where('firebaseUID', '==', user.uid).get();
+        if (!q.empty) {
+            const id = q.docs[0].id;
+            sessionStorage.setItem('currentFirestoreUserId', id);
+            return id;
+        }
+    } catch (e) {
+        console.error('Erro ao buscar firestoreUserId:', e);
+    }
+    return null;
+}
+
+function _cartKey(item) {
+    if (item.cartItemId) return item.cartItemId;
+    if (item.firestoreProductId) return item.firestoreProductId;
+    if (item.product_id) {
+        const size  = item.selectedVariant?.size  || '';
+        const color = item.selectedVariant?.color || '';
+        return `${item.product_id}_${size}_${color}`.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 200);
+    }
+    return JSON.stringify({ t: item.productTitle, v: item.selectedVariant })
+        .replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 200);
+}
+
+function _purchasedKey(item) {
+    const orderId    = item.order_id    || 'no_order';
+    const productId  = item.product_id  || item.firestoreProductId || item.productTitle || 'no_product';
+    return `${orderId}_${productId}`.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 200);
+}
+
+// =============================================
+// FIRESTORE — FONTE DE VERDADE
+// =============================================
+
+let _cartUnsub      = null;
+let _purchasedUnsub = null;
+
+async function initFirestoreSync(firestoreUserId) {
+    const uid = firestoreUserId;
+    if (!uid) {
+        console.log('ℹ️ Usuário não logado — carrinho local apenas');
+        return;
+    }
+    const db = _db();
+    if (!db) return;
+
+    console.log('🔄 Iniciando sync Firestore para uid:', uid);
+    const userRef = db.collection('users').doc(uid);
+
+    const previousUid        = sessionStorage.getItem('lastFirestoreUserId');
+    const isSameOrFreshSession = !previousUid || previousUid === firestoreUserId;
+    const localCartBeforeSync  = JSON.parse(localStorage.getItem('cart') || '[]');
+
+    if (localCartBeforeSync.length > 0 && isSameOrFreshSession) {
+        console.log('⬆️ Enviando', localCartBeforeSync.length, 'item(ns) local(is) para o Firestore antes do sync...');
+        const batch   = db.batch();
+        const cartRef = userRef.collection('cart');
+        localCartBeforeSync.forEach(item => {
+            const key = _cartKey(item);
+            batch.set(cartRef.doc(key), { ...item, _synced_at: new Date().toISOString() }, { merge: true });
+        });
+        await batch.commit();
+        console.log('✅ Itens locais enviados para o Firestore');
+    } else if (localCartBeforeSync.length > 0 && !isSameOrFreshSession) {
+        localStorage.removeItem('cart');
+        localStorage.removeItem('purchasedItems');
+        console.log('🔄 Troca de conta detectada — cache local da conta anterior descartado');
+    }
+
+    sessionStorage.setItem('lastFirestoreUserId', firestoreUserId);
+
+    if (_cartUnsub) _cartUnsub();
+    _cartUnsub = userRef.collection('cart').onSnapshot(snap => {
+        const cart = snap.docs.map(d => d.data());
+        localStorage.setItem('cart', JSON.stringify(cart));
+        renderCart();
+        console.log('🛒 Carrinho atualizado do Firestore:', cart.length, 'itens');
+    }, err => {
+        console.warn('⚠️ Erro no listener do carrinho:', err.message);
+    });
+
+    if (_purchasedUnsub) _purchasedUnsub();
+    _purchasedUnsub = userRef.collection('purchasedItems').onSnapshot(snap => {
+        const purchased = snap.docs.map(d => d.data());
+        localStorage.setItem('purchasedItems', JSON.stringify(purchased));
+        renderCart();
+        console.log('📦 Compras atualizadas do Firestore:', purchased.length, 'itens');
+    }, err => {
+        console.warn('⚠️ Erro no listener de compras:', err.message);
+    });
+
+    await _syncPurchasedFromBackend();
+}
+
+function _sanitize(obj) {
+    if (obj === undefined) return null;
+    if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+    return Object.fromEntries(
+        Object.entries(obj).map(([k, v]) => [k, _sanitize(v)])
+    );
+}
+
+// =============================================
+// ESCRITA NO FIRESTORE
+// =============================================
+
+async function saveCartToFirestore(cart) {
+    try {
+        const uid = await getCurrentUserId();
+        if (!uid) return;
+        const db = _db();
+        if (!db) return;
+
+        const cartRef = db.collection('users').doc(uid).collection('cart');
+        const snapshot = await cartRef.get();
+        const batch = db.batch();
+
+        snapshot.forEach(doc => batch.delete(doc.ref));
+
+        cart.forEach(item => {
+            const key = _cartKey(item);
+            batch.set(cartRef.doc(key), { ..._sanitize(item), _synced_at: new Date().toISOString() });
+        });
+
+        await batch.commit();
+        console.log(`✅ Carrinho salvo no Firestore (${cart.length} itens)`);
+    } catch (err) {
+        console.warn('⚠️ Erro ao salvar carrinho no Firestore:', err.message);
+    }
+}
+
+async function savePurchasedToFirestore(purchasedItems) {
+    try {
+        const uid = await getCurrentUserId();
+        if (!uid) return;
+        const db = _db();
+        if (!db) return;
+
+        const ref   = db.collection('users').doc(uid).collection('purchasedItems');
+        const batch = db.batch();
+
+        purchasedItems.forEach(item => {
+            const key = _purchasedKey(item);
+            batch.set(ref.doc(key), { ..._sanitize(item), _synced_at: new Date().toISOString() }, { merge: true });
+        });
+
+        await batch.commit();
+        console.log(`✅ Compras salvas no Firestore (${purchasedItems.length} itens)`);
+    } catch (err) {
+        console.warn('⚠️ Erro ao salvar compras no Firestore:', err.message);
+    }
+}
+
+// =============================================
+// SINCRONIZAR COMPRAS DO BACKEND
+// =============================================
+
+async function _syncPurchasedFromBackend() {
+    try {
+        const uid = await getCurrentUserId();
+        if (!uid) {
+            console.log('ℹ️ Usuário não logado — não é possível sincronizar compras');
+            return;
+        }
+
+        console.log('🔄 Sincronizando compras do backend para user_id:', uid);
+
+        let response;
+        try {
+            response = await fetch(
+                `https://us-central1-kauara1.cloudfunctions.net/getUserOrdersByUserId?user_id=${uid}&limit=100`
+            );
+        } catch (fetchErr) {
+            console.warn('⚠️ Não foi possível contatar o backend (offline?):', fetchErr.message);
+            return;
+        }
+
+        if (!response.ok) {
+            console.warn(`⚠️ Backend retornou ${response.status} para getUserOrdersByUserId — sincronização ignorada`);
+            return;
+        }
+
+        const data = await response.json();
+
+        const approvedOrders = (data.orders || []).filter(o =>
+            o.status === 'approved' || o.payment_status === 'approved'
+        );
+
+        if (!data.success || approvedOrders.length === 0) {
+            console.log('ℹ️ Nenhum pedido aprovado encontrado no backend para este usuário');
+            return;
+        }
+
+        console.log(`📦 Encontrados ${approvedOrders.length} pedido(s) aprovado(s) no backend`);
+
+        const purchasedFromBackend = [];
+
+        approvedOrders.forEach(order => {
+            if (order.products && order.products.length > 0) {
+                order.products.forEach(product => {
+                    purchasedFromBackend.push({
+                        product_id: product.product_id,
+                        productTitle: product.title,
+                        designerName: product.designer_name,
+                        designer_id: product.designer_id,
+                        order_id: order.id,
+                        order_status: order.order_status,
+                        payment_status: order.status,
+                        purchased_at: order.created_at,
+                        delivery_status: order.order_status,
+                        selectedVariant: product.selectedVariant || null,
+                        thumbnail: product.thumbnail || null,
+                        thumbnailUrl: product.thumbnailUrl || null,
+                        pricing: product.pricing || null,
+                        synced_from_backend: true,
+                        synced_at: new Date().toISOString()
+                    });
+                });
+            }
+        });
+
+        if (purchasedFromBackend.length > 0) {
+            let existingItems = JSON.parse(localStorage.getItem('purchasedItems') || '[]');
+            const existingMap = new Map();
+            existingItems.forEach(item => {
+                const key = `${item.order_id}_${item.product_id}`;
+                existingMap.set(key, item);
+            });
+
+            purchasedFromBackend.forEach(newItem => {
+                const key = `${newItem.order_id}_${newItem.product_id}`;
+                if (!existingMap.has(key)) {
+                    existingItems.push(newItem);
+                }
+            });
+
+            localStorage.setItem('purchasedItems', JSON.stringify(existingItems));
+            await savePurchasedToFirestore(existingItems);
+            console.log(`✅ Sincronizados ${purchasedFromBackend.length} itens aprovados do backend`);
+            renderCart();
+        }
+    } catch (error) {
+        console.warn('⚠️ Sync de compras do backend falhou (não crítico):', error.message);
+    }
+}
+
+// =============================================
+// VERIFICAR NOVAS COMPRAS APÓS PAGAMENTO - CORRIGIDO
+// =============================================
+
+async function checkForNewPurchases() {
     const lastPayment = sessionStorage.getItem('lastPayment');
-    const pendingPurchases = sessionStorage.getItem('pendingPurchases');
     
     if (lastPayment) {
         try {
             const paymentInfo = JSON.parse(lastPayment);
-            console.log('💰 Pagamento detectado:', paymentInfo);
-            
-            // Verificar status do pagamento
-            checkPaymentStatus(paymentInfo.external_reference);
-            
+            console.log('💰 Verificando pagamento pendente:', paymentInfo.external_reference);
+            if (paymentInfo.external_reference) {
+                await checkPaymentStatus(paymentInfo.external_reference);
+                return;
+            }
         } catch (error) {
             console.error('Erro ao processar último pagamento:', error);
         }
     }
     
-    if (pendingPurchases) {
-        try {
-            const purchases = JSON.parse(pendingPurchases);
-            console.log('📦 Compras pendentes detectadas:', purchases);
-            
-            // Mover produtos pendentes para itens comprados
-            movePendingToPurchased(purchases);
-            
-            // Limpar pendingPurchases
-            sessionStorage.removeItem('pendingPurchases');
-        } catch (error) {
-            console.error('Erro ao processar compras pendentes:', error);
+    await checkRecentlyApprovedOrders();
+}
+
+async function checkRecentlyApprovedOrders() {
+    try {
+        const uid = await getCurrentUserId();
+        if (!uid) {
+            console.log('ℹ️ Usuário não logado, não é possível verificar pedidos');
+            return;
         }
+        
+        console.log('🔍 Verificando pedidos recentes aprovados para usuário:', uid);
+        
+        const response = await fetch(
+            `https://us-central1-kauara1.cloudfunctions.net/getUserOrdersByUserId?user_id=${uid}&limit=50`
+        );
+        
+        if (!response.ok) {
+            console.warn('⚠️ Não foi possível buscar pedidos recentes:', response.status);
+            return;
+        }
+        
+        const data = await response.json();
+        
+        if (!data.success || !data.orders || data.orders.length === 0) {
+            console.log('ℹ️ Nenhum pedido encontrado');
+            return;
+        }
+        
+        // Buscar orders aprovadas das últimas 48 horas
+        const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+        const approvedOrders = data.orders.filter(order => {
+            const isApproved = order.status === 'approved' || order.payment_status === 'approved';
+            const orderDate = order.created_at ? new Date(order.created_at) : null;
+            const isRecent = orderDate && orderDate > twoDaysAgo;
+            return isApproved && isRecent;
+        });
+        
+        if (approvedOrders.length === 0) {
+            console.log('ℹ️ Nenhum pedido recente aprovado encontrado');
+            return;
+        }
+        
+        console.log(`✅ Encontrados ${approvedOrders.length} pedido(s) aprovado(s) recentemente`);
+        
+        let cart = JSON.parse(localStorage.getItem('cart') || '[]');
+        let purchasedItems = JSON.parse(localStorage.getItem('purchasedItems') || '[]');
+        let cartChanged = false;
+        let purchasedChanged = false;
+        
+        for (const order of approvedOrders) {
+            // Verificar se já foi processado
+            const alreadyProcessed = purchasedItems.some(item => item.order_id === order.id);
+            if (alreadyProcessed) {
+                console.log(`⏭️ Pedido ${order.id} já foi processado anteriormente`);
+                continue;
+            }
+            
+            // Buscar detalhes do pedido
+            const orderDetailsResponse = await fetch(
+                `https://us-central1-kauara1.cloudfunctions.net/getOrderDetails?order_id=${order.id}`
+            );
+            
+            if (!orderDetailsResponse.ok) {
+                console.warn(`⚠️ Não foi possível buscar detalhes do pedido ${order.id}`);
+                continue;
+            }
+            
+            const orderDetails = await orderDetailsResponse.json();
+            
+            if (!orderDetails.success || !orderDetails.order) {
+                console.warn(`⚠️ Detalhes do pedido ${order.id} inválidos`);
+                continue;
+            }
+            
+            const fullOrder = orderDetails.order;
+            const productsInOrder = fullOrder.cart_products || [];
+            
+            if (productsInOrder.length === 0) {
+                console.warn(`⚠️ Pedido ${order.id} não tem produtos`);
+                continue;
+            }
+            
+            // CORREÇÃO: Criar um Set com IDs flexíveis para comparação
+            const productKeysInOrder = new Set();
+            productsInOrder.forEach(p => {
+                const productId = p.product_id || p.id;
+                const title = (p.title || p.productTitle || '').toLowerCase().trim();
+                const sku = p.dimona_sku || p.sku;
+                
+                if (productId) productKeysInOrder.add(productId);
+                if (title) productKeysInOrder.add(title);
+                if (sku) productKeysInOrder.add(sku);
+            });
+            
+            console.log('🔑 Chaves do pedido para comparação:', Array.from(productKeysInOrder));
+            
+            // Filtrar itens do carrinho que foram comprados
+            const remainingCart = cart.filter(item => {
+                const itemProductId = item.product_id || item.firestoreProductId || item.id;
+                const itemTitle = (item.productTitle || item.title || '').toLowerCase().trim();
+                const itemSku = item.selectedVariant?.dimona_sku || item.dimona_sku;
+                
+                const isPurchased = productKeysInOrder.has(itemProductId) ||
+                                   productKeysInOrder.has(itemTitle) ||
+                                   (itemSku && productKeysInOrder.has(itemSku));
+                
+                if (isPurchased) {
+                    console.log(`✅ Removendo do carrinho: ${item.productTitle || item.title} (ID: ${itemProductId})`);
+                    cartChanged = true;
+                    return false;
+                }
+                return true;
+            });
+            
+            // Adicionar aos itens comprados
+            for (const product of productsInOrder) {
+                const productId = product.product_id || product.id;
+                const existingKey = `${order.id}_${productId}`;
+                const alreadyExists = purchasedItems.some(
+                    item => `${item.order_id}_${item.product_id}` === existingKey
+                );
+                
+                if (!alreadyExists) {
+                    // CORREÇÃO: Mapear os dados do produto corretamente
+                    const purchasedItem = {
+                        // Dados básicos
+                        product_id: productId,
+                        productTitle: product.title || product.productTitle || 'Produto',
+                        designerName: product.designer_name || product.designerName || 'Designer',
+                        designer_id: product.designer_id || product.designerUserId || null,
+                        
+                        // Dados do pedido
+                        order_id: order.id,
+                        payment_id: fullOrder.payment_id,
+                        purchased_at: fullOrder.approved_at || fullOrder.date_approved || new Date().toISOString(),
+                        purchase_date: new Date().toISOString(),
+                        
+                        // Status
+                        purchase_status: 'completed',
+                        delivery_status: fullOrder.dimona_order_status || 'processing',
+                        payment_status: fullOrder.payment_status || 'approved',
+                        
+                        // Variante (se disponível)
+                        selectedVariant: product.selectedVariant || {
+                            color: product.color || 'N/A',
+                            size: product.size || 'Único',
+                            price: product.price || product.pricing?.total_price || 0
+                        },
+                        
+                        // Imagem
+                        thumbnail: product.thumbnail || product.thumbnailUrl || product.thumbnailUrls?.front || null,
+                        thumbnailUrl: product.thumbnailUrl || product.thumbnail || product.thumbnailUrls?.front || null,
+                        
+                        // Preço
+                        pricing: product.pricing || {
+                            total_price: product.price || product.unit_price || 0,
+                            product_price: product.product_price || product.price || 0,
+                            artist_cut: product.artist_cut || 0,
+                            platform_fee: product.platform_fee || 0
+                        },
+                        
+                        // Metadados
+                        synced_from_backend: true,
+                        synced_at: new Date().toISOString(),
+                        moved_from_cart: true,
+                        moved_at: new Date().toISOString()
+                    };
+                    
+                    purchasedItems.push(purchasedItem);
+                    purchasedChanged = true;
+                    console.log(`✅ Adicionado aos comprados: ${purchasedItem.productTitle}`);
+                }
+            }
+            
+            cart = remainingCart;
+        }
+        
+        if (cartChanged) {
+            localStorage.setItem('cart', JSON.stringify(cart));
+            await saveCartToFirestore(cart);
+            console.log(`🛒 Carrinho atualizado: ${cart.length} itens restantes`);
+        }
+        
+        if (purchasedChanged) {
+            // Remover duplicatas antes de salvar
+            const uniquePurchased = [];
+            const seen = new Set();
+            for (const item of purchasedItems) {
+                const key = `${item.order_id}_${item.product_id}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    uniquePurchased.push(item);
+                }
+            }
+            
+            localStorage.setItem('purchasedItems', JSON.stringify(uniquePurchased));
+            await savePurchasedToFirestore(uniquePurchased);
+            console.log(`📦 Itens comprados atualizados: ${uniquePurchased.length} itens`);
+            
+            showToast(`🎉 ${approvedOrders.length} pedido(s) confirmado(s)! Seus produtos foram movidos para "Itens Comprados"`, 'success');
+        }
+        
+        if (cartChanged || purchasedChanged) {
+            renderCart();
+        }
+        
+        // Limpar sessionStorage
+        sessionStorage.removeItem('lastPayment');
+        sessionStorage.removeItem('cartIndicesToRemove');
+        sessionStorage.removeItem('cartToPay');
+        sessionStorage.removeItem('selectedProduct');
+        
+    } catch (error) {
+        console.error('❌ Erro ao verificar pedidos recentes:', error);
     }
 }
 
-// =============================================
-// VERIFICAR STATUS DO PAGAMENTO
-// =============================================
-
 async function checkPaymentStatus(externalReference) {
     try {
-        console.log('🔍 Verificando status do pagamento:', externalReference);
+        console.log('🔍 [carrinho.js] Verificando status do pagamento:', externalReference);
+        
+        // Aguarda um tempo inicial para o webhook processar no backend
+        await new Promise(resolve => setTimeout(resolve, 3000));
         
         const response = await fetch(
             `https://us-central1-kauara1.cloudfunctions.net/getPaymentStatus?external_reference=${externalReference}`
         );
         
+        if (!response.ok) {
+            console.warn(`⚠️ Erro ao consultar status (${response.status}). Tentando sync geral...`);
+            await checkRecentlyApprovedOrders();
+            return;
+        }
+
         const data = await response.json();
+        console.log('📊 Resposta do status:', data);
         
         if (data.success && data.payment) {
-            const payment = data.payment;
+            const status = data.payment.status;
             
-            if (payment.status === 'approved') {
-                console.log('✅ Pagamento aprovado! Movendo produtos para itens comprados');
-
-                // ✅ Only now is it safe to remove the purchased items from the cart
-                const indicesToRemove = sessionStorage.getItem('cartIndicesToRemove');
-                if (indicesToRemove) {
-                    try {
-                        const indices = JSON.parse(indicesToRemove);
-                        let cart = JSON.parse(localStorage.getItem('cart') || '[]');
-                        indices.sort((a, b) => b - a).forEach(i => cart.splice(i, 1));
-                        localStorage.setItem('cart', JSON.stringify(cart));
-                        sessionStorage.removeItem('cartIndicesToRemove');
-                        console.log('🛒 Cart items removed after confirmed payment, remaining:', cart.length);
-                    } catch (e) {
-                        console.error('Error removing purchased items from cart:', e);
-                    }
-                }
+            if (status === 'approved') {
+                console.log('✅ Pagamento aprovado! Sincronizando produtos...');
                 
-                // Buscar detalhes completos do pedido
+                // Tentativa de obter detalhes específicos para mover itens exatos
                 const orderResponse = await fetch(
                     `https://us-central1-kauara1.cloudfunctions.net/getOrderDetails?order_id=${externalReference}`
                 );
-                
                 const orderData = await orderResponse.json();
                 
                 if (orderData.success && orderData.order) {
-                    // Mover produtos para itens comprados
-                    moveCartToPurchased(orderData.order.cart_products, {
+                    // Se encontrou os detalhes, move especificamente estes produtos
+                    await moveCartToPurchased(orderData.order.cart_products, {
                         order_id: externalReference,
-                        payment_id: payment.payment_id,
+                        payment_id: data.payment.payment_details?.id || 'N/A',
                         date: new Date().toISOString()
                     });
+                } else {
+                    // FALLBACK: Se o detalhe falhar, rodamos a verificação geral por UID
+                    // Isso evita que o usuário veja a mensagem de erro se o pedido já existir no banco
+                    console.log('🔄 Detalhes específicos não encontrados. Iniciando sincronização geral...');
+                    await checkRecentlyApprovedOrders();
                 }
                 
-                // Limpar sessão
+                // Limpeza de segurança da sessão
                 sessionStorage.removeItem('lastPayment');
                 sessionStorage.removeItem('cartToPay');
                 sessionStorage.removeItem('selectedProduct');
                 
-                // Mostrar mensagem de sucesso
-                showToast('🎉 Pagamento aprovado! Seus produtos foram movidos para "Itens Comprados"', 'success');
-            } else if (payment.status === 'pending' || payment.status === 'in_process') {
-                console.log('⏳ Pagamento pendente. Aguardando confirmação...');
+                renderCart();
                 
-                // Aguardar e verificar novamente após alguns segundos
-                setTimeout(() => checkPaymentStatus(externalReference), 5000);
-            } else if (payment.status === 'rejected' || payment.status === 'cancelled') {
-                console.log('❌ Pagamento não aprovado — cart preserved');
+            } else if (status === 'pending' || status === 'in_process') {
+                console.log('⏳ Pagamento pendente. Verificando novamente em 6s...');
+                setTimeout(() => checkPaymentStatus(externalReference), 6000);
+                
+            } else if (status === 'rejected' || status === 'cancelled') {
+                console.log('❌ Pagamento não aprovado — preservando carrinho');
                 sessionStorage.removeItem('lastPayment');
-                sessionStorage.removeItem('cartIndicesToRemove'); // clean up — cart stays intact
-                sessionStorage.removeItem('cartToPay');
-                sessionStorage.removeItem('selectedProduct');
-                
-                showToast('❌ Pagamento não foi concluído. Os produtos permanecem no carrinho.', 'warning');
+                showToast('O pagamento não foi aprovado. Seus itens continuam no carrinho.', 'warning');
             }
         }
     } catch (error) {
-        console.error('Erro ao verificar status do pagamento:', error);
+        console.error('❌ Erro crítico em checkPaymentStatus:', error);
+        // Em caso de erro de rede, tenta o sync geral por segurança
+        await checkRecentlyApprovedOrders();
     }
 }
 
 // =============================================
-// MOVER PRODUTOS DO CARRINHO PARA ITENS COMPRADOS (CORRIGIDO)
+// MOVER CARRINHO → COMPRADOS - CORRIGIDO
 // =============================================
 
-function moveCartToPurchased(cartProducts, purchaseInfo) {
+async function moveCartToPurchased(cartProducts, purchaseInfo) {
     console.log('📦 Movendo produtos para itens comprados:', cartProducts);
-    console.log('📦 Informações da compra:', purchaseInfo);
-    
-    // Buscar carrinho atual e itens comprados existentes
+    console.log('📦 Purchase info:', purchaseInfo);
+
     let cart = JSON.parse(localStorage.getItem('cart') || '[]');
     let purchasedItems = JSON.parse(localStorage.getItem('purchasedItems') || '[]');
-    
-    console.log('📊 Estado atual:', {
-        cartItems: cart.length,
-        purchasedItems: purchasedItems.length
-    });
-    
-    // Identificar quais produtos do carrinho foram comprados
-    // Usar múltiplos critérios para garantir correspondência correta
-    const purchasedProductIds = cartProducts.map(p => p.product_id || p.id).filter(id => id);
-    
-    console.log('🔍 IDs dos produtos comprados:', purchasedProductIds);
-    
-    // IMPORTANTE: Filtrar o carrinho para REMOVER apenas os produtos comprados
-    const remainingCart = cart.filter(item => {
-        const itemId = item.product_id || item.id;
-        const isPurchased = purchasedProductIds.includes(itemId);
+
+    // CORREÇÃO: Comparação mais flexível
+    const purchasedIdentifiers = new Set();
+    cartProducts.forEach(p => {
+        const id = p.product_id || p.id;
+        const title = (p.title || p.productTitle || '').toLowerCase().trim();
+        const sku = p.dimona_sku || p.sku;
         
-        // Se for comprado, NÃO deve permanecer no carrinho
-        if (isPurchased) {
-            console.log('✅ Produto será removido do carrinho:', item.productTitle || item.title);
-            return false; // Remove do carrinho
-        }
-        return true; // Mantém no carrinho
+        if (id) purchasedIdentifiers.add(id);
+        if (title) purchasedIdentifiers.add(title);
+        if (sku) purchasedIdentifiers.add(sku);
     });
-    
-    // Preparar novos itens comprados (apenas os que foram comprados AGORA)
-    const newlyPurchased = cart
-        .filter(item => {
-            const itemId = item.product_id || item.id;
-            return purchasedProductIds.includes(itemId);
-        })
-        .map(item => {
-            // Adicionar informações de compra ao produto
-            return {
+
+    console.log('🔍 Identificadores dos produtos comprados:', Array.from(purchasedIdentifiers));
+
+    const remainingCart = cart.filter(item => {
+        const itemId = item.product_id || item.firestoreProductId || item.id;
+        const itemTitle = (item.productTitle || item.title || '').toLowerCase().trim();
+        const itemSku = item.selectedVariant?.dimona_sku || item.dimona_sku;
+        
+        const shouldRemove = purchasedIdentifiers.has(itemId) ||
+                            purchasedIdentifiers.has(itemTitle) ||
+                            (itemSku && purchasedIdentifiers.has(itemSku));
+        
+        if (shouldRemove) {
+            console.log('✅ Removendo do carrinho:', item.productTitle || item.title);
+            return false;
+        }
+        return true;
+    });
+
+    // Criar novos itens comprados
+    const newlyPurchased = [];
+    for (const item of cart) {
+        const itemId = item.product_id || item.firestoreProductId || item.id;
+        const itemTitle = (item.productTitle || item.title || '').toLowerCase().trim();
+        const itemSku = item.selectedVariant?.dimona_sku || item.dimona_sku;
+        
+        const shouldMove = purchasedIdentifiers.has(itemId) ||
+                          purchasedIdentifiers.has(itemTitle) ||
+                          (itemSku && purchasedIdentifiers.has(itemSku));
+        
+        if (shouldMove) {
+            const orderProduct = cartProducts.find(p => 
+                (p.product_id || p.id) === itemId ||
+                (p.title || p.productTitle || '').toLowerCase().trim() === itemTitle ||
+                (p.dimona_sku || p.sku) === itemSku
+            );
+            
+            const finalPricing = orderProduct?.pricing || item.pricing;
+            
+            newlyPurchased.push({
                 ...item,
+                pricing: finalPricing,
                 purchased_at: purchaseInfo.date || new Date().toISOString(),
                 order_id: purchaseInfo.order_id,
                 payment_id: purchaseInfo.payment_id,
                 purchase_status: 'completed',
                 delivery_status: 'processing',
-                purchase_date: new Date().toISOString()
-            };
-        });
-    
-    console.log('📦 Novos itens comprados:', newlyPurchased.length);
-    console.log('🛒 Itens restantes no carrinho:', remainingCart.length);
-    
-    // Adicionar novos itens comprados ao histórico (evitando duplicatas)
-    // Verificar se já não existe um item com mesmo order_id e product_id
-    const existingKeys = new Set(
-        purchasedItems.map(item => `${item.order_id}_${item.product_id || item.id}`)
-    );
-    
-    const uniqueNewPurchases = newlyPurchased.filter(item => {
-        const key = `${item.order_id}_${item.product_id || item.id}`;
+                purchase_date: new Date().toISOString(),
+                designer_id: item.designerUserId || item.designer_id || null,
+                moved_from_cart: true,
+                moved_at: new Date().toISOString()
+            });
+        }
+    }
+
+    // Remover duplicatas nos itens comprados existentes
+    const existingKeys = new Set();
+    purchasedItems.forEach(item => {
+        existingKeys.add(`${item.order_id}_${item.product_id}`);
+    });
+
+    const uniqueNewPurchased = newlyPurchased.filter(item => {
+        const key = `${item.order_id}_${item.product_id}`;
         return !existingKeys.has(key);
     });
-    
-    // Combinar itens comprados existentes com os novos
-    const updatedPurchasedItems = [...uniqueNewPurchases, ...purchasedItems];
-    
-    console.log('📊 Novo estado:', {
-        remainingCart: remainingCart.length,
-        newPurchased: uniqueNewPurchases.length,
-        totalPurchased: updatedPurchasedItems.length
-    });
-    
-    // Atualizar localStorage
+
+    const updatedPurchasedItems = [...uniqueNewPurchased, ...purchasedItems];
+
     localStorage.setItem('cart', JSON.stringify(remainingCart));
     localStorage.setItem('purchasedItems', JSON.stringify(updatedPurchasedItems));
+
+    await saveCartToFirestore(remainingCart);
+    await savePurchasedToFirestore(updatedPurchasedItems);
+
+    console.log(`✅ ${uniqueNewPurchased.length} produto(s) movido(s) para comprados. Carrinho agora: ${remainingCart.length} itens`);
     
-    // Disparar evento para notificar outras abas/janelas
-    window.dispatchEvent(new StorageEvent('storage', {
-        key: 'cart',
-        newValue: JSON.stringify(remainingCart)
-    }));
+    if (uniqueNewPurchased.length > 0) {
+        showToast(`🎉 ${uniqueNewPurchased.length} produto(s) movido(s) para "Itens Comprados"`, 'success');
+    }
     
-    window.dispatchEvent(new StorageEvent('storage', {
-        key: 'purchasedItems',
-        newValue: JSON.stringify(updatedPurchasedItems)
-    }));
-    
-    console.log('✅ Produtos movidos com sucesso: carrinho limpo, itens adicionados ao histórico');
-    
-    // Re-renderizar o carrinho
     renderCart();
     
-    // Mostrar toast de confirmação
-    showToast(`🎉 ${uniqueNewPurchases.length} produto(s) comprado(s) movido(s) para "Itens Comprados"`, 'success');
-    
-    return uniqueNewPurchases;
+    return uniqueNewPurchased;
 }
-// =============================================
-// VERIFICAR SE PRODUTO JÁ EXISTE NO HISTÓRICO
-// =============================================
 
-function isProductAlreadyPurchased(purchasedItems, newItem) {
-    return purchasedItems.some(existingItem => 
-        existingItem.order_id === newItem.order_id && 
-        (existingItem.product_id || existingItem.id) === (newItem.product_id || newItem.id)
-    );
-}
-// =============================================
-// MOVER PENDENTES PARA COMPRADOS
-// =============================================
-
-function movePendingToPurchased(purchases) {
+async function movePendingToPurchased(purchases) {
     console.log('📦 Movendo compras pendentes:', purchases);
-    
+
     let purchasedItems = JSON.parse(localStorage.getItem('purchasedItems') || '[]');
-    
-    // Adicionar cada compra pendente ao histórico
+
     purchases.forEach(purchase => {
-        // Verificar se já não existe
-        const exists = purchasedItems.some(item => 
-            item.order_id === purchase.order_id && 
+        const exists = purchasedItems.some(item =>
+            item.order_id  === purchase.order_id &&
             item.product_id === purchase.product_id
         );
-        
         if (!exists) {
             purchasedItems.push({
                 ...purchase,
                 purchase_status: 'completed',
                 delivery_status: 'processing',
-                moved_at: new Date().toISOString()
+                moved_at:        new Date().toISOString()
             });
         }
     });
-    
+
     localStorage.setItem('purchasedItems', JSON.stringify(purchasedItems));
-    
-    // Limpar carrinho se todos os produtos foram comprados
+    await savePurchasedToFirestore(purchasedItems);
+
     const cart = JSON.parse(localStorage.getItem('cart') || '[]');
-    const remainingCart = cart.filter(item => {
-        // Manter apenas produtos que não estão na lista de comprados
-        return !purchases.some(p => p.product_id === (item.product_id || item.id));
-    });
-    
+    const remainingCart = cart.filter(item =>
+        !purchases.some(p => p.product_id === (item.product_id || item.id))
+    );
+
     localStorage.setItem('cart', JSON.stringify(remainingCart));
-    
+    await saveCartToFirestore(remainingCart);
+
     renderCart();
 }
 
 // =============================================
-// RENDERIZAR CARRINHO COM SEÇÃO DE COMPRADOS
+// RENDERIZAR CARRINHO
 // =============================================
 
 function renderCart() {
-    const cartList = document.getElementById('cartList');
-    const purchasedList = document.getElementById('purchasedList');
-    const checkoutBtn = document.getElementById('checkoutButton');
-    const clearCartBtn = document.getElementById('clearCartButton');
+    const cartList       = document.getElementById('cartList');
+    const purchasedList  = document.getElementById('purchasedList');
+    const checkoutBtn    = document.getElementById('checkoutButton');
+    const clearCartBtn   = document.getElementById('clearCartButton');
     const clearHistoryBtn = document.getElementById('clearHistoryButton');
     const purchasedSection = document.getElementById('purchasedSection');
-    
-    const cart = JSON.parse(localStorage.getItem('cart') || '[]');
+
+    const cart           = JSON.parse(localStorage.getItem('cart')           || '[]');
     const purchasedItems = JSON.parse(localStorage.getItem('purchasedItems') || '[]');
 
-    // Atualizar contadores
     updateCartCounters(cart.length, purchasedItems.length);
 
-    // Renderizar carrinho ativo
     if (cart.length === 0) {
         if (cartList) {
             cartList.innerHTML = `
@@ -323,106 +848,117 @@ function renderCart() {
                     </a>
                 </div>`;
         }
-        
         if (checkoutBtn) checkoutBtn.disabled = true;
         if (clearCartBtn) clearCartBtn.disabled = true;
     } else {
         if (checkoutBtn) {
-            checkoutBtn.disabled = false;
-            checkoutBtn.innerHTML = '<i class="fas fa-credit-card me-2"></i>Ir para Pagamentos';
+            checkoutBtn.disabled = true;
+            checkoutBtn.innerHTML = '<i class="fas fa-credit-card me-2"></i>Selecione itens para comprar';
         }
         if (clearCartBtn) clearCartBtn.disabled = false;
-        
         renderActiveCart(cart, cartList);
     }
 
-    // Renderizar itens comprados
     if (purchasedItems.length === 0) {
         if (purchasedSection) purchasedSection.style.display = 'none';
     } else {
         if (purchasedSection) purchasedSection.style.display = 'block';
         if (clearHistoryBtn) clearHistoryBtn.disabled = false;
-        
         renderPurchasedItems(purchasedItems, purchasedList);
     }
 
-    // Calcular e atualizar totais
     updateTotals(calculateCartTotal(cart));
 }
-
-// =============================================
-// RENDERIZAR CARRINHO ATIVO (com checkboxes de seleção)
-// =============================================
 
 function renderActiveCart(cart, container) {
     if (!container) return;
 
-    container.innerHTML = `
+    let html = `
         <div class="d-flex align-items-center gap-2 mb-3 px-1">
             <input type="checkbox" id="selectAllItems" class="form-check-input mt-0"
-                   onchange="toggleSelectAll(this.checked)" style="width:18px;height:18px;cursor:pointer;">
+                   style="width:18px;height:18px;cursor:pointer;">
             <label for="selectAllItems" class="mb-0 text-muted" style="cursor:pointer;">
                 Selecionar todos
             </label>
-            <button id="buySelectedBtn" class="btn btn-sm btn-primary ms-auto"
-                    onclick="checkoutSelected()" disabled>
-                <i class="fas fa-credit-card me-1"></i>Comprar Selecionados
-            </button>
+            <span class="ms-auto text-muted small" id="selectionSummary"></span>
         </div>`;
 
     cart.forEach((item, index) => {
         let itemPrice = 0;
-        if (item.pricing?.total_price) itemPrice = parseFloat(item.pricing.total_price);
+        if (item.pricing?.total_price)      itemPrice = parseFloat(item.pricing.total_price);
         else if (item.selectedVariant?.price) itemPrice = parseFloat(item.selectedVariant.price);
-        
-        // Get color code from selected variant
-        const backgroundColor = item.selectedVariant?.color_code || 
-                                item.selectedVariant?.colorCode || 
-                                '#f8f9fa';
-        
-        container.innerHTML += createCartItemHtml(item, index, itemPrice, false, backgroundColor);
+
+        const backgroundColor = item.selectedVariant?.color_code ||
+                                 item.selectedVariant?.colorCode  || '#f8f9fa';
+
+        html += createCartItemHtml(item, index, itemPrice, false, backgroundColor);
+    });
+
+    container.innerHTML = html;
+
+    const selectAll = container.querySelector('#selectAllItems');
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            container.querySelectorAll('.cart-item-checkbox').forEach(cb => { cb.checked = this.checked; });
+            updateSelectionTotal();
+        });
+    }
+
+    container.querySelectorAll('.cart-item-checkbox').forEach(cb => {
+        cb.addEventListener('change', function() {
+            const allCbs = container.querySelectorAll('.cart-item-checkbox');
+            const allChecked = Array.from(allCbs).every(c => c.checked);
+            if (selectAll) selectAll.checked = allChecked;
+            updateSelectionTotal();
+        });
+    });
+
+    container.querySelectorAll('[data-action="removeFromCart"]').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            removeFromCart(parseInt(this.dataset.index));
+        });
     });
 }
 
-function toggleSelectAll(checked) {
-    document.querySelectorAll('.cart-item-checkbox').forEach(cb => { cb.checked = checked; });
-    updateSelectionTotal();
-}
-
 function updateSelectionTotal() {
-    const cart = JSON.parse(localStorage.getItem('cart') || '[]');
-    const checked = document.querySelectorAll('.cart-item-checkbox:checked');
-    const buyBtn = document.getElementById('buySelectedBtn');
+    const cart     = JSON.parse(localStorage.getItem('cart') || '[]');
+    const checked  = document.querySelectorAll('.cart-item-checkbox:checked');
     const checkoutBtn = document.getElementById('checkoutButton');
+    const summaryEl   = document.getElementById('selectionSummary');
 
     let total = 0;
     checked.forEach(cb => {
-        const idx = parseInt(cb.dataset.index);
-        const item = cart[idx];
+        const item = cart[parseInt(cb.dataset.index)];
         if (item) {
-            if (item.pricing?.total_price) total += parseFloat(item.pricing.total_price);
+            if (item.pricing?.total_price)      total += parseFloat(item.pricing.total_price);
             else if (item.selectedVariant?.price) total += parseFloat(item.selectedVariant.price);
         }
     });
 
     const hasSelection = checked.length > 0;
-    if (buyBtn) {
-        buyBtn.disabled = !hasSelection;
-        buyBtn.innerHTML = hasSelection
-            ? `<i class="fas fa-credit-card me-1"></i>Comprar ${checked.length} item(s) · ${formatCurrency(total)}`
-            : `<i class="fas fa-credit-card me-1"></i>Comprar Selecionados`;
+
+    if (checkoutBtn) {
+        checkoutBtn.disabled = !hasSelection;
+        checkoutBtn.innerHTML = hasSelection
+            ? `<i class="fas fa-credit-card me-2"></i>Ir para Pagamentos (${checked.length}) · ${formatCurrency(total)}`
+            : `<i class="fas fa-credit-card me-2"></i>Selecione itens para comprar`;
     }
-    if (checkoutBtn) checkoutBtn.disabled = cart.length === 0;
+
+    if (summaryEl) {
+        summaryEl.textContent = hasSelection
+            ? `${checked.length} selecionado(s) · ${formatCurrency(total)}`
+            : '';
+    }
+
+    updateTotals(calculateCartTotal(cart));
 }
 
 function checkoutSelected() {
-    const cart = JSON.parse(localStorage.getItem('cart') || '[]');
+    const cart    = JSON.parse(localStorage.getItem('cart') || '[]');
     const checked = document.querySelectorAll('.cart-item-checkbox:checked');
 
-    if (checked.length === 0) {
-        alert('Selecione ao menos um produto.');
-        return;
-    }
+    if (checked.length === 0) { alert('Selecione ao menos um produto.'); return; }
 
     const selectedItems = [];
     checked.forEach(cb => {
@@ -431,19 +967,22 @@ function checkoutSelected() {
     });
 
     let total = 0;
-    selectedItems.forEach(item => {
-        if (item.pricing?.total_price) total += parseFloat(item.pricing.total_price);
-        else if (item.selectedVariant?.price) total += parseFloat(item.selectedVariant.price);
-    });
+    for (const item of selectedItems) {
+        if (!item.pricing || !item.pricing.total_price) {
+            alert('Produto "' + (item.productTitle || 'desconhecido') + '" sem preço. Remova-o do carrinho e adicione novamente.');
+            showLoading(false);
+            return;
+        }
+        total += parseFloat(item.pricing.total_price);
+    }
 
-    sessionStorage.setItem('cartToPay', JSON.stringify(selectedItems));
+    sessionStorage.setItem('cartToPay',     JSON.stringify(selectedItems));
     sessionStorage.setItem('selectedProduct', JSON.stringify({
-        type: 'multi_product_cart',
-        products: selectedItems,
+        type:        'multi_product_cart',
+        products:    selectedItems,
         total_price: total
     }));
 
-    // Remember which indices to remove after successful payment
     const selectedIndices = Array.from(checked).map(cb => parseInt(cb.dataset.index));
     sessionStorage.setItem('cartIndicesToRemove', JSON.stringify(selectedIndices));
 
@@ -451,54 +990,36 @@ function checkoutSelected() {
     setTimeout(() => { window.location.href = 'pagamentos.html'; }, 500);
 }
 
-// =============================================
-// RENDERIZAR ITENS COMPRADOS
-// =============================================
-
 function renderPurchasedItems(items, container) {
     if (!container) return;
-    
+
     container.innerHTML = '';
-    
-    // Ordenar por data de compra (mais recentes primeiro)
+
     const sortedItems = [...items].sort((a, b) => {
-        const dateA = new Date(a.purchased_at || a.created_at || 0);
-        const dateB = new Date(b.purchased_at || b.created_at || 0);
-        return dateB - dateA;
+        return new Date(b.purchased_at || b.created_at || 0) -
+               new Date(a.purchased_at || a.created_at || 0);
     });
 
     sortedItems.forEach((item, index) => {
-        // Calcula preço
         let itemPrice = 0;
-        if (item.pricing && item.pricing.total_price) {
-            itemPrice = parseFloat(item.pricing.total_price);
-        } else if (item.selectedVariant && item.selectedVariant.price) {
-            itemPrice = parseFloat(item.selectedVariant.price);
-        }
-        
-        // Get color code from selected variant
-        const backgroundColor = item.selectedVariant?.color_code || 
-                                item.selectedVariant?.colorCode || 
-                                '#f8f9fa';
-        
-        // Formatar data
-        const purchaseDate = item.purchased_at || item.created_at;
-        const formattedDate = purchaseDate ? new Date(purchaseDate).toLocaleDateString('pt-BR') : 'Data desconhecida';
-        
-        // Determinar status de entrega
+        if (item.pricing?.total_price)      itemPrice = parseFloat(item.pricing.total_price);
+        else if (item.selectedVariant?.price) itemPrice = parseFloat(item.selectedVariant.price);
+
+        const backgroundColor = item.selectedVariant?.color_code ||
+                                 item.selectedVariant?.colorCode  || '#f8f9fa';
+
+        const purchaseDate   = item.purchased_at || item.created_at;
+        const formattedDate  = purchaseDate
+            ? new Date(purchaseDate).toLocaleDateString('pt-BR')
+            : 'Data desconhecida';
+
         const deliveryStatus = getDeliveryStatus(item);
-        
-        const itemHtml = createPurchasedItemHtml(item, index, itemPrice, formattedDate, deliveryStatus, backgroundColor);
-        container.innerHTML += itemHtml;
+        container.innerHTML += createPurchasedItemHtml(item, index, itemPrice, formattedDate, deliveryStatus, backgroundColor);
     });
 }
 
-// =============================================
-// CRIAR HTML PARA ITEM DO CARRINHO
-// =============================================
-
 function createCartItemHtml(item, index, price, isPurchased = false, backgroundColor = '#f8f9fa') {
-    const isClientProduct = !!item.originalArtId; // products from canvas-client have this field
+    const isClientProduct = !!item.originalArtId;
     const clientBadge = isClientProduct
         ? `<span class="badge ms-1" style="background:#f59e0b;color:#fff;">
                <i class="fas fa-user-circle me-1"></i>Meu Design
@@ -513,17 +1034,16 @@ function createCartItemHtml(item, index, price, isPurchased = false, backgroundC
                     <div class="col-auto d-flex align-items-center ps-2">
                         <input type="checkbox" class="cart-item-checkbox form-check-input mt-0"
                                data-index="${index}"
-                               onchange="updateSelectionTotal()"
                                style="width:20px;height:20px;cursor:pointer;">
                     </div>` : ''}
                     <div class="col-auto">
-                        <div class="product-image-container" 
+                        <div class="product-image-container"
                              style="background-color: ${backgroundColor}; border-radius: 8px; line-height: 0; display: inline-block;">
                             <img src="${item.thumbnailUrl || item.thumbnail || 'default-product.png'}"
                                  class="img-fluid rounded cart-item-img"
                                  alt="${item.productTitle || ''}"
                                  style="max-width: 100px; max-height: 100px; width: auto; height: auto; object-fit: contain; display: block;"
-                                 onerror="this.src='../public/images/default-product.png'">
+                                 data-fallback-src="../public/images/default-product.png">
                         </div>
                     </div>
                     <div class="col">
@@ -553,7 +1073,8 @@ function createCartItemHtml(item, index, price, isPurchased = false, backgroundC
                         </div>
                         ${!isPurchased ? `
                             <button class="btn btn-sm btn-outline-danger remove-btn"
-                                    onclick="removeFromCart(${index})"
+                                    data-action="removeFromCart"
+                                    data-index="${index}"
                                     title="Remover do carrinho">
                                 <i class="fas fa-trash"></i>
                             </button>
@@ -565,43 +1086,33 @@ function createCartItemHtml(item, index, price, isPurchased = false, backgroundC
     `;
 }
 
-// =============================================
-// CRIAR HTML PARA ITEM COMPRADO (PRINTFUL COMPLETO)
-// =============================================
-
 function createPurchasedItemHtml(item, index, price, purchaseDate, deliveryStatus, backgroundColor = '#f8f9fa') {
-    const { status, icon, label, color, description, tracking, holdReason, estimatedDelivery, shipDate } = deliveryStatus;
+    const { status, icon, label, color, description, tracking, holdReason, estimatedDelivery } = deliveryStatus;
 
-    // Progress steps — which ones are active for current status
     const steps = [
-        { key: 'processing',        icon: 'fa-clock',        text: 'Pedido Recebido' },
-        { key: 'in_production',     icon: 'fa-print',        text: 'Em Produção'     },
-        { key: 'shipped',           icon: 'fa-truck',        text: 'Enviado'         },
-        { key: 'delivered',         icon: 'fa-check-circle', text: 'Entregue'        }
+        { key: 'processing',    icon: 'fa-clock',        text: 'Pedido Recebido' },
+        { key: 'in_production', icon: 'fa-print',        text: 'Em Produção'     },
+        { key: 'shipped',       icon: 'fa-truck',        text: 'Enviado'         },
+        { key: 'delivered',     icon: 'fa-check-circle', text: 'Entregue'        }
     ];
-
-    const stepOrder = ['processing', 'printful_received', 'in_production', 'on_hold', 'shipped', 'delivered'];
-    const currentStepIndex = stepOrder.indexOf(status);
-
-    // Only show progress bar for normal flow (not cancelled/failed/returned)
-    const showProgress = !['cancelled', 'failed', 'returned'].includes(status);
+    const stepOrder         = ['processing', 'in_production', 'shipped', 'delivered'];
+    const currentStepIndex  = stepOrder.indexOf(status);
+    const showProgress      = !['cancelled', 'failed', 'returned'].includes(status);
 
     const progressHtml = showProgress ? `
         <div class="d-flex align-items-center justify-content-between mt-3 mb-1 progress-steps">
             ${steps.map((step, i) => {
-                const stepIdx = stepOrder.indexOf(step.key);
-                const isDone    = currentStepIndex > stepIdx;
-                const isActive  = currentStepIndex === stepIdx ||
-                                  (step.key === 'in_production' && status === 'printful_received') ||
-                                  (step.key === 'in_production' && status === 'on_hold');
+                const stepIdx  = stepOrder.indexOf(step.key);
+                const isDone   = currentStepIndex > stepIdx;
+                const isActive = currentStepIndex === stepIdx;
                 const stepColor = isDone ? 'success' : isActive ? color : 'secondary';
                 return `
                 <div class="text-center flex-fill">
                     <div class="rounded-circle d-inline-flex align-items-center justify-content-center mb-1"
-                         style="width:28px;height:28px;background:${isDone||isActive ? `var(--bs-${stepColor})` : '#dee2e6'};color:white;font-size:12px;">
+                         style="width:28px;height:28px;background:${isDone || isActive ? `var(--bs-${stepColor})` : '#dee2e6'};color:white;font-size:12px;">
                         <i class="fas ${isDone ? 'fa-check' : step.icon}"></i>
                     </div>
-                    <div class="small" style="font-size:10px;color:${isDone||isActive ? `var(--bs-${stepColor})` : '#adb5bd'}">
+                    <div class="small" style="font-size:10px;color:${isDone || isActive ? `var(--bs-${stepColor})` : '#adb5bd'}">
                         ${step.text}
                     </div>
                 </div>
@@ -616,8 +1127,7 @@ function createPurchasedItemHtml(item, index, price, purchaseDate, deliveryStatu
             <strong>Rastreio:</strong>
             ${tracking.url
                 ? `<a href="${tracking.url}" target="_blank" class="ms-1">${tracking.code}</a>`
-                : `<span class="ms-1">${tracking.code}</span>`
-            }
+                : `<span class="ms-1">${tracking.code}</span>`}
             ${tracking.carrier ? `<span class="ms-2 text-muted">(${tracking.carrier})</span>` : ''}
             ${estimatedDelivery ? `
                 <div class="mt-1 text-muted">
@@ -639,7 +1149,7 @@ function createPurchasedItemHtml(item, index, price, purchaseDate, deliveryStatu
             <div class="card-body">
                 <div class="row align-items-start">
                     <div class="col-md-2">
-                        <div class="product-image-container" 
+                        <div class="product-image-container"
                              style="background-color: ${backgroundColor}; border-radius: 8px; line-height: 0; display: inline-block;">
                             <img src="${item.thumbnailUrl || item.thumbnail || 'default-product.png'}"
                                  class="img-fluid rounded cart-item-img"
@@ -685,8 +1195,7 @@ function createPurchasedItemHtml(item, index, price, purchaseDate, deliveryStatu
                         ${item.order_id ? `
                             <div class="mt-2">
                                 <small class="text-muted">
-                                    <i class="fas fa-receipt me-1"></i>
-                                    Pedido: ${item.order_id}
+                                    <i class="fas fa-receipt me-1"></i>Pedido: ${item.order_id}
                                 </small>
                             </div>
                         ` : ''}
@@ -709,11 +1218,6 @@ function createPurchasedItemHtml(item, index, price, purchaseDate, deliveryStatu
                                     title="Cancelar compra">
                                 <i class="fas fa-times-circle me-1"></i>Cancelar Compra
                             </button>
-                            <button class="btn btn-sm btn-outline-primary"
-                                    onclick="buyAgain('${index}')"
-                                    title="Comprar novamente">
-                                <i class="fas fa-redo-alt me-1"></i>Comprar de novo
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -723,285 +1227,188 @@ function createPurchasedItemHtml(item, index, price, purchaseDate, deliveryStatu
 }
 
 // =============================================
-// DETERMINAR STATUS DE ENTREGA (PRINTFUL COMPLETO)
+// AUTO-ATUALIZAR STATUS DE PEDIDOS
 // =============================================
 
-/**
- * Printful delivery_status values stored in Firestore:
- *   processing    — payment approved, order queued
- *   printful_received — Printful acknowledged the order
- *   in_production — Printful is printing / assembling
- *   on_hold       — order on hold (needs action)
- *   shipped       — package dispatched, tracking available
- *   returned      — package returned to sender
- *   delivered     — confirmed delivered
- *   failed        — Printful could not fulfill
- *   cancelled     — order cancelled
- */
+async function autoRefreshAllOrderStatuses() {
+    const purchasedItems = JSON.parse(localStorage.getItem('purchasedItems') || '[]');
+    if (purchasedItems.length === 0) return;
+
+    const orderIds = [...new Set(
+        purchasedItems
+            .filter(item => {
+                if (!item.order_id) return false;
+                if (item.delivery_status === 'delivered') return false;
+                if (item.order_id.startsWith('TEST_')) return false;
+                if (item.order_id.startsWith('ORDER_')) return false;
+                if (item.order_id.startsWith('KAUARA-')) return false;
+                if (!/^\d+$/.test(item.order_id) && !item.dimona_order_id) return false;
+                return true;
+            })
+            .map(item => item.dimona_order_id || item.order_id)
+    )];
+    if (orderIds.length === 0) return;
+
+    console.log(`🔄 Auto-atualizando ${orderIds.length} pedido(s)...`);
+
+    let changed      = false;
+    let updatedItems = [...purchasedItems];
+
+    await Promise.all(orderIds.map(async orderId => {
+        try {
+            const response = await fetch(
+                `https://us-central1-kauara1.cloudfunctions.net/getDimonaOrderStatus?order_id=${orderId}`
+            );
+            if (response.status === 404) return;
+            if (!response.ok) return;
+            const data = await response.json();
+            if (!data.success) return;
+
+            updatedItems = updatedItems.map(item => {
+                if (item.order_id !== orderId) return item;
+                const newStatus = data.local_status || 'processing';
+                const newRaw    = data.dimona_status || null;
+                if (item.delivery_status === newStatus && item.dimona_raw_status === newRaw) return item;
+                changed = true;
+                return {
+                    ...item,
+                    delivery_status:    newStatus,
+                    dimona_raw_status:  newRaw                       || item.dimona_raw_status  || null,
+                    tracking_code:      data.tracking_code           || item.tracking_code      || null,
+                    tracking_url:       data.tracking_url            || item.tracking_url       || null,
+                    carrier:            data.carrier                 || item.carrier            || null,
+                    estimated_delivery: data.estimated_delivery      || item.estimated_delivery || null,
+                    last_refreshed:     new Date().toISOString()
+                };
+            });
+        } catch (err) {
+            console.warn(`⚠️ Auto-refresh falhou para pedido ${orderId}:`, err.message);
+        }
+    }));
+
+    if (changed) {
+        localStorage.setItem('purchasedItems', JSON.stringify(updatedItems));
+        await savePurchasedToFirestore(updatedItems);
+        renderCart();
+        console.log('✅ Status dos pedidos atualizados');
+    }
+}
+
 function getDeliveryStatus(item) {
-    const status = item.delivery_status || item.shipping_status || item.order_status || 'processing';
+    const rawFromDimona = item.dimona_raw_status ? item.dimona_raw_status.toLowerCase() : null;
+    const status = rawFromDimona || item.delivery_status || item.shipping_status || item.order_status || 'processing';
 
     const statusConfig = {
-        'processing': {
-            icon: 'fa-clock',
-            label: 'Processando',
-            color: 'info',
-            description: 'Pagamento aprovado, pedido em fila'
-        },
-        'printful_received': {
-            icon: 'fa-check',
-            label: 'Pedido Recebido',
-            color: 'info',
-            description: 'Printful recebeu seu pedido'
-        },
-        'in_production': {
-            icon: 'fa-print',
-            label: 'Em Produção',
-            color: 'warning',
-            description: 'Seu produto está sendo impresso'
-        },
-        'on_hold': {
-            icon: 'fa-pause-circle',
-            label: 'Em Espera',
-            color: 'warning',
-            description: 'Pedido pausado — aguardando ação'
-        },
-        'shipped': {
-            icon: 'fa-truck',
-            label: 'Enviado',
-            color: 'primary',
-            description: 'Produto a caminho!'
-        },
-        'returned': {
-            icon: 'fa-undo',
-            label: 'Devolvido',
-            color: 'danger',
-            description: 'Encomenda devolvida ao remetente'
-        },
-        'delivered': {
-            icon: 'fa-check-circle',
-            label: 'Entregue',
-            color: 'success',
-            description: 'Produto entregue com sucesso!'
-        },
-        'failed': {
-            icon: 'fa-exclamation-circle',
-            label: 'Falhou',
-            color: 'danger',
-            description: 'Problema na produção — entre em contato'
-        },
-        'cancelled': {
-            icon: 'fa-times-circle',
-            label: 'Cancelado',
-            color: 'danger',
-            description: 'Pedido cancelado'
-        }
+        'processing':    { icon: 'fa-clock',          label: 'Processando',  color: 'info',    description: 'Pagamento aprovado, pedido em fila' },
+        'in_production': { icon: 'fa-print',           label: 'Em Produção',  color: 'warning', description: 'Seu produto está sendo impresso e embalado' },
+        'shipped':       { icon: 'fa-truck',           label: 'Enviado',      color: 'primary', description: 'Produto a caminho!' },
+        'delivered':     { icon: 'fa-check-circle',    label: 'Entregue',     color: 'success', description: 'Produto entregue com sucesso!' },
+        'failed':        { icon: 'fa-exclamation-circle', label: 'Falhou',    color: 'danger',  description: 'Problema na produção — entre em contato' },
+        'cancelled':     { icon: 'fa-times-circle',    label: 'Cancelado',    color: 'danger',  description: 'Pedido cancelado' }
     };
 
-    // Normalize legacy/shopFunctions status values
     const normalizeMap = {
-        'printful_processing': 'in_production',
-        'printful_failed':     'failed',
-        'fulfilled':           'shipped',
-        'inprocess':           'in_production',
-        'onhold':              'on_hold',
-        'pending':             'processing',
-        'draft':               'processing',
-        'completed':           'delivered'
+        'dimona_processing':      'in_production',
+        'dimona_failed':          'failed',
+        'preparando aprovado':    'in_production',
+        'preparando envio':       'in_production',
+        'faturado':               'in_production',
+        'em produção':            'in_production',
+        'pronto para envio':      'in_production',
+        'enviado':                'shipped',
+        'em trânsito':            'shipped',
+        'entregue':               'delivered',
+        'cancelado':              'cancelled',
+        'pagamento não aprovado': 'failed',
+        'pending':                'processing',
+        'completed':              'delivered'
     };
 
-    const normalized = normalizeMap[status] || status;
-    const config = statusConfig[normalized] || statusConfig['processing'];
+    const normalized = normalizeMap[status.toLowerCase()] || normalizeMap[status] || status;
+    const config     = statusConfig[normalized] || statusConfig['processing'];
 
     return {
-        status: normalized,
-        icon: config.icon,
-        label: config.label,
-        color: config.color,
-        description: config.description,
-        tracking: item.tracking_code ? {
-            code: item.tracking_code,
-            url: item.tracking_url,
-            carrier: item.carrier
-        } : null,
-        holdReason: item.hold_reason || null,
+        status:           normalized,
+        icon:             config.icon,
+        label:            config.label,
+        color:            config.color,
+        description:      config.description,
+        tracking:         item.tracking_code ? { code: item.tracking_code, url: item.tracking_url, carrier: item.carrier } : null,
         estimatedDelivery: item.estimated_delivery || null,
-        shipDate: item.ship_date || null
+        shipDate:         item.ship_date || null
     };
 }
 
-// =============================================
-// ATUALIZAR STATUS DO PEDIDO (FETCH DO FIRESTORE)
-// =============================================
-
 async function refreshOrderStatus(orderId, itemIndex) {
     const btn = document.querySelector(`[data-refresh="${orderId}"]`);
-    if (btn) {
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        btn.disabled = true;
-    }
+    if (btn) { btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; btn.disabled = true; }
 
     try {
         const response = await fetch(
-            `https://us-central1-kauara1.cloudfunctions.net/getPrintfulOrderStatus?order_id=${orderId}`
+            `https://us-central1-kauara1.cloudfunctions.net/getDimonaOrderStatus?order_id=${orderId}`
         );
         const data = await response.json();
-
         if (!data.success) throw new Error(data.error || 'Falha ao buscar status');
 
-        const pData = data.printful_data || {};
-        const localStatus = data.local_status;
-        const printfulStatus = data.printful_status;
-
-        // Map Printful status → delivery_status
-        const statusMap = {
-            'draft':     'processing',
-            'pending':   'processing',
-            'onhold':    'on_hold',
-            'inprocess': 'in_production',
-            'partial':   'in_production',
-            'fulfilled': 'shipped',
-            'cancelled': 'cancelled',
-            'failed':    'failed'
-        };
-        const deliveryStatus = statusMap[printfulStatus] || localStatus || 'processing';
-
-        // FIX: full fallback chain for tracking — matches what the webhook saves
-        const shipments = pData.shipments || [];
-        const firstShipment = shipments[0] || {};
-
-        const trackingCode = firstShipment.tracking_number || null;
-        const trackingUrl  = firstShipment.tracking_url    || null;
-        const carrier      = firstShipment.carrier         || null;
-        const shipDate     = firstShipment.ship_date       || null;
-
-        // FIX: same fallback chain as the webhook (max → min → plain)
-        const estimatedDelivery =
-            firstShipment.estimated_delivery_max ||
-            firstShipment.estimated_delivery_min ||
-            firstShipment.estimated_delivery     ||
-            null;
-
-        // Update localStorage
         let purchasedItems = JSON.parse(localStorage.getItem('purchasedItems') || '[]');
-        let updated = false;
+        let updated        = false;
 
         purchasedItems = purchasedItems.map(item => {
             if (item.order_id !== orderId) return item;
             updated = true;
             return {
                 ...item,
-                delivery_status:       deliveryStatus,
-                printful_order_status: printfulStatus,
-                // Only overwrite tracking fields if Printful returned new data
-                tracking_code:      trackingCode  || item.tracking_code      || null,
-                tracking_url:       trackingUrl   || item.tracking_url       || null,
-                carrier:            carrier       || item.carrier            || null,
-                ship_date:          shipDate      || item.ship_date          || null,
-                estimated_delivery: estimatedDelivery || item.estimated_delivery || null,
-                last_refreshed: new Date().toISOString()
+                delivery_status:    data.local_status        || 'processing',
+                dimona_raw_status:  data.dimona_status        || item.dimona_raw_status || null,
+                tracking_code:      data.tracking_code        || item.tracking_code     || null,
+                tracking_url:       data.tracking_url         || item.tracking_url      || null,
+                carrier:            data.carrier              || item.carrier           || null,
+                estimated_delivery: data.estimated_delivery   || item.estimated_delivery || null,
+                last_refreshed:     new Date().toISOString()
             };
         });
 
         if (updated) {
             localStorage.setItem('purchasedItems', JSON.stringify(purchasedItems));
+            await savePurchasedToFirestore(purchasedItems);
             renderCart();
             showToast('✅ Status atualizado!', 'success');
         } else {
             showToast('ℹ️ Nenhuma alteração encontrada', 'info');
         }
-
     } catch (error) {
         console.error('Erro ao atualizar status:', error);
         showToast('❌ Não foi possível atualizar o status', 'error');
     } finally {
-        // Always restore the button whether it succeeded or failed
-        if (btn) {
-            btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i>Atualizar';
-            btn.disabled = false;
-        }
+        if (btn) { btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i>Atualizar'; btn.disabled = false; }
     }
 }
-
-// =============================================
-// COMPRAR NOVAMENTE
-// =============================================
-
-function buyAgain(itemIndex) {
-    const purchasedItems = JSON.parse(localStorage.getItem('purchasedItems') || '[]');
-    
-    if (itemIndex < 0 || itemIndex >= purchasedItems.length) {
-        showToast('Item não encontrado', 'error');
-        return;
-    }
-    
-    const item = purchasedItems[itemIndex];
-    
-    // Remover informações de compra
-    const newCartItem = { ...item };
-    delete newCartItem.purchased_at;
-    delete newCartItem.order_id;
-    delete newCartItem.payment_id;
-    delete newCartItem.purchase_status;
-    delete newCartItem.delivery_status;
-    
-    // Adicionar ao carrinho
-    let cart = JSON.parse(localStorage.getItem('cart') || '[]');
-    cart.push(newCartItem);
-    localStorage.setItem('cart', JSON.stringify(cart));
-    
-    showToast('✅ Produto adicionado ao carrinho novamente!', 'success');
-    
-    // Re-renderizar
-    renderCart();
-}
-
-// =============================================
-// VER DETALHES DA COMPRA
-// =============================================
 
 function viewPurchaseDetails(orderId, productId) {
-    if (!orderId) {
-        showToast('Detalhes da compra não disponíveis', 'info');
-        return;
-    }
-    
-    // Abrir modal com detalhes ou redirecionar
+    if (!orderId) { showToast('Detalhes da compra não disponíveis', 'info'); return; }
     window.location.href = `order-details.html?order_id=${orderId}&product_id=${productId}`;
 }
 
-// =============================================
-// LIMPAR HISTÓRICO DE COMPRAS
-// =============================================
-
-function clearPurchaseHistory() {
-    if (!confirm('Tem certeza que deseja limpar todo o histórico de compras?')) {
-        return;
-    }
-    
+async function clearPurchaseHistory() {
+    if (!confirm('Tem certeza que deseja limpar todo o histórico de compras?')) return;
     localStorage.removeItem('purchasedItems');
+    await savePurchasedToFirestore([]);
     renderCart();
     showToast('Histórico de compras limpo!', 'info');
 }
 
-// =============================================
-// ATUALIZAR CONTADORES
-// =============================================
-
 function updateCartCounters(cartCount, purchasedCount) {
-    // Header badge and active section badge
-    const cartCountEl      = document.getElementById('cartCount');
-    const activeCartCountEl = document.getElementById('activeCartCount');
-    if (cartCountEl)       cartCountEl.textContent       = cartCount;
-    if (activeCartCountEl) activeCartCountEl.textContent = cartCount;
+    const ids = {
+        cartCount:           cartCount,
+        activeCartCount:     cartCount,
+        purchasedCount:      purchasedCount,
+        totalPurchasedCount: purchasedCount
+    };
+    Object.entries(ids).forEach(([id, val]) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+    });
 
-    // Purchased section badge and sidebar summary count
-    const purchasedCountEl      = document.getElementById('purchasedCount');
-    const totalPurchasedCountEl = document.getElementById('totalPurchasedCount');
-    if (purchasedCountEl)       purchasedCountEl.textContent      = purchasedCount;
-    if (totalPurchasedCountEl)  totalPurchasedCountEl.textContent = purchasedCount;
-
-    // Update sidebar purchase total value
     const purchaseSummary = document.getElementById('purchaseSummary');
     if (purchaseSummary) {
         purchaseSummary.style.display = purchasedCount > 0 ? 'block' : 'none';
@@ -1009,103 +1416,87 @@ function updateCartCounters(cartCount, purchasedCount) {
             const purchasedItems = JSON.parse(localStorage.getItem('purchasedItems') || '[]');
             let total = 0;
             purchasedItems.forEach(item => {
-                if (item.pricing?.total_price) total += parseFloat(item.pricing.total_price);
+                if (item.pricing?.total_price)      total += parseFloat(item.pricing.total_price);
                 else if (item.selectedVariant?.price) total += parseFloat(item.selectedVariant.price);
             });
-            const totalPurchasedValueEl = document.getElementById('totalPurchasedValue');
-            if (totalPurchasedValueEl) totalPurchasedValueEl.textContent = formatCurrency(total);
+            const el = document.getElementById('totalPurchasedValue');
+            if (el) el.textContent = formatCurrency(total);
         }
     }
 }
 
-// =============================================
-// REMOVER DO CARRINHO
-// =============================================
-
-function removeFromCart(index) {
-    if (!confirm('Tem certeza que deseja remover este item do carrinho?')) {
-        return;
-    }
-    
+async function removeFromCart(index) {
+    if (!confirm('Tem certeza que deseja remover este item do carrinho?')) return;
     let cart = JSON.parse(localStorage.getItem('cart') || '[]');
+    const removedItem = cart[index];
     cart.splice(index, 1);
     localStorage.setItem('cart', JSON.stringify(cart));
-    
+
+    try {
+        const uid = await getCurrentUserId();
+        const db  = _db();
+        if (uid && db && removedItem) {
+            await db.collection('users').doc(uid)
+                .collection('cart').doc(_cartKey(removedItem))
+                .delete();
+            console.log('Item removido do Firestore:', _cartKey(removedItem));
+        }
+    } catch (err) {
+        console.warn('Erro ao remover item do Firestore:', err.message);
+    }
+
     renderCart();
     showToast('Item removido do carrinho!', 'warning');
 }
 
-// =============================================
-// LIMPAR CARRINHO
-// =============================================
-
-function clearCart() {
-    if (!confirm('Tem certeza que deseja esvaziar todo o carrinho?')) {
-        return;
-    }
-    
+async function clearCart() {
+    if (!confirm('Tem certeza que deseja esvaziar todo o carrinho?')) return;
     localStorage.removeItem('cart');
+    await saveCartToFirestore([]);
     renderCart();
     showToast('Carrinho esvaziado!', 'info');
 }
 
-// =============================================
-// ATUALIZAR TOTAIS
-// =============================================
+async function cancelPurchase(orderId, index) {
+    if (!confirm('Tem certeza que deseja cancelar esta compra? Entre em contato com o suporte para reembolsos.')) return;
+    let purchasedItems = JSON.parse(localStorage.getItem('purchasedItems') || '[]');
+    purchasedItems = purchasedItems.filter((_, i) => i !== index);
+    localStorage.setItem('purchasedItems', JSON.stringify(purchasedItems));
+    await savePurchasedToFirestore(purchasedItems);
+    renderCart();
+    showToast('Compra removida do histórico. Contate o suporte para cancelamentos oficiais.', 'warning');
+}
 
 function updateTotals(total) {
     const formatted = formatCurrency(total);
     const subtotalEl = document.getElementById('subtotalValue');
-    const totalEl = document.getElementById('totalValue');
-    
+    const totalEl    = document.getElementById('totalValue');
     if (subtotalEl) subtotalEl.textContent = formatted;
-    if (totalEl) totalEl.textContent = formatted;
-    
+    if (totalEl)    totalEl.textContent    = formatted;
     const shippingSection = document.getElementById('shippingSection');
-    if (shippingSection) {
-        shippingSection.style.display = 'none';
-    }
+    if (shippingSection) shippingSection.style.display = 'none';
 }
-
-// =============================================
-// CALCULAR TOTAL DO CARRINHO
-// =============================================
 
 function calculateCartTotal(cart) {
-    let total = 0;
-    cart.forEach(item => {
-        if (item.pricing && item.pricing.total_price) {
-            total += parseFloat(item.pricing.total_price);
-        } else if (item.selectedVariant && item.selectedVariant.price) {
-            total += parseFloat(item.selectedVariant.price);
-        }
-    });
-    return total;
+    return cart.reduce((total, item) => {
+        if (item.pricing?.total_price)      return total + parseFloat(item.pricing.total_price);
+        if (item.selectedVariant?.price)    return total + parseFloat(item.selectedVariant.price);
+        return total;
+    }, 0);
 }
-
-// =============================================
-// FORMATAR MOEDA
-// =============================================
 
 function formatCurrency(value) {
     return new Intl.NumberFormat('pt-BR', {
-        style: 'currency',
-        currency: 'BRL',
-        minimumFractionDigits: 2
+        style: 'currency', currency: 'BRL', minimumFractionDigits: 2
     }).format(value || 0);
 }
 
-// =============================================
-// MOSTRAR TOAST
-// =============================================
-
 function showToast(message, type = 'info') {
     const toastId = 'cartToast_' + Date.now();
-    const bgColor = type === 'success' ? 'success' : 
-                    type === 'warning' ? 'warning' : 
-                    type === 'error' ? 'danger' : 'info';
-    
-    const toastHtml = `
+    const bgColor = type === 'success' ? 'success' :
+                    type === 'warning' ? 'warning' :
+                    type === 'error'   ? 'danger'  : 'info';
+    document.body.insertAdjacentHTML('beforeend', `
         <div class="position-fixed top-0 end-0 p-3" style="z-index: 1060">
             <div id="${toastId}" class="toast align-items-center text-white bg-${bgColor} border-0" role="alert">
                 <div class="d-flex">
@@ -1113,40 +1504,13 @@ function showToast(message, type = 'info') {
                     <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
                 </div>
             </div>
-        </div>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', toastHtml);
-    
+        </div>`);
     const toastElement = document.getElementById(toastId);
     if (toastElement) {
-        const toast = new bootstrap.Toast(toastElement);
-        toast.show();
-        
-        setTimeout(() => {
-            toastElement.remove();
-        }, 3000);
+        new bootstrap.Toast(toastElement).show();
+        setTimeout(() => toastElement.remove(), 3000);
     }
 }
-
-// =============================================
-// CANCELAR COMPRA
-// =============================================
-
-function cancelPurchase(orderId, index) {
-    if (!confirm('Tem certeza que deseja cancelar esta compra? Entre em contato com o suporte para reembolsos.')) return;
-
-    let purchasedItems = JSON.parse(localStorage.getItem('purchasedItems') || '[]');
-    purchasedItems = purchasedItems.filter((_, i) => i !== index);
-    localStorage.setItem('purchasedItems', JSON.stringify(purchasedItems));
-
-    renderCart();
-    showToast('Compra removida do histórico. Contate o suporte para cancelamentos oficiais.', 'warning');
-}
-
-// =============================================
-// SHOW LOADING OVERLAY
-// =============================================
 
 function showLoading(show) {
     const existingOverlay = document.getElementById('checkoutLoading');
@@ -1166,17 +1530,12 @@ function showLoading(show) {
     }
 }
 
-// Exportar funções para o console (para debugging)
-window.testMoveToPurchased = function() {
+window.testMoveToPurchased = function () {
     const cart = JSON.parse(localStorage.getItem('cart') || '[]');
-    if (cart.length === 0) {
-        alert('Carrinho vazio');
-        return;
-    }
-    
+    if (cart.length === 0) { alert('Carrinho vazio'); return; }
     moveCartToPurchased(cart, {
-        order_id: 'TEST_' + Date.now(),
+        order_id:   'TEST_' + Date.now(),
         payment_id: 'TEST_PAYMENT',
-        date: new Date().toISOString()
+        date:       new Date().toISOString()
     });
 };

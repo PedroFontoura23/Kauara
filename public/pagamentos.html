@@ -1,23 +1,15 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="
-        default-src 'self';
-        script-src 'self' https://cdn.jsdelivr.net https://www.gstatic.com https://cdnjs.cloudflare.com https://viacep.com.br 'unsafe-inline';
-        style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com 'unsafe-inline';
-        img-src 'self' data: https:;
-        font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com;
-        connect-src 'self' https://us-central1-kauara1.cloudfunctions.net https://viacep.com.br https://cdn.jsdelivr.net https://www.gstatic.com;
-    ">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://www.gstatic.com https://cdnjs.cloudflare.com https://www.mercadopago.com https://secure.mlstatic.com https://sdk.mercadopago.com https://http2.mlstatic.com https://www.mercadopago.com.br https://mercadopago.com.br https://www.mercadolibre.com https://mercadolibre.com 'unsafe-inline'; style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline'; style-src-elem 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline'; font-src 'self' https://cdnjs.cloudflare.com; img-src 'self' data: https:; connect-src 'self' https://us-central1-kauara1.cloudfunctions.net https://viacep.com.br https://www.gstatic.com https://cdn.jsdelivr.net https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebase.googleapis.com https://www.googleapis.com https://firestore.googleapis.com https://firebasestorage.googleapis.com wss://firestore.googleapis.com https://api.mercadopago.com https://api.mercadolibre.com https://events.mercadopago.com https://www.mercadolibre.com;">
     <title>Finalizar Compra — Kauara</title>
+    
+    <!-- Load CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    
     <style>
         :root {
             --ink:      #111111;
@@ -36,20 +28,19 @@
 
         body {
             background: var(--bg);
-            font-family: 'DM Sans', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             color: var(--ink);
             font-size: 0.925rem;
             line-height: 1.55;
         }
 
-        /* ── page header ── */
         .page-header {
             padding: 2rem 0 1.6rem;
             border-bottom: 1px solid var(--border);
             margin-bottom: 2rem;
         }
         .page-header h1 {
-            font-family: 'Syne', sans-serif;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
             font-size: 1.65rem;
             font-weight: 800;
             letter-spacing: -0.025em;
@@ -71,7 +62,6 @@
             margin-top: 0.5rem;
         }
 
-        /* ── card ── */
         .k-card {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -88,7 +78,7 @@
             background: #FAFAF8;
         }
         .k-card-head h5 {
-            font-family: 'Syne', sans-serif;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
             font-size: 0.78rem;
             font-weight: 700;
             letter-spacing: 0.08em;
@@ -107,7 +97,6 @@
         }
         .k-card-body { padding: 1.2rem; }
 
-        /* ── product items ── */
         .product-item {
             display: flex;
             align-items: center;
@@ -139,7 +128,7 @@
             margin-top: 3px;
         }
         .product-item .pi-price {
-            font-family: 'Syne', sans-serif;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
             font-weight: 700;
             font-size: 0.97rem;
             white-space: nowrap;
@@ -154,7 +143,6 @@
         }
         .pi-designer { font-size: 0.73rem; color: var(--muted); }
 
-        /* ── price breakdown rows ── */
         .bd-row {
             display: flex;
             justify-content: space-between;
@@ -165,7 +153,6 @@
         .bd-row .bd-label { color: var(--muted); }
         .bd-row .bd-val   { font-weight: 500; }
 
-        /* platform fee — visually quieter */
         .bd-row.bd-small {
             font-size: 0.78rem;
             opacity: 0.7;
@@ -183,27 +170,21 @@
             margin: 10px 0 8px;
         }
 
-        /* subtotal row */
         .bd-row.bd-subtotal .bd-label { font-weight: 600; color: var(--ink); }
-
-        /* shipping row */
         .bd-row.bd-shipping .bd-label { color: var(--ink); font-weight: 500; }
-
-        /* total row */
         .bd-row.bd-total { padding: 6px 0 2px; }
         .bd-row.bd-total .bd-label {
-            font-family: 'Syne', sans-serif;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
             font-weight: 700;
             font-size: 1rem;
         }
         .bd-row.bd-total .bd-val {
-            font-family: 'Syne', sans-serif;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
             font-weight: 800;
             font-size: 1.3rem;
             color: var(--accent);
         }
 
-        /* shipping status pulse dot */
         .shipping-state {
             display: flex;
             align-items: center;
@@ -236,14 +217,12 @@
         }
         #shippingBreakdown.visible { display: block; }
 
-        /* ── sticky summary ── */
         @media (min-width: 992px) {
             .summary-sticky { position: sticky; top: 1.5rem; }
         }
 
-        /* ── form ── */
         .form-section-label {
-            font-family: 'Syne', sans-serif;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
             font-size: 0.7rem;
             font-weight: 700;
             letter-spacing: 0.1em;
@@ -264,7 +243,7 @@
         .form-control, .form-select {
             border: 1.5px solid var(--border);
             border-radius: 8px;
-            font-family: 'DM Sans', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             font-size: 0.9rem;
             padding: 0.5rem 0.75rem;
             background: #FAFAF8;
@@ -283,7 +262,6 @@
             min-height: 1em;
         }
 
-        /* ── buttons ── */
         .btn-pay {
             width: 100%;
             background: var(--ink);
@@ -291,7 +269,7 @@
             border: none;
             border-radius: 10px;
             padding: 0.875rem 1.25rem;
-            font-family: 'Syne', sans-serif;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
             font-weight: 700;
             font-size: 1rem;
             letter-spacing: .02em;
@@ -310,7 +288,7 @@
             border: 1.5px solid var(--border);
             border-radius: 10px;
             padding: .65rem 1.25rem;
-            font-family: 'DM Sans', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             font-size: .88rem;
             font-weight: 500;
             cursor: pointer;
@@ -319,7 +297,6 @@
         }
         .btn-back:hover { border-color: var(--ink); color: var(--ink); }
 
-        /* ── payment badges ── */
         .pm-row { display: flex; gap: 7px; flex-wrap: wrap; margin-top: .6rem; }
         .pm-badge {
             display: flex; align-items: center; gap: 5px;
@@ -332,14 +309,12 @@
             color: #444;
         }
 
-        /* ── terms ── */
         .terms-check .form-check-input:checked {
             background-color: var(--ink);
             border-color: var(--ink);
         }
         .terms-check a { color: var(--ink); font-weight: 600; }
 
-        /* ── loading overlay ── */
         #loadingOverlay {
             position: fixed; inset: 0;
             background: rgba(244,242,238,.92);
@@ -361,7 +336,7 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
         #loadingOverlay p {
-            font-family: 'Syne', sans-serif;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
             font-weight: 700;
             font-size: .95rem;
             margin: 0;
@@ -372,12 +347,40 @@
             display: flex; align-items: center; justify-content: center; gap: 5px;
             font-size: .73rem; color: var(--muted); margin-top: .7rem;
         }
+
+        #shippingSection {
+            display: none;
+            margin-top: 1rem;
+        }
+        .shipping-option {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: border-color .15s, background .15s;
+            background: #FAFAF8;
+            margin-bottom: 8px;
+        }
+        .shipping-option:hover { border-color: #999; }
+        .shipping-option.selected { border-color: var(--accent); background: #f0f5ff; }
+        .shipping-option .form-check-input { flex-shrink: 0; cursor: pointer; }
+        .shipping-option .so-name { font-weight: 600; font-size: 0.87rem; flex: 1; }
+        .shipping-option .so-days { font-size: 0.73rem; color: var(--muted); margin-top: 1px; }
+        .shipping-option .so-price {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: var(--accent);
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
 <div class="container" style="max-width:1060px;">
 
-    <!-- ── Page Header ── -->
     <div class="page-header">
         <h1>Finalizar Compra</h1>
         <p class="sub">Revise seu pedido e preencha seus dados para concluir</p>
@@ -389,11 +392,9 @@
 
     <div class="row g-4 pb-5">
 
-        <!-- ══ LEFT — Order Summary ══ -->
         <div class="col-lg-5">
             <div class="summary-sticky">
 
-                <!-- Products card -->
                 <div class="k-card mb-3">
                     <div class="k-card-head">
                         <div class="k-icon"><i class="fas fa-bag-shopping"></i></div>
@@ -401,82 +402,42 @@
                         <span id="cartCountBadge"
                               style="font-size:.71rem;font-weight:600;background:#EFEDE9;border:1px solid var(--border);border-radius:99px;padding:1px 9px;"></span>
                     </div>
-                    <div class="k-card-body" id="productsContainer">
-                        <!-- injetado pelo JS -->
-                    </div>
+                    <div class="k-card-body" id="productsContainer"></div>
                 </div>
 
-                <!-- Price breakdown card -->
                 <div class="k-card">
                     <div class="k-card-head">
                         <div class="k-icon"><i class="fas fa-receipt"></i></div>
                         <h5>Resumo do Pagamento</h5>
                     </div>
                     <div class="k-card-body">
-
-                        <!--
-                            Layout lógico:
-                            Produto(s)          = custo base Printful (product_price)
-                            Arte do designer    = artist_cut (só aparece se > 0)
-                            Taxa plataforma 5%  = platform_fee (discreta, só aparece se > 0)
-                            ─────────────────
-                            Subtotal            = soma dos três acima
-                            Frete               = calculado pela cloud function
-                            ═════════════════
-                            Total               = subtotal + frete
-                        -->
-
-                        <div class="bd-row">
-                            <span class="bd-label">Produto(s)</span>
-                            <span class="bd-val" id="productPrice">—</span>
-                        </div>
-
-                        <!-- Shown only when artist_cut > 0 -->
-                        <div class="bd-row" id="artistCutRow" style="display:none;">
-                            <span class="bd-label">Arte do designer</span>
-                            <span class="bd-val" id="artistMarkup">—</span>
-                        </div>
-
-                        <!-- Shown only when platform_fee > 0 — visually quieter -->
-                        <div class="bd-row bd-small" id="platformFeeRow" style="display:none;">
-                            <span class="bd-label">Taxa da plataforma (5%)</span>
-                            <span class="bd-val" id="platformFee">—</span>
-                        </div>
-
                         <hr class="bd-sep">
-
                         <div class="bd-row bd-subtotal">
                             <span class="bd-label">Subtotal</span>
                             <span class="bd-val" id="subtotalPrice">—</span>
                         </div>
-
                         <div class="bd-row bd-shipping" style="margin-top:4px;">
                             <span class="bd-label">
                                 <i class="fas fa-truck me-1" style="font-size:.78rem;opacity:.7;"></i>Frete
                             </span>
                             <span class="bd-val" id="shippingPrice">—</span>
                         </div>
-
                         <div class="shipping-state" id="shippingState">
                             <span class="s-dot" id="shippingDot"></span>
-                            <span id="shippingStatusText">Calculando frete automaticamente…</span>
+                            <span id="shippingStatusText">Preencha o CEP para calcular</span>
                         </div>
                         <div id="shippingBreakdown"></div>
-
                         <hr class="bd-sep-solid">
-
                         <div class="bd-row bd-total">
                             <span class="bd-label">Total</span>
                             <span class="bd-val" id="totalPrice">—</span>
                         </div>
-
                     </div>
                 </div>
 
             </div>
         </div>
 
-        <!-- ══ RIGHT — Checkout Form ══ -->
         <div class="col-lg-7">
             <div class="k-card">
                 <div class="k-card-head">
@@ -592,6 +553,11 @@
                             </div>
                         </div>
 
+                        <div id="shippingSection">
+                            <div class="form-section-label">Opções de Entrega</div>
+                            <div id="shippingOptionsContainer"></div>
+                        </div>
+
                         <div class="form-section-label">Pagamento</div>
 
                         <p style="font-size:.85rem;color:#666;margin-bottom:.5rem;">
@@ -637,17 +603,25 @@
     </div>
 </div>
 
-<!-- Loading Overlay -->
 <div id="loadingOverlay">
     <div class="ld-spinner"></div>
     <p>Preparando seu pedido…</p>
     <small>Aguarde um momento</small>
 </div>
 
+<!-- Scripts - Order matters! -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Firebase Scripts -->
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-<script src="/javascript/pagamentos.js?v=3.0"></script>
+
+<!-- Shared Firebase initialization (contains firebaseConfig and initializeApp) -->
+<script src="/javascript/shared-firebase-init.js"></script>
+
+<!-- Main checkout script -->
+<script src="/javascript/pagamentos.js?v=3.3"></script>
+
 </body>
 </html>

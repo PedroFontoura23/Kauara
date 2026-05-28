@@ -46,8 +46,12 @@ console.log("shared-comments.js loaded!");
 
 window.SharedCommentsManager = class SharedCommentsManager {
 
-    static MAX_COMMENT_LENGTH = 500;
-    static PAGE_SIZE          = 8;
+    static MAX_COMMENT_LENGTH    = 500;
+    static PAGE_SIZE             = 8;
+    static MAX_IMAGE_BYTES       = 1.5 * 1024 * 1024; // 1.5 MB cap after compression
+    static COMMENT_IMAGE_WIDTH   = 800;               // max output width (px)
+    static COMMENT_IMAGE_HEIGHT  = 600;               // max output height (px)
+    static COMMENT_IMAGE_DISPLAY = 240;               // fixed display height (px)
 
     /**
      * @param {firebase.firestore.Firestore} db
@@ -66,6 +70,9 @@ window.SharedCommentsManager = class SharedCommentsManager {
 
         // In-flight submission guard
         this._submitting        = false;
+
+        // ID of the comment we just posted — used to scroll-to after onSnapshot fires
+        this._pendingScrollId   = null;
 
         // Resolved Firestore user ID for the current user.
         this._currentUserId     = null;
@@ -91,22 +98,23 @@ window.SharedCommentsManager = class SharedCommentsManager {
     // ─────────────────────────────────────────────
 
     /**
-     * Submit a new comment.
+     * Submit a new comment, optionally with an image.
      *
-     * @param {string}      contentId         - Firestore ID of the parent content item.
-     * @param {HTMLInputElement} commentInput  - The text input element.
-     * @param {HTMLElement} commentsContainer  - The container for displaying comments.
-     * @param {object}      config            - See CONFIG above.
-     * @param {Function}    [getCurrentUser]  - Optional async function returning { firestoreUserId }.
+     * @param {string}          contentId
+     * @param {HTMLInputElement} commentInput
+     * @param {HTMLElement}     commentsContainer
+     * @param {object}          config
+     * @param {Function}        [getCurrentUser]
+     * @param {File|null}       [imageFile]       - Optional image file to attach.
      */
-    async submitComment(contentId, commentInput, commentsContainer, config, getCurrentUser = null) {
+    async submitComment(contentId, commentInput, commentsContainer, config, getCurrentUser = null, imageFile = null) {
         if (this._submitting) return;
         this._submitting = true;
 
         const rawText = commentInput?.value?.trim() ?? "";
 
-        if (!rawText) {
-            alert("Please enter a comment.");
+        if (!rawText && !imageFile) {
+            alert("Please enter a comment or attach an image.");
             this._submitting = false;
             return;
         }
@@ -132,22 +140,49 @@ window.SharedCommentsManager = class SharedCommentsManager {
         }
 
         try {
+            let imageData = null;
+            if (imageFile) {
+                try {
+                    imageData = await this._compressImage(imageFile);
+                } catch (imgErr) {
+                    alert(imgErr.message || "Failed to process image. Please try a different file.");
+                    this._submitting = false;
+                    if (submitButton) {
+                        commentInput.disabled    = false;
+                        submitButton.disabled    = false;
+                        submitButton.textContent = "Post";
+                    }
+                    return;
+                }
+            }
+
             const commentData = {
-                [config.userIdField]:   userId,
+                [config.userIdField]:    userId,
                 [config.contentIdField]: contentId,
-                content:                rawText,
-                timestamp:              firebase.firestore.FieldValue.serverTimestamp(),
-                likes_count:            0,
-                reports_count:          0,
-                reports:                {}
+                content:                 rawText,
+                timestamp:               firebase.firestore.FieldValue.serverTimestamp(),
+                likes_count:             0,
+                reports_count:           0,
+                reports:                 {}
             };
+            if (imageData) commentData.imageData = imageData;
 
-            await this.db.collection(config.commentsCollection).add(commentData);
+            const docRef = await this.db.collection(config.commentsCollection).add(commentData);
+            this._pendingScrollId = docRef.id;
 
-            // Send notification to content owner (if not self)
-            await this._sendCommentNotification(contentId, userId, rawText, config);
+            await this._sendCommentNotification(contentId, userId, rawText || "📷 Image", config);
 
             commentInput.value = "";
+            // Reset image preview without destroying the element
+            const inputContainer = commentsContainer?.parentElement;
+            if (inputContainer) {
+                const preview   = inputContainer.querySelector('.comment-img-preview');
+                const fileInput = inputContainer.querySelector('.comment-img-input');
+                const thumb     = inputContainer.querySelector('.comment-img-preview-thumb');
+                if (preview)   { preview.style.display = 'none'; }
+                if (thumb)     { thumb.src = ''; }
+                if (fileInput) { fileInput.value = ''; }
+            }
             this._showSuccess(commentsContainer, "Comment added!");
         } catch (error) {
             console.error("[SharedCommentsManager] submitComment error:", error);
@@ -160,6 +195,197 @@ window.SharedCommentsManager = class SharedCommentsManager {
             }
             this._submitting = false;
         }
+    }
+
+    // ─────────────────────────────────────────────
+    //  RENDER COMMENT INPUT
+    // ─────────────────────────────────────────────
+
+    /**
+     * Build and inject a comment input row (text + image attach + post button)
+     * into `container`, then wire up all events.
+     *
+     * Replaces any hand-rolled .input-group inside `container`.
+     *
+     * @param {HTMLElement} container     - The .comment-input-container element.
+     * @param {string}      contentId
+     * @param {HTMLElement} commentsContainer
+     * @param {object}      config
+     * @param {Function}    [getCurrentUser]
+     */
+    renderCommentInput(container, contentId, commentsContainer, config, getCurrentUser = null) {
+        container.innerHTML = `
+            <div class="input-group">
+                <input type="text" class="form-control comment-input"
+                       placeholder="Write a comment..."
+                       style="font-size:16px;min-height:44px;">
+                <label class="btn btn-outline-secondary comment-img-btn" title="Attach image"
+                       style="min-height:44px;padding:8px 12px;cursor:pointer;display:flex;align-items:center;">
+                    <i class="fas fa-image"></i>
+                    <input type="file" class="comment-img-input" accept="image/*"
+                           style="display:none;" aria-label="Attach image">
+                </label>
+                <button class="btn btn-outline-primary comment-submit"
+                        style="min-height:44px;padding:8px 14px;">Post</button>
+            </div>
+            <div class="comment-img-preview" style="display:none;margin-top:8px;">
+                <div style="
+                    position:relative;
+                    display:inline-block;
+                    border-radius:10px;
+                    overflow:hidden;
+                    border:1.5px solid #dee2e6;
+                    background:#f8f9fa;
+                    max-width:220px;
+                ">
+                    <img class="comment-img-preview-thumb"
+                         style="display:block;width:220px;height:140px;object-fit:cover;">
+                    <div style="
+                        padding:6px 10px;
+                        display:flex;
+                        align-items:center;
+                        justify-content:space-between;
+                        gap:8px;
+                        background:#fff;
+                        border-top:1px solid #dee2e6;
+                    ">
+                        <div style="min-width:0;">
+                            <div class="comment-img-preview-name"
+                                 style="font-size:0.78rem;font-weight:500;color:#212529;
+                                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+                                        max-width:150px;"></div>
+                            <div class="comment-img-preview-size"
+                                 style="font-size:0.72rem;color:#6c757d;"></div>
+                        </div>
+                        <button class="comment-img-clear"
+                                title="Remove image"
+                                style="background:none;border:none;padding:2px;cursor:pointer;
+                                       color:#adb5bd;line-height:1;flex-shrink:0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+                                 fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                                <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+
+        const commentInput = container.querySelector('.comment-input');
+        const submitBtn    = container.querySelector('.comment-submit');
+        const imgInput     = container.querySelector('.comment-img-input');
+        const imgPreview   = container.querySelector('.comment-img-preview');
+        const imgThumb     = container.querySelector('.comment-img-preview-thumb');
+        const imgName      = container.querySelector('.comment-img-preview-name');
+        const imgSize      = container.querySelector('.comment-img-preview-size');
+        const imgClear     = container.querySelector('.comment-img-clear');
+
+        const showPreview = (file) => {
+            imgName.textContent = file.name;
+            imgSize.textContent = file.size > 1024 * 1024
+                ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+                : `${Math.round(file.size / 1024)} KB`;
+            const reader = new FileReader();
+            reader.onload = e => {
+                imgThumb.src = e.target.result;
+                imgPreview.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        };
+
+        const clearPreview = () => {
+            imgInput.value   = '';
+            imgThumb.src     = '';
+            imgPreview.style.display = 'none';
+        };
+
+        imgInput.addEventListener('change', () => {
+            const file = imgInput.files?.[0];
+            if (file) showPreview(file);
+        });
+
+        imgClear.addEventListener('click', clearPreview);
+
+        const doSubmit = () => {
+            const imageFile = imgInput.files?.[0] || null;
+            this.submitComment(contentId, commentInput, commentsContainer, config, getCurrentUser, imageFile);
+        };
+        submitBtn.addEventListener('click', doSubmit);
+        commentInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); doSubmit(); }
+        });
+    }
+
+    // ─────────────────────────────────────────────
+    //  COMPRESS IMAGE
+    // ─────────────────────────────────────────────
+
+    /**
+     * Resize and compress an image File to a safe base64 JPEG string.
+     * - Scales down to fit within COMMENT_IMAGE_WIDTH × COMMENT_IMAGE_HEIGHT.
+     * - Small images are scaled UP to fill that box.
+     * - Output is capped at MAX_IMAGE_BYTES; quality is reduced iteratively if needed.
+     * - Rejects non-image files and files that cannot be compressed small enough.
+     *
+     * @param {File} file
+     * @returns {Promise<string>} base64 JPEG data URL string (without the data: prefix)
+     */
+    _compressImage(file) {
+        return new Promise((resolve, reject) => {
+            if (!file.type.startsWith('image/')) {
+                return reject(new Error("Only image files are allowed."));
+            }
+
+            // Hard-reject files larger than 50 MB before even reading them
+            if (file.size > 50 * 1024 * 1024) {
+                return reject(new Error("Image is too large (max 50 MB input)."));
+            }
+
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error("Failed to read image file."));
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onerror = () => reject(new Error("Invalid or corrupt image."));
+                img.onload = () => {
+                    const maxW = SharedCommentsManager.COMMENT_IMAGE_WIDTH;
+                    const maxH = SharedCommentsManager.COMMENT_IMAGE_HEIGHT;
+
+                    // Scale to fit/fill the box (both up and down)
+                    const ratio = Math.min(maxW / img.width, maxH / img.height);
+                    const outW  = Math.round(img.width  * ratio);
+                    const outH  = Math.round(img.height * ratio);
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width  = outW;
+                    canvas.height = outH;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, outW, outH);
+
+                    // Iteratively reduce quality until under the byte cap
+                    let quality   = 0.85;
+                    let dataUrl   = canvas.toDataURL('image/jpeg', quality);
+                    const cap     = SharedCommentsManager.MAX_IMAGE_BYTES;
+
+                    while (quality > 0.1) {
+                        // base64 string length * 0.75 ≈ byte size
+                        const approxBytes = (dataUrl.length - dataUrl.indexOf(',') - 1) * 0.75;
+                        if (approxBytes <= cap) break;
+                        quality  -= 0.1;
+                        dataUrl   = canvas.toDataURL('image/jpeg', quality);
+                    }
+
+                    const finalBytes = (dataUrl.length - dataUrl.indexOf(',') - 1) * 0.75;
+                    if (finalBytes > cap) {
+                        return reject(new Error("Image could not be compressed small enough. Please use a smaller image."));
+                    }
+
+                    // Return only the base64 payload (after the comma)
+                    resolve(dataUrl.split(',')[1]);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
     }
 
     // ─────────────────────────────────────────────
@@ -393,6 +619,19 @@ window.SharedCommentsManager = class SharedCommentsManager {
         const isOwner      = ownerUserId === currentUserId;
         const userReported = currentUserId && (commentData.reports?.[currentUserId] !== undefined);
 
+        const imageHtml = commentData.imageData
+            ? `<div class="comment-img-wrap mt-1">
+                   <img src="data:image/jpeg;base64,${commentData.imageData}"
+                        alt="Comment image"
+                        class="comment-img"
+                        style="height:${SharedCommentsManager.COMMENT_IMAGE_DISPLAY}px;
+                               width:auto;max-width:100%;
+                               object-fit:cover;border-radius:8px;
+                               cursor:pointer;display:block;"
+                        onerror="this.style.display='none'">
+               </div>`
+            : '';
+
         commentEl.innerHTML = `
             <img src="${profilePic}"
                  class="rounded-circle me-2 user-profile-link flex-shrink-0"
@@ -404,7 +643,8 @@ window.SharedCommentsManager = class SharedCommentsManager {
                 <strong class="user-profile-link" style="cursor:pointer;" data-user-id="${ownerUserId}">
                     ${userData.user_Name || "Unknown User"}
                 </strong>
-                <span class="text-break">${this._escapeHtml(commentData.content)}</span>
+                ${commentData.content ? `<span class="text-break">${this._escapeHtml(commentData.content)}</span>` : ''}
+                ${imageHtml}
                 <small class="text-muted">${timestamp.toLocaleString()}</small>
             </div>
             <div class="d-flex align-items-center gap-1 ms-2 flex-shrink-0">
@@ -444,7 +684,7 @@ window.SharedCommentsManager = class SharedCommentsManager {
     _renderComments(allComments, commentsContainer, currentUserId, contentId, config) {
         commentsContainer.innerHTML = "";
 
-        const pageSize = SharedCommentsManager.PAGE_SIZE;
+        const pageSize  = SharedCommentsManager.PAGE_SIZE;
         const firstPage = allComments.slice(0, pageSize);
 
         firstPage.forEach(commentData => {
@@ -452,6 +692,47 @@ window.SharedCommentsManager = class SharedCommentsManager {
             const el = this.createCommentElement(commentData, userData, currentUserId, contentId, commentsContainer, config);
             commentsContainer.appendChild(el);
         });
+
+        // Scroll to and flash-highlight the comment we just posted
+        if (this._pendingScrollId) {
+            const target = commentsContainer.querySelector(`[data-comment-id="${this._pendingScrollId}"]`);
+            if (target) {
+                this._pendingScrollId = null;
+                requestAnimationFrame(() => {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    target.style.transition = 'background-color 0.2s ease';
+                    target.style.backgroundColor = '#e8f4ff';
+                    target.style.borderRadius = '6px';
+                    setTimeout(() => {
+                        target.style.backgroundColor = '';
+                        setTimeout(() => { target.style.transition = ''; target.style.borderRadius = ''; }, 300);
+                    }, 1400);
+                });
+            } else {
+                // Comment not in first page — find and render it directly
+                const pendingId = this._pendingScrollId;
+                const pendingComment = allComments.find(c => c.id === pendingId);
+                if (pendingComment) {
+                    this._pendingScrollId = null;
+                    const userData = this.usersCache[pendingComment[config.userIdField]] || {};
+                    const el = this.createCommentElement(pendingComment, userData, currentUserId, contentId, commentsContainer, config);
+                    // Insert before load-more button if present, else append
+                    const loadMoreBtn = commentsContainer.querySelector('.btn-outline-secondary');
+                    if (loadMoreBtn) commentsContainer.insertBefore(el, loadMoreBtn);
+                    else commentsContainer.appendChild(el);
+                    requestAnimationFrame(() => {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        el.style.transition = 'background-color 0.2s ease';
+                        el.style.backgroundColor = '#e8f4ff';
+                        el.style.borderRadius = '6px';
+                        setTimeout(() => {
+                            el.style.backgroundColor = '';
+                            setTimeout(() => { el.style.transition = ''; el.style.borderRadius = ''; }, 300);
+                        }, 1400);
+                    });
+                }
+            }
+        }
 
         if (allComments.length > pageSize) {
             let shown = pageSize;
@@ -488,6 +769,22 @@ window.SharedCommentsManager = class SharedCommentsManager {
                 const uid = link.getAttribute("data-user-id");
                 window.location.href = `public-profile.html?userId=${encodeURIComponent(uid)}`;
             });
+        });
+
+        // Comment image — click to open fullscreen
+        const commentImg = commentEl.querySelector(".comment-img");
+        commentImg?.addEventListener("click", () => {
+            const overlay = document.createElement("div");
+            overlay.style.cssText = `
+                position:fixed;inset:0;background:rgba(0,0,0,0.88);
+                display:flex;align-items:center;justify-content:center;
+                z-index:2000;cursor:zoom-out;padding:16px;`;
+            const full = document.createElement("img");
+            full.src = commentImg.src;
+            full.style.cssText = "max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;";
+            overlay.appendChild(full);
+            overlay.addEventListener("click", () => overlay.remove());
+            document.body.appendChild(overlay);
         });
 
         // Like button

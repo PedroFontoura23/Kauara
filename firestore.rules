@@ -1,20 +1,208 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow read access to everyone (no rules here for reads)
+    // Public read access for all documents.
     match /{document=**} {
-      allow read: if true;  // No restriction for reading, open for all
-      allow write: if request.auth != null;  // Only authenticated users can modify/write
+      allow read: if true;
+    }
+
+    match /users/{userId} {
+      allow create: if request.auth != null && request.auth.token.email_verified;
+      allow read: if true;
+      allow update: if request.auth != null && (
+        request.auth.uid == resource.data.firebaseUID ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "likes_count",
+          "averageRating",
+          "totalRatings",
+          "totalDonations",
+          "lastDonation"
+        ])
+      );
+      allow delete: if request.auth != null && request.auth.uid == resource.data.firebaseUID;
+
+      match /cart/{itemId} {
+        allow read, write: if request.auth != null &&
+          get(/databases/$(database)/documents/users/$(userId)).data.firebaseUID == request.auth.uid;
+      }
+
+      match /purchasedItems/{itemId} {
+        allow read, write: if request.auth != null &&
+          get(/databases/$(database)/documents/users/$(userId)).data.firebaseUID == request.auth.uid;
+      }
+
+      match /mercadopago_info/{mpId} {
+        allow read, write: if request.auth != null &&
+          request.auth.uid == get(/databases/$(database)/documents/users/$(userId)).data.firebaseUID;
+      }
+    }
+
+    match /contact/{contactId} {
+      allow read: if true;
+      allow create: if request.auth != null && request.auth.token.email_verified;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.firebaseUID;
+    }
+
+    match /posts/{postId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (
+        request.auth.uid == get(/databases/$(database)/documents/users/$(resource.data.foreignUserId)).data.firebaseUID ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["likes_count"])
+      );
+      allow delete: if request.auth != null && request.auth.uid == get(/databases/$(database)/documents/users/$(resource.data.foreignUserId)).data.firebaseUID;
+    }
+
+    match /comments/{commentId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["likes_count"]) ||
+        get(/databases/$(database)/documents/users/$(resource.data.foreignUserId)).data.firebaseUID == request.auth.uid
+      );
+      allow delete: if request.auth != null;
+    }
+
+    match /likes/{likeId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow update: if request.auth != null;
+    }
+
+    match /comment_likes/{likeId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow update: if request.auth != null;
+    }
+
+    match /product_likes/{likeId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow update: if request.auth != null;
+    }
+
+    match /art_likes/{likeId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow update: if request.auth != null;
+    }
+
+    match /art_comment_likes/{likeId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow update: if request.auth != null;
+    }
+
+    match /product_comment_likes/{likeId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow update: if request.auth != null;
+    }
+
+    match /user_likes/{likeId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow update: if request.auth != null;
+    }
+
+    match /product_ratings/{ratingId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.raterUid;
+    }
+
+    match /ratings/{ratingId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.raterUid;
+    }
+
+    match /donations/{donationId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+    }
+
+    match /config/{configDoc} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /pendingUsers/{userId} {
+      allow create: if request.auth == null || request.auth != null;
+      allow read: if request.auth != null;
+      allow delete: if request.auth != null && request.auth.token.email_verified;
+    }
+
+    match /arts/{artId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (
+        request.auth.uid == get(/databases/$(database)/documents/users/$(resource.data.userId)).data.firebaseUID ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["likes_count"])
+      );
+      allow delete: if request.auth != null && request.auth.uid == get(/databases/$(database)/documents/users/$(resource.data.userId)).data.firebaseUID;
+    }
+
+    match /candidate_arts/{artId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow delete: if request.auth != null && get(/databases/$(database)/documents/users/$(resource.data.userId)).data.firebaseUID == request.auth.uid;
+    }
+
+    match /product_comments/{commentId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["likes_count"]) ||
+        get(/databases/$(database)/documents/users/$(resource.data.userId)).data.firebaseUID == request.auth.uid
+      );
+      allow delete: if request.auth != null && (
+        get(/databases/$(database)/documents/users/$(resource.data.userId)).data.firebaseUID == request.auth.uid ||
+        request.auth.uid == get(/databases/$(database)/documents/products/$(resource.data.productId)).data.designerUserId ||
+        request.auth.token.admin == true
+      );
+    }
+
+    match /userDesigns/{designId} {
+      allow read: if request.auth != null && request.auth.uid != null &&
+        get(/databases/$(database)/documents/users/$(resource.data.userId)).data.firebaseUID == request.auth.uid;
+      allow create: if request.auth != null &&
+        exists(/databases/$(database)/documents/users/$(request.resource.data.userId)) &&
+        get(/databases/$(database)/documents/users/$(request.resource.data.userId)).data.firebaseUID == request.auth.uid;
+      allow update, delete: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(resource.data.userId)).data.firebaseUID == request.auth.uid;
+    }
+
+    match /userProducts/{productId} {
+      allow read: if request.auth != null && request.auth.uid != null &&
+        get(/databases/$(database)/documents/users/$(resource.data.userId)).data.firebaseUID == request.auth.uid;
+      allow create: if request.auth != null &&
+        exists(/databases/$(database)/documents/users/$(request.resource.data.userId)) &&
+        get(/databases/$(database)/documents/users/$(request.resource.data.userId)).data.firebaseUID == request.auth.uid;
+      allow update, delete: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(resource.data.userId)).data.firebaseUID == request.auth.uid;
+    }
+
+    match /templateSettings/{settingId} {
+      allow read: if request.auth != null;
+      allow write: if false;
     }
   }
 }
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Match all files in the storage bucket
     match /{allPaths=**} {
-      allow read: if true;  // No restriction for reading, open for all
-      allow write: if request.auth != null;  // Only authenticated users can upload or modify files
+      allow read: if true;
+      allow write: if request.auth != null;
     }
   }
 }

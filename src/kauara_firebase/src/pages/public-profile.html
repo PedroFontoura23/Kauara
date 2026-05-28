@@ -18,7 +18,7 @@
         <div class="container d-flex justify-content-between align-items-center">
             <!-- Left corner: Back button -->
             <div>
-                <button onclick="history.back()" class="btn btn-secondary">← Voltar</button>
+                <button data-action="goBack" class="btn btn-secondary">← Voltar</button>
             </div>
         </div>
     </header>
@@ -37,6 +37,7 @@
         <h3>User Posts</h3>
         <div id="postsContainer"></div>
     </div>
+    <script src="/javascript/csp-event-delegation.js"></script>
     <div class="container mt-4">
         <div id="productsContainer"></div>
     </div>

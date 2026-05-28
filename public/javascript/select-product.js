@@ -113,8 +113,8 @@ function showVariantModal(product) {
           return `<div class="variant-option" 
                     data-color="${escapeHtml(c)}" 
                     data-hex="${hex}"
-                    onmouseenter="handleColorHover('${hex}')"
-                    onmouseleave="handleColorHoverEnd()">
+                    data-action="hoverColor"
+                    data-color="${hex}">
                     <div class="color-dot" style="background:${hex}"></div>
                     <div>${escapeHtml(c)}</div>
                   </div>`;
@@ -152,7 +152,7 @@ function updateSelectedColors() {
     <div class="selected-color">
       <div class="selected-color-dot" style="background:${color.hex}"></div>
       <span>${escapeHtml(color.name)}</span>
-      <span class="remove-color" onclick="removeSelectedColor(${index})">&times;</span>
+      <span class="remove-color" data-action="removeSelectedColor" data-index="${index}">&times;</span>
     </div>
   `).join('') || '<div style="color:#999;font-size:0.9rem">No colors selected yet</div>';
 
@@ -292,24 +292,22 @@ confirmBtn.addEventListener('click', () => {
 
 //show user id
 document.addEventListener('DOMContentLoaded', () => {
-    // Check both possible locations for the user ID
-    const firestoreUserId = sessionStorage.getItem('designerFirestoreUserId') || 
+    const firestoreUserId = sessionStorage.getItem('designerFirestoreUserId') ||
                            sessionStorage.getItem('currentFirestoreUserId');
-    
-    console.log("Checking authentication - Firestore User ID:", firestoreUserId);
-    
-    if (firestoreUserId) {
-        console.log("User authenticated with Firestore ID:", firestoreUserId);
-        // User is logged in, proceed with loading products
-        loadProducts();
+
+    if (!firestoreUserId) {
+        alert('Faça login para acessar esta página');
+        window.location.href = 'profile.html';
+        return;
     }
+
+    loadProducts();
 });
 
 closeBtn.addEventListener('click', closeModal);
 window.addEventListener('click', e => e.target === modalEl && closeModal());
 document.addEventListener('keydown', e => e.key === 'Escape' && modalEl.style.display === 'block' && closeModal());
 refreshBtn.addEventListener('click', () => loadProducts());
-document.addEventListener('DOMContentLoaded', loadProducts);
 
 // Expose functions to global scope for HTML event handlers
 window.handleColorHover = handleColorHover;

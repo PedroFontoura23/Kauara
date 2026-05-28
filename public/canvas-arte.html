@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' data: https://www.gstatic.com https://www.googleapis.com https://firestore.googleapis.com ws://localhost:5001 wss://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://api.mercadopago.com https://www.mercadolibre.com https://api.mercadolibre.com https://events.mercadopago.com https://us-central1-kauara1.cloudfunctions.net">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Art Canvas</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #fafafa;
+      color: #222;
+    }
+    h1 { margin-bottom: 15px; }
+
+    .canvas-container {
+      width: 600px;
+      max-width: 100%;
+      border: 1px solid #ccc;
+      overflow: hidden;
+    }
+    #product-canvas {
+      max-width: 100%;
+      display: block;
+    }
+
+    .controls {
+      margin: 20px 0;
+      padding: 15px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+    }
+    .control-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; font-weight: bold; }
+
+    input[type="text"],
+    input[type="number"] {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      width: 100%;
+      max-width: 260px;
+    }
+
+    button {
+      padding: 10px 15px;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    button:hover { background: #2563eb; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+
+    #clear-canvas { background: #dc2626; }
+    #clear-canvas:hover { background: #b91c1c; }
+
+    .scale-control { margin: 15px 0; display: flex; align-items: center; gap: 10px; }
+    .scale-control label { margin: 0; }
+    #scale-value { min-width: 44px; }
+
+    .pricing-section {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+    }
+    .pricing-section h3 { margin-top: 0; }
+    .price-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .price-row:last-child { border-bottom: none; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Art Canvas</h1>
+
+  <div class="canvas-container">
+    <canvas id="product-canvas"></canvas>
+  </div>
+
+  <div class="controls">
+
+    <div class="control-group">
+      <label for="art-name">Art Name:</label>
+      <input type="text" id="art-name" placeholder="Enter art name">
+    </div>
+
+    <div class="control-group">
+      <input type="file" id="upload-input" accept="image/*" style="display:none">
+      <button id="upload-btn">Upload Image</button>
+      <button id="rotate-btn" style="background:#6b7280;">↻ Rotate</button>
+      <button id="clear-canvas">Clear</button>
+    </div>
+
+    <div class="control-group">
+      <label for="bg-color">Background Color:</label>
+      <input type="color" id="bg-color" value="#ffffff">
+    </div>
+
+    <div class="scale-control">
+      <label for="scale-slider">Scale:</label>
+      <input type="range" id="scale-slider" min="10" max="500" value="100" step="5">
+      <span id="scale-value">100%</span>
+    </div>
+
+    <div class="pricing-section">
+      <h3>Pricing</h3>
+      <div class="price-row">
+        <label for="art-price">Art Price (R$):</label>
+        <input type="number" id="art-price" min="0" step="0.01" placeholder="0.00" style="width:120px;">
+      </div>
+      <div class="price-row">
+        <span>Platform Fee (5%)</span>
+        <span id="art-platform-fee">R$ 0.00</span>
+      </div>
+      <div class="price-row">
+        <span>Total Price</span>
+        <span id="art-total-price">R$ 0.00</span>
+      </div>
+    </div>
+
+    <div style="margin-top: 20px;">
+      <button id="save-btn">Save Art</button>
+      <button id="back-to-profile" style="background:#6b7280;">← Back to Profile</button>
+    </div>
+
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="javascript/canvas-arte.js"></script>
+</body>
+</html>

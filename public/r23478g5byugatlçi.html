@@ -1,611 +1,1677 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kauara - Complete Admin Dashboard</title>
-    <!-- Bootstrap 5 minimal CSS (just for basic table structure) -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        /* Minimal styling - just enough for readability */
-        body { font-family: monospace; padding: 20px; background: #f8f9fa; }
-        .section { margin: 30px 0; border: 1px solid #dee2e6; background: white; }
-        .section-header { background: #212529; color: white; padding: 10px 15px; cursor: pointer; }
-        .section-header .badge { background: #6c757d; }
-        .section-content { padding: 15px; }
-        table { font-size: 12px; width: 100%; border-collapse: collapse; }
-        th { background: #e9ecef; position: sticky; top: 0; }
-        td, th { border: 1px solid #dee2e6; padding: 8px; vertical-align: top; }
-        tr:hover { background: #f8f9fa; }
-        .expanded-data { background: #f1f3f5; font-family: monospace; white-space: pre-wrap; max-width: 500px; }
-        .json-view { max-height: 300px; overflow: auto; background: #f1f3f5; padding: 8px; border-radius: 4px; }
-        .nav-tabs { font-size: 14px; }
-        .count-badge { background: #0d6efd; color: white; padding: 2px 8px; border-radius: 12px; margin-left: 8px; }
-        .timestamp { color: #6c757d; font-size: 11px; }
-        .text-success { color: #198754; }
-        .text-danger { color: #dc3545; }
-        .text-warning { color: #ffc107; }
-        .text-info { color: #0dcaf0; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KAUARA — Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<style>
+  :root {
+    --bg:       #0a0a0a;
+    --surface:  #111111;
+    --border:   #222222;
+    --border2:  #2e2e2e;
+    --text:     #e8e8e8;
+    --muted:    #666;
+    --accent:   #ff4136;
+    --accent2:  #ff8c00;
+    --green:    #2ecc71;
+    --blue:     #3498db;
+    --yellow:   #f1c40f;
+    --mono:     'IBM Plex Mono', monospace;
+    --sans:     'IBM Plex Sans', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── LOGIN ─────────────────────────────────── */
+  #login-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    gap: 0;
+  }
+  .login-box {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    padding: 40px 48px;
+    width: 380px;
+  }
+  .login-box h1 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .login-box h2 {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 32px;
+    color: var(--text);
+  }
+  .login-box input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 13px;
+    margin-bottom: 12px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .login-box input:focus { border-color: var(--accent); }
+  .login-box button {
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 11px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    cursor: pointer;
+    transition: opacity .15s;
+  }
+  .login-box button:hover { opacity: .85; }
+  #login-error {
+    color: var(--accent);
+    font-size: 11px;
+    font-family: var(--mono);
+    margin-top: 10px;
+    min-height: 16px;
+  }
+  .login-warning {
+    background: #1a0a00;
+    border: 1px solid var(--accent2);
+    padding: 10px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent2);
+    margin-bottom: 20px;
+  }
+
+  /* ── LAYOUT ────────────────────────────────── */
+  #app { display: none; flex-direction: column; min-height: 100vh; }
+
+  /* Top bar */
+  #topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    height: 48px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .topbar-brand {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .15em;
+    color: var(--accent);
+  }
+  .topbar-brand span { color: var(--muted); font-weight: 400; }
+  .topbar-right { display: flex; align-items: center; gap: 16px; }
+  #admin-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    background: var(--accent);
+    color: #fff;
+    padding: 2px 8px;
+    letter-spacing: .1em;
+  }
+  #topbar-user { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  #logout-btn {
+    background: none;
+    border: 1px solid var(--border2);
+    color: var(--muted);
+    padding: 4px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: color .15s, border-color .15s;
+  }
+  #logout-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* Main layout */
+  #main { display: flex; flex: 1; }
+
+  /* Sidebar */
+  #sidebar {
+    width: 200px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 16px 0;
+    flex-shrink: 0;
+    position: sticky;
+    top: 48px;
+    height: calc(100vh - 48px);
+    overflow-y: auto;
+  }
+  .sidebar-section {
+    padding: 0 12px;
+    margin-bottom: 20px;
+  }
+  .sidebar-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: .2em;
+    color: var(--muted);
+    text-transform: uppercase;
+    padding: 0 8px;
+    margin-bottom: 4px;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    border-radius: 2px;
+    transition: color .15s, background .15s;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+  }
+  .nav-item:hover { color: var(--text); background: var(--border); }
+  .nav-item.active { color: var(--text); background: var(--border2); }
+  .nav-item .icon { width: 14px; text-align: center; opacity: .7; }
+  .nav-count {
+    margin-left: auto;
+    font-size: 10px;
+    background: var(--border2);
+    padding: 1px 5px;
+    border-radius: 10px;
+    color: var(--muted);
+  }
+
+  /* Content area */
+  #content {
+    flex: 1;
+    padding: 24px;
+    overflow-y: auto;
+    min-width: 0;
+  }
+
+  /* ── PANELS ────────────────────────────────── */
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-title {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .panel-subtitle { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  /* Stats row */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 16px;
+  }
+  .stat-card .label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: .15em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .stat-card .value {
+    font-family: var(--mono);
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1;
+  }
+  .stat-card .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .stat-card.red .value   { color: var(--accent); }
+  .stat-card.green .value { color: var(--green); }
+  .stat-card.blue .value  { color: var(--blue); }
+  .stat-card.yellow .value{ color: var(--yellow); }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .toolbar input[type=text], .toolbar input[type=search] {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    padding: 7px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    min-width: 200px;
+    transition: border-color .15s;
+  }
+  .toolbar input:focus { border-color: var(--accent); }
+  .toolbar select {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    padding: 7px 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+  }
+  .btn {
+    padding: 7px 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: opacity .15s;
+    letter-spacing: .04em;
+  }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-ghost { background: var(--surface); color: var(--text); border: 1px solid var(--border2); }
+  .btn-danger { background: #3a0000; color: var(--accent); border: 1px solid #5a0000; }
+  .btn-success { background: #0a2a1a; color: var(--green); border: 1px solid #1a4a2a; }
+  .btn-sm { padding: 4px 9px; font-size: 11px; }
+
+  /* Table */
+  .table-wrap {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  thead th {
+    background: #161616;
+    padding: 9px 12px;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background .1s;
+  }
+  tbody tr:hover { background: #161616; }
+  tbody tr:last-child { border-bottom: none; }
+  td {
+    padding: 9px 12px;
+    vertical-align: middle;
+    max-width: 220px;
+  }
+  td.mono { font-family: var(--mono); font-size: 11px; }
+  td.id-cell {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  td.truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  td img {
+    width: 36px;
+    height: 36px;
+    object-fit: cover;
+    border: 1px solid var(--border2);
+  }
+  .actions { display: flex; gap: 6px; }
+
+  /* Badges */
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .05em;
+    border-radius: 2px;
+  }
+  .badge-green  { background: #0a2a1a; color: var(--green); }
+  .badge-red    { background: #2a0a0a; color: var(--accent); }
+  .badge-blue   { background: #0a1a2a; color: var(--blue); }
+  .badge-yellow { background: #2a1a00; color: var(--yellow); }
+  .badge-gray   { background: var(--border); color: var(--muted); }
+
+  /* Pagination */
+  .pagination {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .page-btn {
+    padding: 4px 10px;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .page-btn:disabled { opacity: .35; cursor: default; }
+  .page-btn.current { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* Loading */
+  .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 48px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    gap: 10px;
+  }
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty {
+    padding: 48px;
+    text-align: center;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  /* ── MODAL ─────────────────────────────────── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.8);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(2px);
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-box {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    width: 600px;
+    max-width: 95vw;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-title {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 18px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 4px;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { padding: 20px; }
+  .modal-footer {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+  }
+
+  /* Form elements in modal */
+  .field-group { margin-bottom: 14px; }
+  .field-group label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+  .field-group input,
+  .field-group textarea,
+  .field-group select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    transition: border-color .15s;
+    resize: vertical;
+  }
+  .field-group input:focus,
+  .field-group textarea:focus { border-color: var(--accent); }
+  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* Raw JSON view */
+  .json-view {
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    padding: 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.6;
+    max-height: 400px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .json-key   { color: var(--blue); }
+  .json-str   { color: var(--green); }
+  .json-num   { color: var(--yellow); }
+  .json-bool  { color: var(--accent2); }
+  .json-null  { color: var(--muted); }
+
+  /* Confirm dialog */
+  #confirm-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.85);
+    z-index: 300;
+    align-items: center;
+    justify-content: center;
+  }
+  #confirm-overlay.open { display: flex; }
+  .confirm-box {
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    padding: 28px 32px;
+    max-width: 400px;
+    text-align: center;
+  }
+  .confirm-box h3 {
+    font-family: var(--mono);
+    font-size: 14px;
+    margin-bottom: 10px;
+    color: var(--accent);
+  }
+  .confirm-box p {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+    margin-bottom: 20px;
+  }
+  .confirm-box .btns { display: flex; gap: 10px; justify-content: center; }
+
+  /* Toast */
+  #toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: #1a1a1a;
+    border-left: 3px solid var(--green);
+    padding: 12px 18px;
+    font-family: var(--mono);
+    font-size: 12px;
+    z-index: 400;
+    transform: translateY(60px);
+    opacity: 0;
+    transition: all .25s;
+    max-width: 320px;
+  }
+  #toast.show { transform: translateY(0); opacity: 1; }
+  #toast.error { border-left-color: var(--accent); }
+
+  /* ── DASHBOARD ──────────────────────────────── */
+  .activity-log {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 0;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+  .activity-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .activity-item:last-child { border-bottom: none; }
+  .activity-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .activity-time { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+
+  /* ── SCROLLBARS ─────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+</style>
 </head>
 <body>
-    <div class="container-fluid">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1><i class="fas fa-database me-2"></i>Kauara Complete Admin Dashboard</h1>
-            <div>
-                <button class="btn btn-primary me-2" onclick="refreshAllData()">
-                    <i class="fas fa-sync-alt me-2"></i>Refresh All Data
-                </button>
-                <span class="badge bg-dark" id="lastUpdated">Loading...</span>
-            </div>
-        </div>
 
-        <!-- Navigation Tabs -->
-        <ul class="nav nav-tabs mb-3" id="adminTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="payments-tab" data-bs-toggle="tab" data-bs-target="#payments" type="button" role="tab">
-                    <i class="fas fa-credit-card me-1"></i>Payments <span class="count-badge" id="paymentsCount">0</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="orders-tab" data-bs-toggle="tab" data-bs-target="#orders" type="button" role="tab">
-                    <i class="fas fa-shopping-bag me-1"></i>Orders <span class="count-badge" id="ordersCount">0</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab">
-                    <i class="fas fa-users me-1"></i>Users <span class="count-badge" id="usersCount">0</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="products-tab" data-bs-toggle="tab" data-bs-target="#products" type="button" role="tab">
-                    <i class="fas fa-tshirt me-1"></i>Products <span class="count-badge" id="productsCount">0</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="arts-tab" data-bs-toggle="tab" data-bs-target="#arts" type="button" role="tab">
-                    <i class="fas fa-paint-brush me-1"></i>Arts <span class="count-badge" id="artsCount">0</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="purchased-tab" data-bs-toggle="tab" data-bs-target="#purchased" type="button" role="tab">
-                    <i class="fas fa-check-circle me-1"></i>Purchased Items <span class="count-badge" id="purchasedCount">0</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="webhooks-tab" data-bs-toggle="tab" data-bs-target="#webhooks" type="button" role="tab">
-                    <i class="fas fa-webhook me-1"></i>Webhooks <span class="count-badge" id="webhooksCount">0</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="printful-tab" data-bs-toggle="tab" data-bs-target="#printful" type="button" role="tab">
-                    <i class="fas fa-print me-1"></i>Printful <span class="count-badge" id="printfulCount">0</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="errors-tab" data-bs-toggle="tab" data-bs-target="#errors" type="button" role="tab">
-                    <i class="fas fa-exclamation-triangle me-1"></i>Errors <span class="count-badge" id="errorsCount">0</span>
-                </button>
-            </li>
-        </ul>
+<!-- ═══════════════ LOGIN SCREEN ═══════════════ -->
+<div id="login-screen">
+  <div class="login-box">
+    <h1>KAUARA PLATFORM</h1>
+    <h2>Admin Panel</h2>
+    <div class="login-warning">⚠ Restricted access. Unauthorized use is prohibited.</div>
+    <input type="email"    id="admin-email"    placeholder="admin@email.com" autocomplete="off">
+    <input type="password" id="admin-password" placeholder="Password">
+    <button id="login-btn">AUTHENTICATE →</button>
+    <div id="login-error"></div>
+  </div>
+</div>
 
-        <!-- Tab Content -->
-        <div class="tab-content" id="adminTabContent">
-            <!-- PAYMENTS TAB -->
-            <div class="tab-pane fade show active" id="payments" role="tabpanel">
-                <div class="section">
-                    <div class="section-header">
-                        <h5 class="mb-0"><i class="fas fa-credit-card me-2"></i>Checkout Payments (checkout_payments)</h5>
-                    </div>
-                    <div class="section-content">
-                        <div class="table-responsive">
-                            <table class="table table-bordered" id="paymentsTable">
-                                <thead>
-                                    <tr>
-                                        <th>ID / Reference</th>
-                                        <th>Customer</th>
-                                        <th>Amount</th>
-                                        <th>Status</th>
-                                        <th>Payment Method</th>
-                                        <th>Products</th>
-                                        <th>Shipping</th>
-                                        <th>Printful Order</th>
-                                        <th>Created</th>
-                                        <th>Raw Data</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="paymentsBody">
-                                    <tr><td colspan="10" class="text-center">Loading...</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
+<!-- ═══════════════ APP SHELL ═══════════════════ -->
+<div id="app">
 
-            <!-- ORDERS TAB -->
-            <div class="tab-pane fade" id="orders" role="tabpanel">
-                <div class="section">
-                    <div class="section-header">
-                        <h5 class="mb-0"><i class="fas fa-shopping-bag me-2"></i>Orders (orders)</h5>
-                    </div>
-                    <div class="section-content">
-                        <div class="table-responsive">
-                            <table class="table table-bordered" id="ordersTable">
-                                <thead>
-                                    <tr>
-                                        <th>Order ID</th>
-                                        <th>Customer</th>
-                                        <th>Total</th>
-                                        <th>Status</th>
-                                        <th>Products</th>
-                                        <th>Payment Details</th>
-                                        <th>Created</th>
-                                        <th>Full Data</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="ordersBody">
-                                    <tr><td colspan="8" class="text-center">Loading...</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- USERS TAB -->
-            <div class="tab-pane fade" id="users" role="tabpanel">
-                <div class="section">
-                    <div class="section-header">
-                        <h5 class="mb-0"><i class="fas fa-users me-2"></i>Users (users)</h5>
-                    </div>
-                    <div class="section-content">
-                        <div class="table-responsive">
-                            <table class="table table-bordered" id="usersTable">
-                                <thead>
-                                    <tr>
-                                        <th>User ID</th>
-                                        <th>Name</th>
-                                        <th>Email</th>
-                                        <th>Firebase UID</th>
-                                        <th>PIX Key</th>
-                                        <th>PIX Type</th>
-                                        <th>Profile</th>
-                                        <th>Created</th>
-                                        <th>Full Data</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="usersBody">
-                                    <tr><td colspan="9" class="text-center">Loading...</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- PRODUCTS TAB -->
-            <div class="tab-pane fade" id="products" role="tabpanel">
-                <div class="section">
-                    <div class="section-header">
-                        <h5 class="mb-0"><i class="fas fa-tshirt me-2"></i>Products (products)</h5>
-                    </div>
-                    <div class="section-content">
-                        <div class="table-responsive">
-                            <table class="table table-bordered" id="productsTable">
-                                <thead>
-                                    <tr>
-                                        <th>Product ID</th>
-                                        <th>Title</th>
-                                        <th>Designer</th>
-                                        <th>Side</th>
-                                        <th>Variants</th>
-                                        <th>Pricing Summary</th>
-                                        <th>Printful Sync ID</th>
-                                        <th>Status</th>
-                                        <th>Created</th>
-                                        <th>Images</th>
-                                        <th>Full Data</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="productsBody">
-                                    <tr><td colspan="11" class="text-center">Loading...</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ARTS TAB -->
-            <div class="tab-pane fade" id="arts" role="tabpanel">
-                <div class="section">
-                    <div class="section-header">
-                        <h5 class="mb-0"><i class="fas fa-paint-brush me-2"></i>Arts (arts)</h5>
-                    </div>
-                    <div class="section-content">
-                        <div class="table-responsive">
-                            <table class="table table-bordered" id="artsTable">
-                                <thead>
-                                    <tr>
-                                        <th>Art ID</th>
-                                        <th>Name</th>
-                                        <th>User ID</th>
-                                        <th>Price</th>
-                                        <th>Platform Fee</th>
-                                        <th>Total Price</th>
-                                        <th>Filename</th>
-                                        <th>URL</th>
-                                        <th>Size</th>
-                                        <th>Type</th>
-                                        <th>Created</th>
-                                        <th>Full Data</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="artsBody">
-                                    <tr><td colspan="12" class="text-center">Loading...</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- PURCHASED ITEMS TAB -->
-            <div class="tab-pane fade" id="purchased" role="tabpanel">
-                <div class="section">
-                    <div class="section-header">
-                        <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Purchased Items (purchased_products)</h5>
-                    </div>
-                    <div class="section-content">
-                        <div class="table-responsive">
-                            <table class="table table-bordered" id="purchasedTable">
-                                <thead>
-                                    <tr>
-                                        <th>Purchase ID</th>
-                                        <th>Order ID</th>
-                                        <th>Product</th>
-                                        <th>Designer</th>
-                                        <th>Customer</th>
-                                        <th>Price</th>
-                                        <th>Payment Status</th>
-                                        <th>Order Status</th>
-                                        <th>Shipping Status</th>
-                                        <th>Printful Order</th>
-                                        <th>Tracking</th>
-                                        <th>Purchased At</th>
-                                        <th>Full Data</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="purchasedBody">
-                                    <tr><td colspan="13" class="text-center">Loading...</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- WEBHOOKS TAB -->
-            <div class="tab-pane fade" id="webhooks" role="tabpanel">
-                <div class="section">
-                    <div class="section-header">
-                        <h5 class="mb-0"><i class="fas fa-webhook me-2"></i>Webhooks & Events</h5>
-                    </div>
-                    <div class="section-content">
-                        <ul class="nav nav-pills mb-3" id="webhookSubTabs" role="tablist">
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link active" id="orderEvents-tab" data-bs-toggle="pill" data-bs-target="#orderEvents" type="button" role="tab">Order Events</button>
-                            </li>
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="webhookFailures-tab" data-bs-toggle="pill" data-bs-target="#webhookFailures" type="button" role="tab">Webhook Failures</button>
-                            </li>
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="notificationQueue-tab" data-bs-toggle="pill" data-bs-target="#notificationQueue" type="button" role="tab">Notification Queue</button>
-                            </li>
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="adminAlerts-tab" data-bs-toggle="pill" data-bs-target="#adminAlerts" type="button" role="tab">Admin Alerts</button>
-                            </li>
-                        </ul>
-
-                        <div class="tab-content">
-                            <div class="tab-pane fade show active" id="orderEvents" role="tabpanel">
-                                <div class="table-responsive">
-                                    <table class="table table-bordered" id="orderEventsTable">
-                                        <thead>
-                                            <tr>
-                                                <th>Event ID</th>
-                                                <th>Order ID</th>
-                                                <th>Event Type</th>
-                                                <th>Event Data</th>
-                                                <th>Created</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="orderEventsBody">
-                                            <tr><td colspan="5" class="text-center">Loading...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="tab-pane fade" id="webhookFailures" role="tabpanel">
-                                <div class="table-responsive">
-                                    <table class="table table-bordered" id="webhookFailuresTable">
-                                        <thead>
-                                            <tr>
-                                                <th>ID</th>
-                                                <th>Payment ID</th>
-                                                <th>Error</th>
-                                                <th>Response Data</th>
-                                                <th>Retry Count</th>
-                                                <th>Timestamp</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="webhookFailuresBody">
-                                            <tr><td colspan="6" class="text-center">Loading...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="tab-pane fade" id="notificationQueue" role="tabpanel">
-                                <div class="table-responsive">
-                                    <table class="table table-bordered" id="notificationQueueTable">
-                                        <thead>
-                                            <tr>
-                                                <th>ID</th>
-                                                <th>Type</th>
-                                                <th>Data</th>
-                                                <th>Status</th>
-                                                <th>Retry Count</th>
-                                                <th>Created</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="notificationQueueBody">
-                                            <tr><td colspan="6" class="text-center">Loading...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="tab-pane fade" id="adminAlerts" role="tabpanel">
-                                <div class="table-responsive">
-                                    <table class="table table-bordered" id="adminAlertsTable">
-                                        <thead>
-                                            <tr>
-                                                <th>ID</th>
-                                                <th>Type</th>
-                                                <th>Data</th>
-                                                <th>Severity</th>
-                                                <th>Status</th>
-                                                <th>Created</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="adminAlertsBody">
-                                            <tr><td colspan="6" class="text-center">Loading...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- PRINTFUL TAB -->
-            <div class="tab-pane fade" id="printful" role="tabpanel">
-                <div class="section">
-                    <div class="section-header">
-                        <h5 class="mb-0"><i class="fas fa-print me-2"></i>Printful Data</h5>
-                    </div>
-                    <div class="section-content">
-                        <ul class="nav nav-pills mb-3" id="printfulSubTabs" role="tablist">
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link active" id="printfulOrders-tab" data-bs-toggle="pill" data-bs-target="#printfulOrders" type="button" role="tab">Printful Orders</button>
-                            </li>
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="printfulErrors-tab" data-bs-toggle="pill" data-bs-target="#printfulErrors" type="button" role="tab">Printful Errors</button>
-                            </li>
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="printfulRetry-tab" data-bs-toggle="pill" data-bs-target="#printfulRetry" type="button" role="tab">Retry Queue</button>
-                            </li>
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="printfulSuccess-tab" data-bs-toggle="pill" data-bs-target="#printfulSuccess" type="button" role="tab">Retry Success</button>
-                            </li>
-                        </ul>
-
-                        <div class="tab-content">
-                            <div class="tab-pane fade show active" id="printfulOrders" role="tabpanel">
-                                <div class="table-responsive">
-                                    <table class="table table-bordered" id="printfulOrdersTable">
-                                        <thead>
-                                            <tr>
-                                                <th>Order ID</th>
-                                                <th>Printful Order ID</th>
-                                                <th>Status</th>
-                                                <th>Test Mode</th>
-                                                <th>Order Data</th>
-                                                <th>Created</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="printfulOrdersBody">
-                                            <tr><td colspan="6" class="text-center">Loading...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="tab-pane fade" id="printfulErrors" role="tabpanel">
-                                <div class="table-responsive">
-                                    <table class="table table-bordered" id="printfulErrorsTable">
-                                        <thead>
-                                            <tr>
-                                                <th>ID</th>
-                                                <th>Order ID</th>
-                                                <th>Error</th>
-                                                <th>Stack</th>
-                                                <th>Payment Data</th>
-                                                <th>Test Mode</th>
-                                                <th>Timestamp</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="printfulErrorsBody">
-                                            <tr><td colspan="7" class="text-center">Loading...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="tab-pane fade" id="printfulRetry" role="tabpanel">
-                                <div class="table-responsive">
-                                    <table class="table table-bordered" id="printfulRetryTable">
-                                        <thead>
-                                            <tr>
-                                                <th>ID</th>
-                                                <th>Order ID</th>
-                                                <th>Attempts</th>
-                                                <th>Last Error</th>
-                                                <th>Next Retry</th>
-                                                <th>Created</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="printfulRetryBody">
-                                            <tr><td colspan="6" class="text-center">Loading...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="tab-pane fade" id="printfulSuccess" role="tabpanel">
-                                <div class="table-responsive">
-                                    <table class="table table-bordered" id="printfulSuccessTable">
-                                        <thead>
-                                            <tr>
-                                                <th>ID</th>
-                                                <th>Order ID</th>
-                                                <th>Printful Order ID</th>
-                                                <th>Attempts</th>
-                                                <th>Test Mode</th>
-                                                <th>Timestamp</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="printfulSuccessBody">
-                                            <tr><td colspan="6" class="text-center">Loading...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ERRORS TAB -->
-            <div class="tab-pane fade" id="errors" role="tabpanel">
-                <div class="section">
-                    <div class="section-header">
-                        <h5 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Error Logs</h5>
-                    </div>
-                    <div class="section-content">
-                        <ul class="nav nav-pills mb-3" id="errorsSubTabs" role="tablist">
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link active" id="purchaseErrors-tab" data-bs-toggle="pill" data-bs-target="#purchaseErrors" type="button" role="tab">Purchase Errors</button>
-                            </li>
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="orphanPayments-tab" data-bs-toggle="pill" data-bs-target="#orphanPayments" type="button" role="tab">Orphan Payments</button>
-                            </li>
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="expirationTasks-tab" data-bs-toggle="pill" data-bs-target="#expirationTasks" type="button" role="tab">Expiration Tasks</button>
-                            </li>
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="captureQueue-tab" data-bs-toggle="pill" data-bs-target="#captureQueue" type="button" role="tab">Capture Queue</button>
-                            </li>
-                        </ul>
-
-                        <div class="tab-content">
-                            <div class="tab-pane fade show active" id="purchaseErrors" role="tabpanel">
-                                <div class="table-responsive">
-                                    <table class="table table-bordered" id="purchaseErrorsTable">
-                                        <thead>
-                                            <tr>
-                                                <th>ID</th>
-                                                <th>Order ID</th>
-                                                <th>Error</th>
-                                                <th>Stack</th>
-                                                <th>Timestamp</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="purchaseErrorsBody">
-                                            <tr><td colspan="5" class="text-center">Loading...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="tab-pane fade" id="orphanPayments" role="tabpanel">
-                                <div class="table-responsive">
-                                    <table class="table table-bordered" id="orphanPaymentsTable">
-                                        <thead>
-                                            <tr>
-                                                <th>ID</th>
-                                                <th>Payment ID</th>
-                                                <th>Status</th>
-                                                <th>Payment Data</th>
-                                                <th>Received At</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="orphanPaymentsBody">
-                                            <tr><td colspan="5" class="text-center">Loading...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="tab-pane fade" id="expirationTasks" role="tabpanel">
-                                <div class="table-responsive">
-                                    <table class="table table-bordered" id="expirationTasksTable">
-                                        <thead>
-                                            <tr>
-                                                <th>ID</th>
-                                                <th>Order ID</th>
-                                                <th>Expires At</th>
-                                                <th>Status</th>
-                                                <th>Created</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="expirationTasksBody">
-                                            <tr><td colspan="5" class="text-center">Loading...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="tab-pane fade" id="captureQueue" role="tabpanel">
-                                <div class="table-responsive">
-                                    <table class="table table-bordered" id="captureQueueTable">
-                                        <thead>
-                                            <tr>
-                                                <th>ID</th>
-                                                <th>Order ID</th>
-                                                <th>Payment ID</th>
-                                                <th>Status</th>
-                                                <th>Created</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="captureQueueBody">
-                                            <tr><td colspan="5" class="text-center">Loading...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <div class="topbar-brand">KAUARA <span>/ ADMIN</span></div>
+    <div class="topbar-right">
+      <span id="admin-badge">ADMIN</span>
+      <span id="topbar-user"></span>
+      <button id="logout-btn">LOGOUT</button>
     </div>
+  </div>
 
-    <!-- Firebase SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-    
-    <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    
-    <!-- Admin JS -->
-    <script src="/javascript/admin.js"></script>
+  <div id="main">
+    <!-- SIDEBAR -->
+    <nav id="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-label">Overview</div>
+        <button class="nav-item active" data-panel="dashboard">
+          <span class="icon">◈</span> Dashboard
+        </button>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">People</div>
+        <button class="nav-item" data-panel="users">
+          <span class="icon">◉</span> Users <span class="nav-count" id="cnt-users">—</span>
+        </button>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Content</div>
+        <button class="nav-item" data-panel="arts">
+          <span class="icon">◈</span> Arts <span class="nav-count" id="cnt-arts">—</span>
+        </button>
+        <button class="nav-item" data-panel="posts">
+          <span class="icon">◧</span> Posts <span class="nav-count" id="cnt-posts">—</span>
+        </button>
+        <button class="nav-item" data-panel="products">
+          <span class="icon">▣</span> Products <span class="nav-count" id="cnt-products">—</span>
+        </button>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Interactions</div>
+        <button class="nav-item" data-panel="comments">
+          <span class="icon">◫</span> Comments <span class="nav-count" id="cnt-comments">—</span>
+        </button>
+        <button class="nav-item" data-panel="likes">
+          <span class="icon">♥</span> Likes <span class="nav-count" id="cnt-likes">—</span>
+        </button>
+        <button class="nav-item" data-panel="notifications">
+          <span class="icon">◉</span> Notifications
+        </button>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Commerce</div>
+        <button class="nav-item" data-panel="orders">
+          <span class="icon">▤</span> Orders
+        </button>
+        <button class="nav-item" data-panel="ratings">
+          <span class="icon">★</span> Ratings
+        </button>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Other</div>
+        <button class="nav-item" data-panel="newsletter">
+          <span class="icon">◎</span> Newsletter
+        </button>
+        <button class="nav-item" data-panel="analytics">
+          <span class="icon">◈</span> Analytics
+        </button>
+        <button class="nav-item" data-panel="candidates">
+          <span class="icon">◉</span> Candidates
+        </button>
+      </div>
+    </nav>
+
+    <!-- CONTENT -->
+    <div id="content">
+
+      <!-- DASHBOARD -->
+      <div class="panel active" id="panel-dashboard">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Dashboard</div>
+            <div class="panel-subtitle">Platform overview</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="loadDashboard()">↺ Refresh</button>
+        </div>
+        <div class="stats-grid" id="dashboard-stats">
+          <div class="stat-card blue"><div class="label">Users</div><div class="value" id="stat-users">—</div></div>
+          <div class="stat-card green"><div class="label">Arts</div><div class="value" id="stat-arts">—</div></div>
+          <div class="stat-card yellow"><div class="label">Products</div><div class="value" id="stat-products">—</div></div>
+          <div class="stat-card red"><div class="label">Posts</div><div class="value" id="stat-posts">—</div></div>
+          <div class="stat-card"><div class="label">Comments</div><div class="value" id="stat-comments">—</div></div>
+          <div class="stat-card"><div class="label">Likes</div><div class="value" id="stat-likes">—</div></div>
+          <div class="stat-card"><div class="label">Ratings</div><div class="value" id="stat-ratings">—</div></div>
+          <div class="stat-card"><div class="label">Newsletter</div><div class="value" id="stat-newsletter">—</div></div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div>
+            <div style="font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:10px;">Recent Users</div>
+            <div id="recent-users-list" class="activity-log"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+          </div>
+          <div>
+            <div style="font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:10px;">Recent Arts</div>
+            <div id="recent-arts-list" class="activity-log"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- USERS -->
+      <div class="panel" id="panel-users">
+        <div class="panel-header">
+          <div><div class="panel-title">Users</div><div class="panel-subtitle" id="users-subtitle">Loading…</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="loadPanel('users')">↺ Refresh</button>
+        </div>
+        <div class="toolbar">
+          <input type="search" id="users-search" placeholder="Search name, email, UID…" oninput="filterTable('users')">
+          <select id="users-sort" onchange="loadPanel('users')">
+            <option value="createdAt-desc">Newest first</option>
+            <option value="createdAt-asc">Oldest first</option>
+            <option value="displayName-asc">Name A–Z</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Avatar</th><th>Name</th><th>Email</th><th>UID (Firebase)</th><th>Doc ID</th><th>Role</th><th>Joined</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="users-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="users-pagination"></div>
+      </div>
+
+      <!-- ARTS -->
+      <div class="panel" id="panel-arts">
+        <div class="panel-header">
+          <div><div class="panel-title">Arts</div><div class="panel-subtitle" id="arts-subtitle">Loading…</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="loadPanel('arts')">↺ Refresh</button>
+        </div>
+        <div class="toolbar">
+          <input type="search" id="arts-search" placeholder="Search title, ID…" oninput="filterTable('arts')">
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Image</th><th>Title</th><th>Doc ID</th><th>User ID</th><th>Likes</th><th>Created</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="arts-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="arts-pagination"></div>
+      </div>
+
+      <!-- POSTS -->
+      <div class="panel" id="panel-posts">
+        <div class="panel-header">
+          <div><div class="panel-title">Posts</div><div class="panel-subtitle" id="posts-subtitle">Loading…</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="loadPanel('posts')">↺ Refresh</button>
+        </div>
+        <div class="toolbar">
+          <input type="search" id="posts-search" placeholder="Search content, ID…" oninput="filterTable('posts')">
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Doc ID</th><th>Content</th><th>User ID</th><th>Likes</th><th>Comments</th><th>Created</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="posts-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="posts-pagination"></div>
+      </div>
+
+      <!-- PRODUCTS -->
+      <div class="panel" id="panel-products">
+        <div class="panel-header">
+          <div><div class="panel-title">Products</div><div class="panel-subtitle" id="products-subtitle">Loading…</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="loadPanel('products')">↺ Refresh</button>
+        </div>
+        <div class="toolbar">
+          <input type="search" id="products-search" placeholder="Search name, ID…" oninput="filterTable('products')">
+          <select id="products-status" onchange="loadPanel('products')">
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Image</th><th>Name</th><th>Doc ID</th><th>Designer</th><th>Price</th><th>Status</th><th>Likes</th><th>Created</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="products-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="products-pagination"></div>
+      </div>
+
+      <!-- COMMENTS -->
+      <div class="panel" id="panel-comments">
+        <div class="panel-header">
+          <div><div class="panel-title">Comments</div><div class="panel-subtitle" id="comments-subtitle">Loading…</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="loadPanel('comments')">↺ Refresh</button>
+        </div>
+        <div class="toolbar">
+          <select id="comments-type" onchange="loadPanel('comments')">
+            <option value="comments">Post Comments</option>
+            <option value="art_comments">Art Comments</option>
+            <option value="product_comments">Product Comments</option>
+          </select>
+          <input type="search" id="comments-search" placeholder="Search comment…" oninput="filterTable('comments')">
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Doc ID</th><th>Content</th><th>Author ID</th><th>Likes</th><th>Created</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="comments-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="comments-pagination"></div>
+      </div>
+
+      <!-- LIKES -->
+      <div class="panel" id="panel-likes">
+        <div class="panel-header">
+          <div><div class="panel-title">Likes</div><div class="panel-subtitle" id="likes-subtitle">Loading…</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="loadPanel('likes')">↺ Refresh</button>
+        </div>
+        <div class="toolbar">
+          <select id="likes-type" onchange="loadPanel('likes')">
+            <option value="likes">Post Likes</option>
+            <option value="art_likes">Art Likes</option>
+            <option value="product_likes">Product Likes</option>
+            <option value="comment_likes">Comment Likes</option>
+            <option value="art_comment_likes">Art Comment Likes</option>
+            <option value="product_comment_likes">Product Comment Likes</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Doc ID</th><th>User ID</th><th>Content ID</th><th>Timestamp</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="likes-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="likes-pagination"></div>
+      </div>
+
+      <!-- NOTIFICATIONS -->
+      <div class="panel" id="panel-notifications">
+        <div class="panel-header">
+          <div><div class="panel-title">Notifications</div><div class="panel-subtitle" id="notifications-subtitle">Loading…</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="loadPanel('notifications')">↺ Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Doc ID</th><th>To User</th><th>From User</th><th>Type</th><th>Message</th><th>Read</th><th>Timestamp</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="notifications-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="notifications-pagination"></div>
+      </div>
+
+      <!-- ORDERS -->
+      <div class="panel" id="panel-orders">
+        <div class="panel-header">
+          <div><div class="panel-title">Orders</div><div class="panel-subtitle" id="orders-subtitle">Loading…</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="loadPanel('orders')">↺ Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Doc ID</th><th>User ID</th><th>Total</th><th>Status</th><th>Provider</th><th>Created</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="orders-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="orders-pagination"></div>
+      </div>
+
+      <!-- RATINGS -->
+      <div class="panel" id="panel-ratings">
+        <div class="panel-header">
+          <div><div class="panel-title">Ratings</div><div class="panel-subtitle" id="ratings-subtitle">Loading…</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="loadPanel('ratings')">↺ Refresh</button>
+        </div>
+        <div class="toolbar">
+          <select id="ratings-type" onchange="loadPanel('ratings')">
+            <option value="ratings">User Ratings</option>
+            <option value="product_ratings">Product Ratings</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Doc ID</th><th>Rater UID</th><th>Target ID</th><th>Score</th><th>Comment</th><th>Created</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="ratings-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="ratings-pagination"></div>
+      </div>
+
+      <!-- NEWSLETTER -->
+      <div class="panel" id="panel-newsletter">
+        <div class="panel-header">
+          <div><div class="panel-title">Newsletter</div><div class="panel-subtitle" id="newsletter-subtitle">Loading…</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="loadPanel('newsletter')">↺ Refresh</button>
+        </div>
+        <div class="toolbar">
+          <input type="search" id="newsletter-search" placeholder="Search email…" oninput="filterTable('newsletter')">
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Doc ID</th><th>Email</th><th>Status</th><th>Subscribed At</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="newsletter-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="newsletter-pagination"></div>
+      </div>
+
+      <!-- ANALYTICS -->
+      <div class="panel" id="panel-analytics">
+        <div class="panel-header">
+          <div><div class="panel-title">Analytics</div><div class="panel-subtitle" id="analytics-subtitle">Loading…</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="loadPanel('analytics')">↺ Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Doc ID</th><th>Page</th><th>Referrer</th><th>User ID</th><th>IP</th><th>Timestamp</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="analytics-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="analytics-pagination"></div>
+      </div>
+
+      <!-- CANDIDATES -->
+      <div class="panel" id="panel-candidates">
+        <div class="panel-header">
+          <div><div class="panel-title">Candidate Arts</div><div class="panel-subtitle" id="candidates-subtitle">Loading…</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="loadPanel('candidates')">↺ Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Image</th><th>Doc ID</th><th>Title</th><th>User ID</th><th>Created</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="candidates-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="candidates-pagination"></div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- ═══════════════ EDIT MODAL ═══════════════ -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title">Edit Document</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="modal-save-btn" onclick="saveModal()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- VIEW MODAL (raw JSON) -->
+<div class="modal-overlay" id="view-modal">
+  <div class="modal-box" style="width:700px">
+    <div class="modal-header">
+      <span class="modal-title" id="view-modal-title">Document</span>
+      <button class="modal-close" onclick="closeViewModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="json-view" id="json-view"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeViewModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIRM DIALOG -->
+<div id="confirm-overlay">
+  <div class="confirm-box">
+    <h3>⚠ Confirm Delete</h3>
+    <p id="confirm-msg">This action cannot be undone.</p>
+    <div class="btns">
+      <button class="btn btn-ghost" onclick="cancelConfirm()">Cancel</button>
+      <button class="btn btn-danger" id="confirm-yes">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- ═══════════════ SCRIPT ═══════════════════ -->
+<script>
+// ─── FIREBASE CONFIG ──────────────────────────
+const firebaseConfig = {
+  apiKey:            "AIzaSyBcBmuXY9ulETrbn2PmzjsDZ7JKRcehqGo",
+  authDomain:        "kauara1.firebaseapp.com",
+  projectId:         "kauara1",
+  storageBucket:     "kauara1.firebasestorage.app",
+  messagingSenderId: "651139031771",
+  appId:             "1:651139031771:web:8c73a3e1fff2d5cf2ae2fe"
+};
+
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+// ─── ADMIN WHITELIST ──────────────────────────
+// Add your admin emails here. Only these users can log in.
+const ADMIN_EMAILS = [
+  "pedroadfontoura23@gmail.com"
+];
+
+// ─── STATE ────────────────────────────────────
+let currentUser     = null;
+let currentPanel    = 'dashboard';
+let pageData        = {};   // { panelName: { docs:[], cursor:null, page:0 } }
+let modalCollection = '';
+let modalDocId      = '';
+let modalEditFields = {};
+let confirmCb       = null;
+const PAGE_SIZE     = 25;
+
+// ─── COLLECTION MAP ───────────────────────────
+const PANEL_CONFIG = {
+  users:         { col: 'users',                  label: 'Users' },
+  arts:          { col: 'arts',                   label: 'Arts' },
+  posts:         { col: 'posts',                  label: 'Posts' },
+  products:      { col: 'products',               label: 'Products' },
+  comments:      { col: 'comments',               label: 'Comments' },
+  likes:         { col: 'likes',                  label: 'Likes' },
+  notifications: { col: 'notifications',          label: 'Notifications' },
+  orders:        { col: 'orders',                 label: 'Orders' },
+  ratings:       { col: 'ratings',                label: 'Ratings' },
+  newsletter:    { col: 'newsletter',             label: 'Newsletter' },
+  analytics:     { col: 'analytics',              label: 'Analytics' },
+  candidates:    { col: 'candidate_arts',         label: 'Candidate Arts' },
+};
+
+// ─── AUTH ─────────────────────────────────────
+document.getElementById('login-btn').addEventListener('click', doLogin);
+document.getElementById('admin-password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+async function doLogin() {
+  const email = document.getElementById('admin-email').value.trim();
+  const pass  = document.getElementById('admin-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+
+  // Check whitelist (client-side early rejection)
+  if (ADMIN_EMAILS.length > 0 && !ADMIN_EMAILS.includes(email.toLowerCase())) {
+    errEl.textContent = 'Access denied: not an admin account.';
+    return;
+  }
+
+  try {
+    document.getElementById('login-btn').textContent = 'Authenticating…';
+    await auth.signInWithEmailAndPassword(email, pass);
+  } catch(e) {
+    errEl.textContent = e.message;
+    document.getElementById('login-btn').textContent = 'AUTHENTICATE →';
+  }
+}
+
+auth.onAuthStateChanged(async user => {
+  if (user) {
+    // Check admin claim OR whitelist
+    const token = await user.getIdTokenResult();
+    const isAdminClaim = token.claims && token.claims.admin === true;
+    const isWhitelisted = ADMIN_EMAILS.length === 0 || ADMIN_EMAILS.includes(user.email.toLowerCase());
+
+    if (!isAdminClaim && !isWhitelisted) {
+      await auth.signOut();
+      document.getElementById('login-error').textContent = 'Access denied: not an admin account.';
+      return;
+    }
+
+    currentUser = user;
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display          = 'flex';
+    document.getElementById('topbar-user').textContent    = user.email;
+    loadDashboard();
+    loadCounts();
+  } else {
+    currentUser = null;
+    document.getElementById('login-screen').style.display = 'flex';
+    document.getElementById('app').style.display          = 'none';
+  }
+});
+
+document.getElementById('logout-btn').addEventListener('click', () => auth.signOut());
+
+// ─── NAVIGATION ───────────────────────────────
+document.querySelectorAll('.nav-item').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const panel = btn.dataset.panel;
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + panel).classList.add('active');
+    currentPanel = panel;
+    if (panel !== 'dashboard') loadPanel(panel);
+  });
+});
+
+// ─── COUNTS ───────────────────────────────────
+async function loadCounts() {
+  const collections = ['users','arts','posts','products','comments','likes'];
+  for (const col of collections) {
+    try {
+      const snap = await db.collection(PANEL_CONFIG[col]?.col || col).get();
+      const n = snap.size;
+      const el = document.getElementById('cnt-' + col);
+      if (el) el.textContent = n;
+      const stat = document.getElementById('stat-' + col);
+      if (stat) stat.textContent = n;
+    } catch(e) { /* skip */ }
+  }
+  // Others
+  try { const s = await db.collection('ratings').get();     document.getElementById('stat-ratings').textContent    = s.size; } catch(e){}
+  try { const s = await db.collection('newsletter').get();  document.getElementById('stat-newsletter').textContent = s.size; } catch(e){}
+}
+
+// ─── DASHBOARD ────────────────────────────────
+async function loadDashboard() {
+  loadCounts();
+
+  // Recent users
+  try {
+    const snap = await db.collection('users').orderBy('createdAt','desc').limit(8).get();
+    const el = document.getElementById('recent-users-list');
+    if (snap.empty) { el.innerHTML = '<div class="empty">No users</div>'; return; }
+    el.innerHTML = snap.docs.map(d => {
+      const data = d.data();
+      const name = data.displayName || data.user_Name || data.email || d.id;
+      const ts   = fmtDate(data.createdAt);
+      return `<div class="activity-item">
+        <div class="activity-dot" style="background:var(--blue)"></div>
+        <span>${esc(name)}</span>
+        <span class="activity-time">${ts}</span>
+      </div>`;
+    }).join('');
+  } catch(e) { document.getElementById('recent-users-list').innerHTML = `<div class="empty">Error: ${e.message}</div>`; }
+
+  // Recent arts
+  try {
+    const snap = await db.collection('arts').orderBy('createdAt','desc').limit(8).get();
+    const el = document.getElementById('recent-arts-list');
+    if (snap.empty) { el.innerHTML = '<div class="empty">No arts</div>'; return; }
+    el.innerHTML = snap.docs.map(d => {
+      const data = d.data();
+      const title = data.title || data.name || d.id;
+      const ts    = fmtDate(data.createdAt);
+      return `<div class="activity-item">
+        <div class="activity-dot" style="background:var(--green)"></div>
+        <span>${esc(title)}</span>
+        <span class="activity-time">${ts}</span>
+      </div>`;
+    }).join('');
+  } catch(e) { document.getElementById('recent-arts-list').innerHTML = `<div class="empty">Error: ${e.message}</div>`; }
+}
+
+// ─── GENERIC PANEL LOADER ─────────────────────
+async function loadPanel(panel) {
+  const tbody = document.getElementById(panel + '-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="20"><div class="loading"><div class="spinner"></div>Loading…</div></td></tr>';
+
+  const collectionName = getDynamicCollection(panel);
+  let q = db.collection(collectionName).orderBy('timestamp','desc');
+
+  // Override for collections without 'timestamp'
+  try {
+    if (['users','arts','posts','products','orders'].includes(panel)) {
+      q = db.collection(collectionName).orderBy('createdAt','desc');
+    }
+    if (panel === 'newsletter') {
+      q = db.collection('newsletter').orderBy('subscribedAt','desc');
+    }
+    if (panel === 'analytics') {
+      q = db.collection('analytics').orderBy('timestamp','desc');
+    }
+
+    const snap = await q.limit(200).get();
+    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    pageData[panel] = { docs, page: 0 };
+
+    const subtitle = document.getElementById(panel + '-subtitle');
+    if (subtitle) subtitle.textContent = `${docs.length} documents`;
+
+    renderPage(panel);
+  } catch(e) {
+    // If orderBy fails try without
+    try {
+      const snap2 = await db.collection(collectionName).limit(200).get();
+      const docs = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
+      pageData[panel] = { docs, page: 0 };
+      const subtitle = document.getElementById(panel + '-subtitle');
+      if (subtitle) subtitle.textContent = `${docs.length} documents`;
+      renderPage(panel);
+    } catch(e2) {
+      tbody.innerHTML = `<tr><td colspan="20"><div class="empty">Error: ${e2.message}</div></td></tr>`;
+    }
+  }
+}
+
+function getDynamicCollection(panel) {
+  if (panel === 'comments')   return document.getElementById('comments-type')?.value  || 'comments';
+  if (panel === 'likes')      return document.getElementById('likes-type')?.value     || 'likes';
+  if (panel === 'ratings')    return document.getElementById('ratings-type')?.value   || 'ratings';
+  if (panel === 'candidates') return 'candidate_arts';
+  return PANEL_CONFIG[panel]?.col || panel;
+}
+
+// ─── RENDER PAGE ──────────────────────────────
+function renderPage(panel) {
+  const state = pageData[panel];
+  if (!state) return;
+  const { docs, page } = state;
+
+  const searchEl = document.getElementById(panel + '-search');
+  const query = searchEl ? searchEl.value.toLowerCase() : '';
+
+  let filtered = docs;
+  if (query) {
+    filtered = docs.filter(d => JSON.stringify(d).toLowerCase().includes(query));
+  }
+
+  const start   = page * PAGE_SIZE;
+  const slice   = filtered.slice(start, start + PAGE_SIZE);
+  const tbody   = document.getElementById(panel + '-tbody');
+  const pag     = document.getElementById(panel + '-pagination');
+
+  if (slice.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="20"><div class="empty">No documents found</div></td></tr>';
+    if (pag) pag.innerHTML = '';
+    return;
+  }
+
+  tbody.innerHTML = slice.map(doc => renderRow(panel, doc)).join('');
+
+  // Pagination
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  if (pag) {
+    let html = `<button class="page-btn" onclick="goPage('${panel}',-1)" ${page===0?'disabled':''}>◀ Prev</button>`;
+    html += `<span>Page ${page+1} / ${totalPages} &nbsp;(${filtered.length} total)</span>`;
+    html += `<button class="page-btn" onclick="goPage('${panel}',1)" ${page>=totalPages-1?'disabled':''}>Next ▶</button>`;
+    pag.innerHTML = html;
+  }
+}
+
+function goPage(panel, dir) {
+  const state = pageData[panel];
+  if (!state) return;
+  state.page = Math.max(0, state.page + dir);
+  renderPage(panel);
+}
+
+function filterTable(panel) {
+  if (pageData[panel]) { pageData[panel].page = 0; renderPage(panel); }
+  else loadPanel(panel);
+}
+
+// ─── ROW RENDERERS ────────────────────────────
+function renderRow(panel, doc) {
+  const col = getDynamicCollection(panel);
+  const id  = doc.id;
+
+  const actions = `
+    <td><div class="actions">
+      <button class="btn btn-ghost btn-sm" onclick='viewDoc(${JSON.stringify(col)},${JSON.stringify(id)})'>View</button>
+      <button class="btn btn-ghost btn-sm" onclick='editDoc(${JSON.stringify(col)},${JSON.stringify(id)})'>Edit</button>
+      <button class="btn btn-danger btn-sm" onclick='deleteDoc(${JSON.stringify(col)},${JSON.stringify(id)},${JSON.stringify(panel)})'>Del</button>
+    </div></td>`;
+
+  if (panel === 'users') {
+    return `<tr>
+      <td>${doc.profilePicture ? `<img src="${esc(doc.profilePicture)}" onerror="this.style.display='none'">` : '<span style="color:var(--muted)">—</span>'}</td>
+      <td class="truncate">${esc(doc.displayName||doc.user_Name||'—')}</td>
+      <td class="truncate mono" style="max-width:180px">${esc(doc.email||'—')}</td>
+      <td class="id-cell" title="${esc(doc.firebaseUID||'')}">${esc((doc.firebaseUID||'').slice(0,12))}…</td>
+      <td class="id-cell" title="${esc(id)}">${esc(id.slice(0,10))}…</td>
+      <td>${doc.isArtist?'<span class="badge badge-green">artist</span>':'<span class="badge badge-gray">user</span>'}</td>
+      <td class="mono">${fmtDate(doc.createdAt)}</td>
+      ${actions}
+    </tr>`;
+  }
+  if (panel === 'arts') {
+    return `<tr>
+      <td>${doc.imageUrl||doc.image||doc.url ? `<img src="${esc(doc.imageUrl||doc.image||doc.url)}" onerror="this.style.display='none'">` : '—'}</td>
+      <td class="truncate">${esc(doc.title||doc.name||'—')}</td>
+      <td class="id-cell" title="${esc(id)}">${esc(id)}</td>
+      <td class="id-cell" title="${esc(doc.userId||'')}">${esc((doc.userId||'—').slice(0,12))}…</td>
+      <td class="mono">${doc.likes_count||0}</td>
+      <td class="mono">${fmtDate(doc.createdAt)}</td>
+      ${actions}
+    </tr>`;
+  }
+  if (panel === 'posts') {
+    const text = String(doc.content||doc.text||doc.body||'').slice(0,80);
+    return `<tr>
+      <td class="id-cell" title="${esc(id)}">${esc(id.slice(0,10))}…</td>
+      <td class="truncate" style="max-width:280px">${esc(text)}</td>
+      <td class="id-cell">${esc((doc.foreignUserId||doc.userId||'—').slice(0,12))}…</td>
+      <td class="mono">${doc.likes_count||0}</td>
+      <td class="mono">${doc.comments_count||0}</td>
+      <td class="mono">${fmtDate(doc.createdAt||doc.timestamp)}</td>
+      ${actions}
+    </tr>`;
+  }
+  if (panel === 'products') {
+    const price = doc.price != null ? `R$ ${Number(doc.price).toFixed(2)}` : '—';
+    const status = doc.status || 'unknown';
+    const badge = status === 'active' ? 'badge-green' : 'badge-gray';
+    return `<tr>
+      <td>${doc.imageUrl||doc.image ? `<img src="${esc(doc.imageUrl||doc.image)}" onerror="this.style.display='none'">` : '—'}</td>
+      <td class="truncate">${esc(doc.name||doc.title||'—')}</td>
+      <td class="id-cell">${esc(id.slice(0,10))}…</td>
+      <td class="id-cell">${esc((doc.designerUserId||'—').slice(0,12))}…</td>
+      <td class="mono">${price}</td>
+      <td><span class="badge ${badge}">${esc(status)}</span></td>
+      <td class="mono">${doc.likes_count||0}</td>
+      <td class="mono">${fmtDate(doc.createdAt)}</td>
+      ${actions}
+    </tr>`;
+  }
+  if (panel === 'comments') {
+    const text = String(doc.content||doc.text||doc.comment||'').slice(0,100);
+    const author = doc.foreignUserId||doc.userId||'—';
+    return `<tr>
+      <td class="id-cell">${esc(id.slice(0,10))}…</td>
+      <td class="truncate" style="max-width:300px">${esc(text)}</td>
+      <td class="id-cell">${esc(author.slice(0,12))}…</td>
+      <td class="mono">${doc.likes_count||0}</td>
+      <td class="mono">${fmtDate(doc.createdAt||doc.timestamp)}</td>
+      ${actions}
+    </tr>`;
+  }
+  if (panel === 'likes') {
+    const userField  = doc.userId||doc.foreignUserId||'—';
+    const contentField = doc.artId||doc.foreignPostId||doc.productId||doc.commentId||doc.foreignCommentId||'—';
+    return `<tr>
+      <td class="id-cell">${esc(id)}</td>
+      <td class="id-cell">${esc(userField.slice(0,16))}…</td>
+      <td class="id-cell">${esc(contentField.slice(0,16))}…</td>
+      <td class="mono">${fmtDate(doc.timestamp)}</td>
+      ${actions}
+    </tr>`;
+  }
+  if (panel === 'notifications') {
+    return `<tr>
+      <td class="id-cell">${esc(id.slice(0,10))}…</td>
+      <td class="id-cell">${esc((doc.toUserId||'—').slice(0,12))}…</td>
+      <td class="id-cell">${esc((doc.fromUserId||'—').slice(0,12))}…</td>
+      <td><span class="badge badge-blue">${esc(doc.type||'—')}</span></td>
+      <td class="truncate">${esc((doc.message||'').slice(0,60))}</td>
+      <td><span class="badge ${doc.read?'badge-gray':'badge-yellow'}">${doc.read?'read':'unread'}</span></td>
+      <td class="mono">${fmtDate(doc.timestamp)}</td>
+      ${actions}
+    </tr>`;
+  }
+  if (panel === 'orders') {
+    return `<tr>
+      <td class="id-cell">${esc(id.slice(0,10))}…</td>
+      <td class="id-cell">${esc((doc.userId||doc.buyerId||'—').slice(0,12))}…</td>
+      <td class="mono">${doc.total!=null?`R$ ${Number(doc.total).toFixed(2)}`:'—'}</td>
+      <td><span class="badge badge-blue">${esc(doc.status||'—')}</span></td>
+      <td>${esc(doc.provider||doc.fulfillment||'—')}</td>
+      <td class="mono">${fmtDate(doc.createdAt||doc.timestamp)}</td>
+      ${actions}
+    </tr>`;
+  }
+  if (panel === 'ratings') {
+    const stars = '★'.repeat(Math.min(5, Math.max(0, doc.rating||doc.score||0)));
+    return `<tr>
+      <td class="id-cell">${esc(id.slice(0,10))}…</td>
+      <td class="id-cell">${esc((doc.raterUid||doc.raterUserId||'—').slice(0,16))}…</td>
+      <td class="id-cell">${esc((doc.ratedUserId||doc.productId||'—').slice(0,16))}…</td>
+      <td class="mono" style="color:var(--yellow)">${stars} (${doc.rating||doc.score||0})</td>
+      <td class="truncate">${esc((doc.comment||'').slice(0,60))}</td>
+      <td class="mono">${fmtDate(doc.createdAt||doc.timestamp)}</td>
+      ${actions}
+    </tr>`;
+  }
+  if (panel === 'newsletter') {
+    return `<tr>
+      <td class="id-cell">${esc(id)}</td>
+      <td class="mono">${esc(doc.email||'—')}</td>
+      <td><span class="badge ${doc.subscribed?'badge-green':'badge-red'}">${doc.subscribed?'subscribed':'unsubscribed'}</span></td>
+      <td class="mono">${fmtDate(doc.subscribedAt||doc.timestamp)}</td>
+      ${actions}
+    </tr>`;
+  }
+  if (panel === 'analytics') {
+    return `<tr>
+      <td class="id-cell">${esc(id.slice(0,10))}…</td>
+      <td class="truncate">${esc(doc.page||'—')}</td>
+      <td class="truncate">${esc((doc.referrer||'direct').slice(0,40))}</td>
+      <td class="id-cell">${esc((doc.userId||'anon').slice(0,12))}</td>
+      <td class="mono">${esc((doc.ip||'—').slice(0,20))}</td>
+      <td class="mono">${fmtDate(doc.timestamp)}</td>
+      ${actions}
+    </tr>`;
+  }
+  if (panel === 'candidates') {
+    return `<tr>
+      <td>${doc.imageUrl||doc.image ? `<img src="${esc(doc.imageUrl||doc.image)}" onerror="this.style.display='none'">` : '—'}</td>
+      <td class="id-cell">${esc(id)}</td>
+      <td class="truncate">${esc(doc.title||doc.name||'—')}</td>
+      <td class="id-cell">${esc((doc.userId||'—').slice(0,12))}…</td>
+      <td class="mono">${fmtDate(doc.createdAt||doc.timestamp)}</td>
+      ${actions}
+    </tr>`;
+  }
+
+  // Fallback generic row
+  const keys = Object.keys(doc).filter(k=>k!=='id').slice(0,5);
+  const cells = keys.map(k=>`<td class="truncate">${esc(String(doc[k]||'').slice(0,60))}</td>`).join('');
+  return `<tr><td class="id-cell">${esc(id)}</td>${cells}${actions}</tr>`;
+}
+
+// ─── VIEW DOC (raw JSON) ──────────────────────
+async function viewDoc(collection, docId) {
+  try {
+    const snap = await db.collection(collection).doc(docId).get();
+    const data = snap.exists ? { id: snap.id, ...snap.data() } : { error: 'Not found' };
+    document.getElementById('view-modal-title').textContent = `${collection} / ${docId}`;
+    document.getElementById('json-view').innerHTML = syntaxHighlight(data);
+    document.getElementById('view-modal').classList.add('open');
+  } catch(e) {
+    showToast('Error: ' + e.message, true);
+  }
+}
+function closeViewModal() {
+  document.getElementById('view-modal').classList.remove('open');
+}
+
+// ─── EDIT DOC ─────────────────────────────────
+async function editDoc(collection, docId) {
+  try {
+    const snap = await db.collection(collection).doc(docId).get();
+    if (!snap.exists) { showToast('Document not found', true); return; }
+    const data = snap.data();
+    modalCollection = collection;
+    modalDocId      = docId;
+    modalEditFields = {};
+
+    document.getElementById('modal-title').textContent = `Edit: ${collection} / ${docId.slice(0,16)}…`;
+
+    // Build form fields from document data
+    const editable = buildEditableFields(data);
+    let html = '';
+    for (const [key, val] of Object.entries(editable)) {
+      const fieldId = 'field_' + key;
+      const isLong  = String(val).length > 80 || key.toLowerCase().includes('bio') || key.toLowerCase().includes('content') || key.toLowerCase().includes('description') || key.toLowerCase().includes('text') || key.toLowerCase().includes('message');
+      html += `<div class="field-group">
+        <label>${esc(key)}</label>`;
+      if (isLong) {
+        html += `<textarea id="${fieldId}" rows="3">${esc(String(val))}</textarea>`;
+      } else {
+        html += `<input type="text" id="${fieldId}" value="${esc(String(val))}">`;
+      }
+      html += `</div>`;
+      modalEditFields[key] = fieldId;
+    }
+
+    // Show read-only fields
+    const readOnly = Object.keys(data).filter(k => !Object.keys(editable).includes(k));
+    if (readOnly.length) {
+      html += `<div style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin:14px 0 8px">Read-only / System Fields</div>`;
+      html += `<div class="json-view" style="max-height:140px">${syntaxHighlight(Object.fromEntries(readOnly.map(k=>[k,data[k]])))}</div>`;
+    }
+
+    document.getElementById('modal-body').innerHTML = html;
+    document.getElementById('edit-modal').classList.add('open');
+  } catch(e) {
+    showToast('Error loading doc: ' + e.message, true);
+  }
+}
+
+function buildEditableFields(data) {
+  // Which fields are safe to edit (exclude Firestore special types and IDs)
+  const skipTypes = ['object']; // skip nested objects inline — show in raw view
+  const skipKeys  = ['createdAt','updatedAt','timestamp','subscribedAt','lastUpdated'];
+  const result = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (skipKeys.includes(k)) continue;
+    if (v && typeof v === 'object' && v.constructor?.name === 'Timestamp') continue;
+    if (typeof v === 'object' && v !== null && !Array.isArray(v)) continue;
+    result[k] = v == null ? '' : Array.isArray(v) ? JSON.stringify(v) : v;
+  }
+  return result;
+}
+
+async function saveModal() {
+  const updates = {};
+  for (const [key, fieldId] of Object.entries(modalEditFields)) {
+    const el = document.getElementById(fieldId);
+    if (!el) continue;
+    let val = el.value;
+    // Try to parse JSON arrays/objects
+    if (val.startsWith('[') || val.startsWith('{')) {
+      try { val = JSON.parse(val); } catch(e) { /* keep string */ }
+    }
+    // Try to coerce booleans and numbers back
+    if (val === 'true')  val = true;
+    if (val === 'false') val = false;
+    if (val !== '' && !isNaN(val) && typeof val === 'string') val = Number(val);
+    updates[key] = val;
+  }
+  try {
+    await db.collection(modalCollection).doc(modalDocId).update(updates);
+    showToast('Document updated ✓');
+    closeModal();
+    if (pageData[currentPanel]) loadPanel(currentPanel);
+  } catch(e) {
+    showToast('Save failed: ' + e.message, true);
+  }
+}
+
+function closeModal() {
+  document.getElementById('edit-modal').classList.remove('open');
+}
+
+// ─── DELETE DOC ───────────────────────────────
+function deleteDoc(collection, docId, panel) {
+  document.getElementById('confirm-msg').textContent = `Delete document "${docId}" from "${collection}"? This cannot be undone.`;
+  document.getElementById('confirm-overlay').classList.add('open');
+  confirmCb = async () => {
+    try {
+      await db.collection(collection).doc(docId).delete();
+      showToast('Deleted ✓');
+      // Remove from local cache
+      if (pageData[panel]) {
+        pageData[panel].docs = pageData[panel].docs.filter(d => d.id !== docId);
+        renderPage(panel);
+      }
+    } catch(e) {
+      showToast('Delete failed: ' + e.message, true);
+    }
+    closeConfirm();
+  };
+}
+
+document.getElementById('confirm-yes').addEventListener('click', () => { if(confirmCb) confirmCb(); });
+function cancelConfirm() { closeConfirm(); }
+function closeConfirm() {
+  document.getElementById('confirm-overlay').classList.remove('open');
+  confirmCb = null;
+}
+
+// ─── CLOSE MODALS ON OVERLAY CLICK ───────────
+document.getElementById('edit-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('edit-modal')) closeModal();
+});
+document.getElementById('view-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('view-modal')) closeViewModal();
+});
+
+// ─── HELPERS ──────────────────────────────────
+function esc(str) {
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function fmtDate(ts) {
+  if (!ts) return '—';
+  try {
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}) + ' ' +
+           d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  } catch(e) { return String(ts).slice(0,16); }
+}
+
+function showToast(msg, isError=false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show' + (isError?' error':'');
+  clearTimeout(t._to);
+  t._to = setTimeout(()=>{ t.className = ''; }, 3500);
+}
+
+function syntaxHighlight(json) {
+  const str = JSON.stringify(json, (k,v) => {
+    if (v && typeof v === 'object' && v.constructor?.name === 'Timestamp') {
+      try { return v.toDate().toISOString(); } catch(e) { return '[Timestamp]'; }
+    }
+    return v;
+  }, 2);
+  return str.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, match => {
+    let cls = 'json-num';
+    if (/^"/.test(match)) {
+      cls = /:$/.test(match) ? 'json-key' : 'json-str';
+    } else if (/true|false/.test(match)) {
+      cls = 'json-bool';
+    } else if (/null/.test(match)) {
+      cls = 'json-null';
+    }
+    return `<span class="${cls}">${match}</span>`;
+  });
+}
+
+// Close on Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    closeModal();
+    closeViewModal();
+    closeConfirm();
+  }
+});
+</script>
 </body>
 </html>

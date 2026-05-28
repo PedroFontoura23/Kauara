@@ -1,5 +1,7 @@
 document.addEventListener("DOMContentLoaded", function () {
-  // Initialize Firebase
+  // ================================
+  // 1. FIREBASE INITIALIZATION
+  // ================================
   const firebaseConfig = {
     apiKey: "AIzaSyBcBmuXY9ulETrbn2PmzjsDZ7JKRcehqGo",
     authDomain: "kauara1.firebaseapp.com",
@@ -10,7 +12,6 @@ document.addEventListener("DOMContentLoaded", function () {
     measurementId: "G-KL18R1CJ6S",
   };
   
-  // Check if Firebase is already initialized
   if (!firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
   }
@@ -18,392 +19,99 @@ document.addEventListener("DOMContentLoaded", function () {
   const auth = firebase.auth();
   const db = firebase.firestore();
 
-  // Elements - defined after DOM is loaded
-  const userNameElement = document.getElementById("userName");
-  const userEmailElement = document.getElementById("userEmail");
-  const userBioElement = document.getElementById("userBio");
-  const profilePictureElement = document.getElementById("profilePicture");
-  const uploadPictureButton = document.getElementById("uploadPictureButton");
-  const artistaBadge = document.getElementById("artistaBadge");
-  const addPostButton = document.getElementById("addPostButton");
-  const createProductButton = document.getElementById("createProductButton");
-  
-  // Modal elements - initialized safely after DOM is loaded
-  let cropModal, postModal, postCropModal;
-  
-  // Initialize modals safely
-  setTimeout(() => {
-    try {
-      const cropModalEl = document.getElementById("cropModal");
-      const postModalEl = document.getElementById("postModal");
-      const postCropModalEl = document.getElementById("cropPostModal");
+  // ================================
+  // 2. GLOBAL VARIABLES & STATE
+  // ================================
+  // Managers (instantiated once, reused across functions)
+  let _postManager = null;
+  let _artManager = null;
+  let _productManager = null;
+  let _candidatoManager = null;
 
-      if (cropModalEl && typeof bootstrap !== 'undefined') cropModal = new bootstrap.Modal(cropModalEl);
-      if (postModalEl && typeof bootstrap !== 'undefined') postModal = new bootstrap.Modal(postModalEl);
-      if (postCropModalEl && typeof bootstrap !== 'undefined') postCropModal = new bootstrap.Modal(postCropModalEl);
-      
-    } catch (modalError) {
-      console.error("Error initializing modals:", modalError);
-    }
-  }, 100);
-
-  // Post elements
-  const postText = document.getElementById("postText");
-  const postImageInput = document.getElementById("postImageInput");
-  const postImagePreview = document.getElementById("postImagePreview");
-  const submitPostButton = document.getElementById("submitPostButton");
-
-  // Post image cropping elements
-  const postCropImage = document.getElementById("cropPostImage");
-  const postCropButton = document.getElementById("cropPostButton");
-  const MAX_IMAGE_SIZE_MB = 5; // Maximum file size in MB
-  const MAX_DIMENSION = 1200; // Maximum width/height in pixels
-  const JPEG_QUALITY = 0.7; // JPEG compression quality (0.0 to 1.0)
-
+  // State variables
   let selectedImageFile = null;
-  let cropper;
+  let cropper = null;
   let postCropper = null;
 
-  // Create Product button functionality
-  if (createProductButton) {
-    createProductButton.addEventListener("click", async () => {
-      const user = auth.currentUser;
-      if (user) {
-        try {
-          const firestoreUserId = await getUserIdFromUid(user.uid);
-          sessionStorage.setItem('currentUserId', user.uid);
-          sessionStorage.setItem('currentFirestoreUserId', firestoreUserId);
-          sessionStorage.setItem('designerFirestoreUserId', firestoreUserId);
-          window.location.href = 'select-product.html';
-        } catch (error) {
-          console.error("Error getting user ID:", error);
-          alert("Error retrieving user information. Please try again.");
+  // Modal references
+  let cropModal, postModal, postCropModal;
+
+  // UID cache
+  const _uidCache = new Map();
+
+  // Constants
+  const MAX_IMAGE_SIZE_MB = 5;
+  const MAX_DIMENSION = 1200;
+  const JPEG_QUALITY = 0.7;
+
+  // ================================
+  // 3. HELPER FUNCTIONS
+  // ================================
+  
+  // Skeleton shimmer (shown immediately during Firebase cold-start)
+  (function showSkeleton() {
+    const style = document.createElement("style");
+    style.textContent = `
+      .skeleton { background: linear-gradient(90deg,#e0e0e0 25%,#f5f5f5 50%,#e0e0e0 75%);
+                  background-size: 200% 100%; animation: shimmer 1.2s infinite;
+                  border-radius: 4px; color: transparent !important; }
+      @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+    `;
+    document.head.appendChild(style);
+    ["userName", "userEmail", "userBio", "averageRating"].forEach(id => {
+      document.getElementById(id)?.classList.add("skeleton");
+    });
+    const pic = document.getElementById("profilePicture");
+    if (pic) pic.style.opacity = "0.3";
+  })();
+
+  function removeSkeleton() {
+    document.querySelectorAll(".skeleton").forEach(el => el.classList.remove("skeleton"));
+    const pic = document.getElementById("profilePicture");
+    if (pic) pic.style.opacity = "";
+  }
+
+  // Firestore persistence (enabled once per session)
+  if (!sessionStorage.getItem('_firestorePersistenceEnabled')) {
+    db.enablePersistence({ synchronizeTabs: true })
+      .then(() => {
+        sessionStorage.setItem('_firestorePersistenceEnabled', '1');
+      })
+      .catch((err) => {
+        if (err.message && err.message.includes('newer version')) {
+          try { indexedDB.deleteDatabase('firestore/[DEFAULT]/kauara1/main'); } catch (_) { }
         }
-      } else {
-        alert("Please log in to create products");
-      }
-    });
-  }
-
-  // Become Artist button functionality
-  const becomeArtistButton = document.getElementById("becomeArtistButton");
-  if (becomeArtistButton) {
-    becomeArtistButton.addEventListener("click", async () => {
-      const user = firebase.auth().currentUser;
-      if (!user) {
-        alert("Você precisa estar logado para se tornar um artista.");
-        return;
-      }
-
-      const CLIENT_ID = "8000562204726523";
-      const authUrl = `/artistRegistration.html`;
-      window.location.href = authUrl;
-    });
-  }
-
-  // NOTE: API keys must never be fetched or decrypted client-side.
-  // Use a Cloud Function to proxy any Printful API calls instead.
-
-  // Add this event listener for the "Create Post" button
-  if (addPostButton) {
-    addPostButton.addEventListener("click", () => {
-      if (postModal) postModal.show();
-    });
-  }
-
-  document.querySelectorAll('.dropdown-item[data-bs-toggle="collapse"]').forEach((button) => {
-      button.addEventListener('click', (event) => {
-          event.stopPropagation();
+        sessionStorage.setItem('_firestorePersistenceEnabled', '1');
       });
-  });
-
-  function initializePostManager(containerId) {
-    if (typeof PostManager !== 'undefined') {
-      return new PostManager(db, auth, containerId);
-    } else {
-      console.error("PostManager is not defined. Make sure to include the PostManager script.");
-      return null;
-    }
   }
 
-  function initializeProductManager(containerId) {
-    if (typeof ProductManager !== 'undefined') {
-      return new ProductManager(db, auth, containerId);
-    } else {
-      console.error("ProductManager is not defined. Make sure to include the ProductManager script.");
-      return null;
-    }
-  }
-
-  // ✅ Initialize ArtManager
-  function initializeArtManager(containerId) {
-    if (typeof ArtManager !== 'undefined') {
-      return new ArtManager(db, auth, containerId);
-    } else {
-      console.error("ArtManager is not defined. Make sure to include the ArtManager script.");
-      return null;
-    }
-  }
-
-  // displayArt function (only user's art)
-  function displayArt(firestoreUserId) {
-    if (!firestoreUserId) return;
-    const artManager = initializeArtManager('artContainer');
-    if (artManager) {
-        artManager.displayArts(firestoreUserId, firestoreUserId);
-    }
-  }
-
-  // Handle image upload and cropping
-  if (postImageInput) {
-    postImageInput.addEventListener("change", async (event) => {
-      const file = event.target.files[0];
-      if (file) {
-        try {
-          const compressedImage = await compressImage(file);
-          selectedImageFile = file;
-          if (postCropImage) postCropImage.src = compressedImage;
-
-          if (postCropper) {
-            postCropper.destroy();
-          }
-
-          if (postCropModal) postCropModal.show();
-          
-          // Check if Cropper is available
-          if (typeof Cropper !== 'undefined' && postCropImage) {
-            postCropper = new Cropper(postCropImage, {
-              aspectRatio: NaN,
-              viewMode: 1
-            });
-          } else {
-            console.error("Cropper library is not loaded or postCropImage element not found");
-          }
-        } catch (error) {
-          alert(error.message);
-          postImageInput.value = '';
-          selectedImageFile = null;
-        }
-      }
-    });
-  }
-
-  // Handle image cropping
-  if (postCropButton) {
-    postCropButton.addEventListener("click", () => {
-      if (!postCropper) {
-        alert("Please select an image first");
-        return;
-      }
-
-      const canvas = postCropper.getCroppedCanvas();
-      if (postImagePreview) {
-        postImagePreview.src = canvas.toDataURL("image/jpeg");
-        postImagePreview.classList.remove("d-none");
-      }
-      if (postCropModal) postCropModal.hide();
-    });
-  }
-
-  // Handle post submission
-  if (submitPostButton) {
-    submitPostButton.addEventListener("click", async () => {
-      const postContent = postText ? postText.value.trim() : "";
-      if (!postContent && !selectedImageFile) {
-        alert("Please add text or an image.");
-        return;
-      }
-
-      const user = auth.currentUser;
-      if (!user) {
-        alert("User is not logged in.");
-        return;
-      }
-
-      try {
-        const firestoreUserId = await getUserIdFromUid(user.uid);
-        let base64Image = null;
-
-        if (selectedImageFile && postCropper) {
-          const canvas = postCropper.getCroppedCanvas();
-          base64Image = canvas.toDataURL("image/jpeg").split(",")[1];
-        }
-
-        await savePostToFirestore(postContent, base64Image, firestoreUserId);
-      } catch (error) {
-        console.error("Error handling post submission:", error);
-        alert("Something went wrong.");
-      }
-    });
-  }
-
-  // Function to save the post to Firestore
-  async function savePostToFirestore(text, base64Image, userId) {
-    if (!userId) {
-      alert("User ID is missing.");
-      return;
-    }
-
-    const userDoc = await db.collection("users").doc(userId).get();
-    if (!userDoc.exists || !userDoc.data().artista) {
-      alert("Achei o espertinho. Só artistas podem fazer posts.");
-      return;
-    }
-
-    if (!text && !base64Image) {
-      alert("Please add some text or an image.");
-      return;
-    }
-
-    const postTextContent = text.trim() || "No content provided";
-
-    try {
-      await db.collection("posts").add({
-        foreignUserId: userId,
-        Firebase_UID: firebase.auth().currentUser.uid, 
-        postText: postTextContent,
-        postImage: base64Image,
-        timestamp: firebase.firestore.FieldValue.serverTimestamp()
-      });
-
-      if (postModal) postModal.hide();
-      if (postText) postText.value = "";
-      if (postImageInput) postImageInput.value = "";
-      if (postImagePreview) postImagePreview.classList.add("d-none");
-      selectedImageFile = null;
-
-      if (postCropper) {
-        postCropper.destroy();
-        postCropper = null;
-      }
-
-      alert("Post successfully created!");
-      displayPosts(userId);
-    } catch (error) {
-      console.error("Error adding post:", error);
-      alert("Failed to create post.");
-    }
-  }
-
-  // Helper function to get Firestore user_<id> from Firebase UID
+  // UID to Firestore ID resolver with caching
   async function getUserIdFromUid(uid) {
-    const querySnapshot = await db.collection("users").where("firebaseUID", "==", uid).limit(1).get();
-    if (!querySnapshot.empty) {
-      return querySnapshot.docs[0].id;
-    } else {
-      throw new Error("User not found.");
-    }
+    if (_uidCache.has(uid)) return _uidCache.get(uid);
+    const snap = await db.collection("users").where("firebaseUID", "==", uid).limit(1).get();
+    if (snap.empty) throw new Error("User not found.");
+    const id = snap.docs[0].id;
+    _uidCache.set(uid, id);
+    return id;
   }
 
-  // Check if user is logged in
-  auth.onAuthStateChanged((user) => {
-      if (user) {
-          getUserIdFromUid(user.uid).then(async (firestoreUserId) => {
-              // Fetch user document first
-              const userDocRef = db.collection("users").doc(firestoreUserId);
-              const userDoc = await userDocRef.get();
-
-              if (userDoc.exists) {
-                  const userData = userDoc.data();
-
-                  // ✅ Display user data immediately
-                  if (userNameElement) userNameElement.textContent = userData.user_Name || "Unknown User";
-                  if (userEmailElement) userEmailElement.textContent = user.email || "No Email";
-                  if (userBioElement) userBioElement.textContent = userData.user_Bio || "No bio available.";
-                  
-                  // ✅ Show profile picture ASAP
-                  if (profilePictureElement) {
-                    profilePictureElement.src = userData.profilePicture 
-                        ? `data:image/jpeg;base64,${userData.profilePicture}`
-                        : "../images/default-profile.png";
-                  }
-
-                  // ✅ Show/hide artist elements
-                  if (userData.artista) {
-                      if (addPostButton) addPostButton.style.display = "block";
-                      if (createProductButton) createProductButton.style.display = "block";
-                      if (artistaBadge) artistaBadge.style.display = "inline";
-                  } else {
-                      if (addPostButton) addPostButton.style.display = "none";
-                      if (createProductButton) createProductButton.style.display = "none";
-                      if (artistaBadge) artistaBadge.style.display = "none";
-                  }
-
-                  // Explicitly fetch ratings
-                  fetchUserRatings(firestoreUserId);
-                  
-                  // ✅ Start loading posts, art & products without waiting for ratings
-                  displayPosts(firestoreUserId);
-                  displayArt(firestoreUserId); // ✅ Show user's art
-                  displayProducts(firestoreUserId);
-              }
-          }).catch((error) => {
-              console.error("Error getting user ID:", error);
-              console.error("Error loading user data");
-          });
-      }
+  // Script readiness gate (prevents race conditions with shared scripts)
+  const scriptsReady = new Promise(resolve => {
+    if (document.readyState === "complete") { resolve(); return; }
+    window.addEventListener("load", resolve, { once: true });
   });
 
-  async function fetchUserRatings(userId) {
-      try {
-          // Fetch the user document from Firestore
-          const userDoc = await db.collection("users").doc(userId).get();
-
-          if (userDoc.exists) {
-              const userData = userDoc.data();
-
-              // Get the averageRating and totalRatings fields
-              const averageRating = userData.averageRating || 0;
-              const totalRatings = userData.totalRatings || 0;
-
-              // Update the DOM with the fetched values
-              const averageRatingEl = document.getElementById("averageRating");
-              const numberOfRatingsEl = document.getElementById("numberOfRatings");
-              
-              if (averageRatingEl) averageRatingEl.textContent = `${averageRating} ⭐`;
-              if (numberOfRatingsEl) numberOfRatingsEl.textContent = `(${totalRatings} ${totalRatings === 1 ? 'rating' : 'ratings'})`;
-          } else {
-              const averageRatingEl = document.getElementById("averageRating");
-              const numberOfRatingsEl = document.getElementById("numberOfRatings");
-              
-              if (averageRatingEl) averageRatingEl.textContent = "No ratings yet";
-              if (numberOfRatingsEl) numberOfRatingsEl.textContent = "(0 ratings)";
-          }
-      } catch (error) {
-          console.error("Error fetching ratings:", error);
-          const averageRatingEl = document.getElementById("averageRating");
-          const numberOfRatingsEl = document.getElementById("numberOfRatings");
-          
-          if (averageRatingEl) averageRatingEl.textContent = "Error loading ratings";
-          if (numberOfRatingsEl) numberOfRatingsEl.textContent = "";
-      }
-  }
-
-  function displayProducts(firestoreUserId) {
-    if (!firestoreUserId) return;
-    const productManager = initializeProductManager('productsContainer');
-    if (productManager) {
-        productManager.displayProducts(firestoreUserId, firestoreUserId);
-    }
-  }
-
-  // Image compression function
+  // Image compression utility
   async function compressImage(imageFile) {
-    // Check file size first
     const fileSizeMB = imageFile.size / (1024 * 1024);
-    if (fileSizeMB > MAX_IMAGE_SIZE_MB) {
-      throw new Error(`Image size must be less than ${MAX_IMAGE_SIZE_MB}MB`);
-    }
-
+    if (fileSizeMB > MAX_IMAGE_SIZE_MB) throw new Error(`Image must be < ${MAX_IMAGE_SIZE_MB} MB`);
+    
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
-          // Calculate new dimensions while maintaining aspect ratio
-          let width = img.width;
-          let height = img.height;
-          
+          let { width, height } = img;
           if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
             if (width > height) {
               height = (height / width) * MAX_DIMENSION;
@@ -413,298 +121,33 @@ document.addEventListener("DOMContentLoaded", function () {
               height = MAX_DIMENSION;
             }
           }
-
-          // Create canvas for compression
-          const canvas = document.createElement('canvas');
+          const canvas = document.createElement("canvas");
           canvas.width = width;
           canvas.height = height;
-          
-          // Draw and compress
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-          
-          // Convert to base64 with quality setting
-          const compressedBase64 = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
-          
-          // Check final size
-          const finalSize = (compressedBase64.length * 3) / 4 / (1024 * 1024);
-          if (finalSize > MAX_IMAGE_SIZE_MB) {
-            reject(new Error(`Compressed image is still too large (${finalSize.toFixed(2)}MB)`));
-          } else {
-            resolve(compressedBase64);
-          }
+          canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+          const b64 = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+          const finalMB = (b64.length * 3) / 4 / (1024 * 1024);
+          if (finalMB > MAX_IMAGE_SIZE_MB) reject(new Error(`Compressed image still too large (${finalMB.toFixed(2)} MB)`));
+          else resolve(b64);
         };
         img.onerror = reject;
-        img.src = event.target.result;
+        img.src = e.target.result;
       };
       reader.onerror = reject;
       reader.readAsDataURL(imageFile);
     });
   }
 
-  // Edit Name Functionality
-  const editNameButton = document.getElementById("editNameButton");
-  if (editNameButton) {
-    editNameButton.addEventListener("click", () => {
-      const nameEditSection = document.getElementById("nameEditSection");
-      if (nameEditSection) nameEditSection.style.display = "block";
-      const nameInput = document.getElementById("nameInput");
-      if (nameInput && userNameElement) nameInput.value = userNameElement.textContent;
-    });
+  // Apply user shared rating to UI
+  function applyUserRatings(userData) {
+    const likes = userData?.likes_count ?? 0;
+    const avgEl = document.getElementById("averageRating");
+    const cntEl = document.getElementById("numberOfRatings");
+    if (avgEl) avgEl.textContent = `♥ ${likes}`;
+    if (cntEl) cntEl.textContent = `(${likes} ${likes === 1 ? "like" : "likes"})`;
   }
 
-  const saveNameButton = document.getElementById("saveNameButton");
-  if (saveNameButton) {
-    saveNameButton.addEventListener("click", () => {
-      const nameInput = document.getElementById("nameInput");
-      const newName = nameInput ? nameInput.value.trim() : "";
-      const user = auth.currentUser;
-
-      if (user && newName) {
-        getUserIdFromUid(user.uid).then((firestoreUserId) => {
-          db.collection("users")
-            .doc(firestoreUserId)
-            .update({ user_Name: newName })
-            .then(() => {
-              if (userNameElement) userNameElement.textContent = newName;
-              const nameEditSection = document.getElementById("nameEditSection");
-              if (nameEditSection) nameEditSection.style.display = "none";
-            })
-            .catch((error) => {
-              console.error("Error updating name:", error);
-              alert("Failed to update name.");
-            });
-        });
-      }
-    });
-  }
-
-  const cancelNameButton = document.getElementById("cancelNameButton");
-  if (cancelNameButton) {
-    cancelNameButton.addEventListener("click", () => {
-      const nameEditSection = document.getElementById("nameEditSection");
-      if (nameEditSection) nameEditSection.style.display = "none";
-    });
-  }
-
-  // Edit Bio Functionality
-  const editBioButton = document.getElementById("editBioButton");
-  if (editBioButton) {
-    editBioButton.addEventListener("click", () => {
-      const bioEditSection = document.getElementById("bioEditSection");
-      if (bioEditSection) bioEditSection.style.display = "block";
-      const bioInput = document.getElementById("bioInput");
-      if (bioInput && userBioElement) bioInput.value = userBioElement.textContent;
-    });
-  }
-
-  const saveBioButton = document.getElementById("saveBioButton");
-  if (saveBioButton) {
-    saveBioButton.addEventListener("click", () => {
-      const bioInput = document.getElementById("bioInput");
-      const newBio = bioInput ? bioInput.value.trim() : "";
-      const user = auth.currentUser;
-
-      if (user) {
-        getUserIdFromUid(user.uid).then((firestoreUserId) => {
-          db.collection("users")
-            .doc(firestoreUserId)
-            .update({ user_Bio: newBio })
-            .then(() => {
-              if (userBioElement) userBioElement.textContent = newBio;
-              const bioEditSection = document.getElementById("bioEditSection");
-              if (bioEditSection) bioEditSection.style.display = "none";
-            })
-            .catch((error) => {
-              console.error("Error updating bio:", error);
-              alert("Failed to update bio.");
-            });
-        });
-      }
-    });
-  }
-
-  const cancelBioButton = document.getElementById("cancelBioButton");
-  if (cancelBioButton) {
-    cancelBioButton.addEventListener("click", () => {
-      const bioEditSection = document.getElementById("bioEditSection");
-      if (bioEditSection) bioEditSection.style.display = "none";
-    });
-  }
-
-  // File upload and cropping
-  if (uploadPictureButton) {
-    uploadPictureButton.addEventListener("click", () => {
-      const fileInput = document.createElement("input");
-      fileInput.type = "file";
-      fileInput.accept = "image/*";
-      fileInput.addEventListener("change", async (event) => {
-        const file = event.target.files[0];
-        if (file) {
-          try {
-            const compressedImage = await compressImage(file);
-            const cropImage = document.getElementById("cropImage");
-            if (cropImage) cropImage.src = compressedImage;
-            if (cropModal) cropModal.show();
-            
-            // Check if Cropper is available
-            if (typeof Cropper !== 'undefined') {
-              cropper = new Cropper(cropImage, {
-                aspectRatio: 1,
-                viewMode: 1,
-              });
-            } else {
-              console.error("Cropper library is not loaded");
-            }
-          } catch (error) {
-            alert(error.message);
-          }
-        }
-      });
-      fileInput.click();
-    });
-  }
-
-  // Save cropped image to Firestore as Base64
-  const cropButton = document.getElementById("cropButton");
-  if (cropButton) {
-    cropButton.addEventListener("click", () => {
-      if (!cropper) {
-        console.error("Cropper is not initialized.");
-        alert("Please select and crop an image first.");
-        return;
-      }
-
-      const canvas = cropper.getCroppedCanvas({
-        width: 300,
-        height: 300,
-      });
-
-      canvas.toBlob((blob) => {
-        const base64Image = canvas.toDataURL("image/jpeg").split(",")[1];
-        const user = auth.currentUser;
-
-        if (user) {
-          getUserIdFromUid(user.uid).then((firestoreUserId) => {
-            db.collection("users")
-              .doc(firestoreUserId)
-              .update({ profilePicture: base64Image })
-              .then(() => {
-                if (profilePictureElement) profilePictureElement.src = `data:image/jpeg;base64,${base64Image}`;
-                if (cropModal) cropModal.hide();
-                cropper.destroy();
-              })
-              .catch((error) => {
-                console.error("Error updating profile picture:", error);
-                alert("Error updating profile picture.");
-              });
-          });
-        }
-      }, "image/jpeg");
-    });
-  }
-
-  // Log Out Functionality
-  const logoutButton = document.getElementById('logoutButton');
-  if (logoutButton) {
-    logoutButton.addEventListener('click', async () => {
-        try {
-            // Clear session storage
-            sessionStorage.removeItem('currentUserId');
-            sessionStorage.removeItem('currentFirestoreUserId');
-            sessionStorage.removeItem('designerFirestoreUserId');
-            sessionStorage.removeItem('selectedProduct');
-            sessionStorage.removeItem('selectedVariants');
-            
-            // Sign out from Firebase
-            await auth.signOut();
-            window.location.href = "inicio.html";
-        } catch (error) {
-            console.error("Error during logout:", error);
-            alert("Erro ao fazer logout. Tente novamente.");
-        }
-    });
-  }
-
-  // Delete account functionality
-  const deleteAccountButton = document.getElementById("deleteAccountButton");
-  if (deleteAccountButton) {
-    deleteAccountButton.addEventListener("click", () => {
-      const user = auth.currentUser;
-
-      if (!user) {
-        alert("No user is logged in.");
-        return;
-      }
-
-      // Confirm the deletion with the user before proceeding
-      if (confirm("Are you sure you want to delete your account and all associated data? This action is irreversible.")) {
-        deleteUserAccountAndPosts(user);
-      }
-    });
-  }
-
-  // Function to delete the user account and all their posts, comments
-  async function deleteUserAccountAndPosts(user) {
-    try {
-      await reauthenticateUser(user);
-
-      const firestoreUserId = await getUserIdFromUid(user.uid);
-
-      // Helper: batch-delete all docs matching a field value
-      async function safeDeleteCollection(collectionName, fieldName, fieldValue) {
-        const snapshot = await db.collection(collectionName).where(fieldName, "==", fieldValue).get();
-        if (snapshot.empty) return;
-        const batch = db.batch();
-        snapshot.docs.forEach(doc => batch.delete(doc.ref));
-        await batch.commit();
-      }
-
-      // Step 2: Delete user's comments and likes
-      await safeDeleteCollection("comment_likes", "foreignUserId", firestoreUserId);
-      await safeDeleteCollection("comments", "foreignUserId", firestoreUserId);
-      await safeDeleteCollection("likes", "foreignUserId", firestoreUserId);
-
-      // Step 3: Delete products and ratings
-      await safeDeleteCollection("product_ratings", "RaterForeignUserId", firestoreUserId);
-      await safeDeleteCollection("ratings", "raterUid", user.uid);
-      await safeDeleteCollection("products", "userId", firestoreUserId);
-
-      // Step 4: Handle posts and their dependent objects
-      const postsSnapshot = await db.collection("posts").where("foreignUserId", "==", firestoreUserId).get();
-      if (!postsSnapshot.empty) {
-        for (const postDoc of postsSnapshot.docs) {
-          const postId = postDoc.id;
-          await safeDeleteCollection("comments", "foreignPostId", postId);
-          await safeDeleteCollection("likes", "postId", postId);
-          await postDoc.ref.delete();
-        }
-      }
-
-      // Step 5: Delete contact document
-      const contactId = `contact_${firestoreUserId.split('_')[1]}`;
-      const contactDoc = await db.collection("contact").doc(contactId).get();
-      if (contactDoc.exists) {
-        await db.collection("contact").doc(contactId).delete();
-      }
-
-      // Step 6: Delete user document
-      await db.collection("users").doc(firestoreUserId).delete();
-
-      // Step 7: Delete Firebase Auth record and sign out
-      await user.delete();
-      await auth.signOut();
-      alert("Your account and all associated data have been deleted.");
-      window.location.href = "inicio.html";
-
-    } catch (error) {
-      console.error("Account deletion error:", error.code || error.message);
-      alert("Failed to delete account. Please try again.");
-      throw error;
-    }
-  }
-
-  // Reauthentication helper
+  // Account deletion helpers
   async function reauthenticateUser(user) {
     const providerId = user.providerData[0]?.providerId;
     if (providerId === "password") {
@@ -717,60 +160,433 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  // Helper function to format timestamp as a readable date (e.g., "January 21, 2025, 5:00 PM")
-  function formatTimestamp(date) {
-      const options = { 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric', 
-          hour: '2-digit', 
-          minute: '2-digit', 
-          hour12: true 
-      };
-      return date.toLocaleString('en-US', options);
-  }
+  async function deleteUserAccountAndPosts(user) {
+    try {
+      await reauthenticateUser(user);
+      const firestoreUserId = await getUserIdFromUid(user.uid);
 
-  function displayPosts(firestoreUserId) {
-      if (!firestoreUserId) return;
-      const postManager = initializePostManager('allPostsContainer');
-      if (postManager) {
-          postManager.displayPosts(firestoreUserId, firestoreUserId);
+      async function safeDeleteCollection(col, field, val) {
+        const snap = await db.collection(col).where(field, "==", val).get();
+        if (snap.empty) return;
+        const batch = db.batch();
+        snap.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
       }
+
+      await safeDeleteCollection("comment_likes", "foreignUserId", firestoreUserId);
+      await safeDeleteCollection("comments", "foreignUserId", firestoreUserId);
+      await safeDeleteCollection("likes", "foreignUserId", firestoreUserId);
+      await safeDeleteCollection("product_ratings", "RaterForeignUserId", firestoreUserId);
+      await safeDeleteCollection("ratings", "raterUid", user.uid);
+      await safeDeleteCollection("products", "userId", firestoreUserId);
+
+      const postsSnap = await db.collection("posts").where("foreignUserId", "==", firestoreUserId).get();
+      if (!postsSnap.empty) {
+        for (const postDoc of postsSnap.docs) {
+          await safeDeleteCollection("comments", "foreignPostId", postDoc.id);
+          await safeDeleteCollection("likes", "postId", postDoc.id);
+          await postDoc.ref.delete();
+        }
+      }
+
+      const contactId = `contact_${firestoreUserId.split("_")[1]}`;
+      const contactDoc = await db.collection("contact").doc(contactId).get();
+      if (contactDoc.exists) await db.collection("contact").doc(contactId).delete();
+
+      await db.collection("users").doc(firestoreUserId).delete();
+      await user.delete();
+      await auth.signOut();
+      alert("Your account and all associated data have been deleted.");
+      window.location.href = "inicio.html";
+    } catch (err) {
+      console.error("Account deletion error:", err.code || err.message);
+      alert("Failed to delete account. Please try again.");
+      throw err;
+    }
   }
 
-  // Show the "Create Product" button if the user is an artist
+  // ================================
+  // 4. MANAGER INITIALIZATION
+  // ================================
+  async function initCandidatoManager() {
+    await scriptsReady;
+    if (!_candidatoManager && typeof window.CandidatoManager !== "undefined") {
+      _candidatoManager = new window.CandidatoManager(db, auth, firebase.storage(), "candidatoArtsContainer");
+    }
+    return _candidatoManager;
+  }
+
+  // ================================
+  // 5. DISPLAY FUNCTIONS
+  // ================================
+  async function displayPosts(firestoreUserId) {
+    if (!firestoreUserId) return;
+    await scriptsReady;
+    if (typeof PostManager === "undefined") { console.error("PostManager not available"); return; }
+    if (!_postManager) _postManager = new PostManager(db, auth, "allPostsContainer");
+    _postManager.displayPosts(firestoreUserId, firestoreUserId);
+  }
+
+  async function displayArt(firestoreUserId) {
+    if (!firestoreUserId) return;
+    await scriptsReady;
+    if (typeof ArtManager === "undefined") { console.error("ArtManager not available"); return; }
+    if (!_artManager) _artManager = new ArtManager(db, auth, "artContainer");
+    _artManager.displayArts(firestoreUserId, firestoreUserId);
+  }
+
+  async function displayProducts(firestoreUserId) {
+    if (!firestoreUserId) return;
+    await scriptsReady;
+    if (typeof ProductManagerDimona === "undefined") { console.error("ProductManager not available"); return; }
+    if (!_productManager) _productManager = new ProductManagerDimona(db, auth, "productsContainer");
+    _productManager.displayProducts(firestoreUserId, firestoreUserId);
+  }
+
+  async function displayCandidatoArts(firestoreUserId) {
+    if (!firestoreUserId) return;
+    const manager = await initCandidatoManager();
+    if (!manager) { console.error("CandidatoManager not available"); return; }
+    manager.displayArts(firestoreUserId);
+  }
+
+  function displayAllContent(firestoreUserId) {
+    Promise.allSettled([
+      displayPosts(firestoreUserId),
+      displayArt(firestoreUserId),
+      displayProducts(firestoreUserId),
+      displayCandidatoArts(firestoreUserId),
+    ]);
+  }
+
+  // ================================
+  // 6. POST CREATION FUNCTIONS
+  // ================================
+  async function savePostToFirestore(text, base64Image, userId) {
+    if (!userId) { alert("User ID is missing."); return; }
+    const userDoc = await db.collection("users").doc(userId).get();
+    if (!userDoc.exists || !userDoc.data().artista) {
+      alert("Achei o espertinho. Só artistas podem fazer posts.");
+      return;
+    }
+    if (!text && !base64Image) { alert("Please add some text or an image."); return; }
+    try {
+      await db.collection("posts").add({
+        foreignUserId: userId,
+        Firebase_UID: firebase.auth().currentUser.uid,
+        postText: text.trim() || "No content provided",
+        postImage: base64Image,
+        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      if (postModal) postModal.hide();
+      if (postText) postText.value = "";
+      if (postImageInput) postImageInput.value = "";
+      if (postImagePreview) postImagePreview.classList.add("d-none");
+      selectedImageFile = null;
+      if (postCropper) { postCropper.destroy(); postCropper = null; }
+      alert("Post successfully created!");
+      displayPosts(userId);
+    } catch (err) {
+      console.error("Error adding post:", err);
+      alert("Failed to create post.");
+    }
+  }
+
+  // ================================
+  // 7. DOM ELEMENT REFERENCES
+  // ================================
+  const userNameElement = document.getElementById("userName");
+  const userEmailElement = document.getElementById("userEmail");
+  const userBioElement = document.getElementById("userBio");
+  const profilePictureElement = document.getElementById("profilePicture");
+  const uploadPictureButton = document.getElementById("uploadPictureButton");
+  const artistaBadge = document.getElementById("artistaBadge");
+  const addPostButton = document.getElementById("addPostButton");
+  const createProductButton = document.getElementById("createProductButton");
+  const postText = document.getElementById("postText");
+  const postImageInput = document.getElementById("postImageInput");
+  const postImagePreview = document.getElementById("postImagePreview");
+  const submitPostButton = document.getElementById("submitPostButton");
+  const postCropImage = document.getElementById("cropPostImage");
+  const postCropButton = document.getElementById("cropPostButton");
+
+  // ================================
+  // 8. MODAL INITIALIZATION
+  // ================================
+  try {
+    const cropModalEl = document.getElementById("cropModal");
+    const postModalEl = document.getElementById("postModal");
+    const postCropModalEl = document.getElementById("cropPostModal");
+    if (cropModalEl) cropModal = new bootstrap.Modal(cropModalEl);
+    if (postModalEl) postModal = new bootstrap.Modal(postModalEl);
+    if (postCropModalEl) postCropModal = new bootstrap.Modal(postCropModalEl);
+  } catch (e) { console.error("Error initializing modals:", e); }
+
+  // ================================
+  // 9. EVENT LISTENERS
+  // ================================
+  
+  // Auth state listener (single source of truth)
   auth.onAuthStateChanged(async (user) => {
-      if (user) {
-          try {
-            const firestoreUserId = await getUserIdFromUid(user.uid);
-            const userDoc = await db.collection("users").doc(firestoreUserId).get();
-            const userData = userDoc.data();
-            
-            if (userData?.artista) {
-                if (artistaBadge) artistaBadge.style.display = "inline";
-                if (createProductButton) createProductButton.style.display = "block";
-            }
-          } catch (error) {
-            console.error("Error in auth state change handler:", error);
-          }
-      }
-  });
+    if (!user) return;
+    try {
+      const firestoreUserId = await getUserIdFromUid(user.uid);
+      const userDoc = await db.collection("users").doc(firestoreUserId).get();
+      if (!userDoc.exists) return;
+      const userData = userDoc.data();
 
-  // Content is loaded via onAuthStateChanged below, which always passes
-  // the verified firestoreUserId so only that user's content is shown.
+      // Paint text immediately
+      if (userNameElement) userNameElement.textContent = userData.user_Name || "Unknown User";
+      if (userEmailElement) userEmailElement.textContent = user.email || "No Email";
+      if (userBioElement) userBioElement.textContent = userData.user_Bio || "No bio available.";
 
-  // Handle page visibility changes to refresh data when returning to the page
-  document.addEventListener('visibilitychange', function() {
-    if (!document.hidden) {
-      // Page became visible again, refresh data
-      const user = auth.currentUser;
-      if (user) {
-        getUserIdFromUid(user.uid).then((firestoreUserId) => {
-          displayPosts(firestoreUserId);
-          displayArt(firestoreUserId);
-          displayProducts(firestoreUserId);
+      // Defer profile picture loading
+      if (profilePictureElement) {
+        requestAnimationFrame(() => {
+          profilePictureElement.src = userData.profilePicture
+            ? `data:image/jpeg;base64,${userData.profilePicture}`
+            : "../images/default-profile.png";
         });
       }
+
+      const isArtist = !!userData.artista;
+      if (addPostButton) addPostButton.style.display = isArtist ? "block" : "none";
+      if (createProductButton) createProductButton.style.display = isArtist ? "block" : "none";
+      if (artistaBadge) artistaBadge.style.display = isArtist ? "inline" : "none";
+
+      applyUserRatings(userData);
+      removeSkeleton();
+      displayAllContent(firestoreUserId);
+    } catch (err) {
+      console.error("Error loading user data:", err);
+      removeSkeleton();
     }
   });
+
+  // Visibility change handler
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    const user = auth.currentUser;
+    if (!user) return;
+    getUserIdFromUid(user.uid).then(displayAllContent);
+  });
+
+  // Dropdown collapse stopPropagation
+  document.querySelectorAll('.dropdown-item[data-bs-toggle="collapse"]').forEach((btn) => {
+    btn.addEventListener("click", (e) => e.stopPropagation());
+  });
+
+  // Post image selection & crop
+  if (postImageInput) {
+    postImageInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const compressed = await compressImage(file);
+        selectedImageFile = file;
+        if (postCropImage) postCropImage.src = compressed;
+        if (postCropper) { postCropper.destroy(); postCropper = null; }
+        if (postCropModal) postCropModal.show();
+        if (typeof Cropper !== "undefined" && postCropImage) {
+          postCropper = new Cropper(postCropImage, { aspectRatio: NaN, viewMode: 1 });
+        }
+      } catch (err) {
+        alert(err.message);
+        postImageInput.value = "";
+        selectedImageFile = null;
+      }
+    });
+  }
+
+  postCropButton?.addEventListener("click", () => {
+    if (!postCropper) { alert("Please select an image first"); return; }
+    const canvas = postCropper.getCroppedCanvas();
+    if (postImagePreview) {
+      postImagePreview.src = canvas.toDataURL("image/jpeg");
+      postImagePreview.classList.remove("d-none");
+    }
+    if (postCropModal) postCropModal.hide();
+  });
+
+  // Submit post
+  submitPostButton?.addEventListener("click", async () => {
+    const postContent = postText?.value.trim() ?? "";
+    if (!postContent && !selectedImageFile) { alert("Please add text or an image."); return; }
+    const user = auth.currentUser;
+    if (!user) { alert("User is not logged in."); return; }
+    try {
+      const firestoreUserId = await getUserIdFromUid(user.uid);
+      let base64Image = null;
+      if (selectedImageFile && postCropper) {
+        base64Image = postCropper.getCroppedCanvas().toDataURL("image/jpeg").split(",")[1];
+      }
+      await savePostToFirestore(postContent, base64Image, firestoreUserId);
+    } catch (err) {
+      console.error("Error handling post submission:", err);
+      alert("Something went wrong.");
+    }
+  });
+
+  // Create product
+  createProductButton?.addEventListener("click", async () => {
+    const user = auth.currentUser;
+    if (!user) { alert("Please log in to create products"); return; }
+    try {
+      const firestoreUserId = await getUserIdFromUid(user.uid);
+      sessionStorage.setItem("currentUserId", user.uid);
+      sessionStorage.setItem("currentFirestoreUserId", firestoreUserId);
+      sessionStorage.setItem("designerFirestoreUserId", firestoreUserId);
+      window.location.href = "select-products-dimona.html";
+    } catch (err) {
+      console.error("Error getting user ID:", err);
+      alert("Error retrieving user information. Please try again.");
+    }
+  });
+
+  // Become artist
+  document.getElementById("becomeArtistButton")?.addEventListener("click", async () => {
+    if (!firebase.auth().currentUser) {
+      alert("Você precisa estar logado para se tornar um artista.");
+      return;
+    }
+
+    window.location.href = "/artistRegistration.html";
+  });
+
+  // Add post button
+  addPostButton?.addEventListener("click", () => { if (postModal) postModal.show(); });
+
+  // Edit name
+  const nameEditSection = document.getElementById("nameEditSection");
+  const nameInput = document.getElementById("nameInput");
+
+  document.getElementById("editNameButton")?.addEventListener("click", () => {
+    if (nameEditSection) nameEditSection.style.display = "block";
+    if (nameInput && userNameElement) nameInput.value = userNameElement.textContent;
+  });
+
+  document.getElementById("saveNameButton")?.addEventListener("click", () => {
+    const newName = nameInput?.value.trim();
+    const user = auth.currentUser;
+    if (user && newName) {
+      getUserIdFromUid(user.uid).then((id) =>
+        db.collection("users").doc(id).update({ user_Name: newName })
+          .then(() => {
+            if (userNameElement) userNameElement.textContent = newName;
+            if (nameEditSection) nameEditSection.style.display = "none";
+          })
+          .catch((err) => { console.error(err); alert("Failed to update name."); })
+      );
+    }
+  });
+
+  document.getElementById("cancelNameButton")?.addEventListener("click", () => {
+    if (nameEditSection) nameEditSection.style.display = "none";
+  });
+
+  // Edit bio
+  const bioEditSection = document.getElementById("bioEditSection");
+  const bioInput = document.getElementById("bioInput");
+
+  document.getElementById("editBioButton")?.addEventListener("click", () => {
+    if (bioEditSection) bioEditSection.style.display = "block";
+    if (bioInput && userBioElement) bioInput.value = userBioElement.textContent;
+  });
+
+  document.getElementById("saveBioButton")?.addEventListener("click", () => {
+    const newBio = bioInput?.value.trim() ?? "";
+    const user = auth.currentUser;
+    if (user) {
+      getUserIdFromUid(user.uid).then((id) =>
+        db.collection("users").doc(id).update({ user_Bio: newBio })
+          .then(() => {
+            if (userBioElement) userBioElement.textContent = newBio;
+            if (bioEditSection) bioEditSection.style.display = "none";
+          })
+          .catch((err) => { console.error(err); alert("Failed to update bio."); })
+      );
+    }
+  });
+
+  document.getElementById("cancelBioButton")?.addEventListener("click", () => {
+    if (bioEditSection) bioEditSection.style.display = "none";
+  });
+
+  // Profile picture upload & crop
+  uploadPictureButton?.addEventListener("click", () => {
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "image/*";
+    fileInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const compressed = await compressImage(file);
+        const cropImage = document.getElementById("cropImage");
+        if (cropImage) cropImage.src = compressed;
+        if (cropModal) cropModal.show();
+        if (typeof Cropper !== "undefined" && cropImage) {
+          if (cropper) cropper.destroy();
+          cropper = new Cropper(cropImage, { aspectRatio: 1, viewMode: 1 });
+        }
+      } catch (err) { alert(err.message); }
+    });
+    fileInput.click();
+  });
+
+  document.getElementById("cropButton")?.addEventListener("click", () => {
+    if (!cropper) { alert("Please select and crop an image first."); return; }
+    const canvas = cropper.getCroppedCanvas({ width: 300, height: 300 });
+    canvas.toBlob(() => {
+      const base64Image = canvas.toDataURL("image/jpeg").split(",")[1];
+      const user = auth.currentUser;
+      if (user) {
+        getUserIdFromUid(user.uid).then((id) =>
+          db.collection("users").doc(id).update({ profilePicture: base64Image })
+            .then(() => {
+              if (profilePictureElement) profilePictureElement.src = `data:image/jpeg;base64,${base64Image}`;
+              if (cropModal) cropModal.hide();
+              cropper.destroy(); cropper = null;
+            })
+            .catch((err) => { console.error(err); alert("Error updating profile picture."); })
+        );
+      }
+    }, "image/jpeg");
+  });
+
+  // Logout
+  document.getElementById("logoutButton")?.addEventListener("click", async () => {
+    try {
+      ["currentUserId", "currentFirestoreUserId", "designerFirestoreUserId", "selectedProduct", "selectedVariants"]
+        .forEach(k => sessionStorage.removeItem(k));
+      await auth.signOut();
+      window.location.href = "inicio.html";
+    } catch (err) {
+      console.error("Error during logout:", err);
+      alert("Erro ao fazer logout. Tente novamente.");
+    }
+  });
+
+  // Delete account
+  document.getElementById("deleteAccountButton")?.addEventListener("click", () => {
+    const user = auth.currentUser;
+    if (!user) { alert("No user is logged in."); return; }
+    if (confirm("Are you sure you want to delete your account and all associated data? This action is irreversible.")) {
+      deleteUserAccountAndPosts(user);
+    }
+  });
+  // Cart button navigation
+  const cartButton = document.getElementById("cartButton");
+  if (cartButton) {
+      cartButton.addEventListener("click", () => {
+          window.location.href = "carrinho.html";
+      });
+  }
+  // Back button navigation
+  const backButton = document.getElementById("backButton");
+  if (backButton) {
+      backButton.addEventListener("click", () => {
+          window.history.back();
+      });
+  }
 });

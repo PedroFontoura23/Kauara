@@ -21,32 +21,38 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'https://kauara1.web.app',
+  'https://kauava.com',
+  'https://www.kauava.com'
+].filter(Boolean);
 const app = express();
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+  origin: allowedOrigins,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
 
 // Initialize Mercado Pago client with your access token
-const client = new MercadoPagoConfig({ 
-  accessToken: process.env.MP_ACCESS_TOKEN 
+const client = new MercadoPagoConfig({
+  accessToken: process.env.MP_ACCESS_TOKEN
 });
 
 // Record donation in Firebase
 async function recordDonation(paymentInfo) {
   try {
-    const firebaseConfig = {
-        apiKey: "AIzaSyBcBmuXY9ulETrbn2PmzjsDZ7JKRcehqGo",
-        authDomain: "kauara1.firebaseapp.com",
-        projectId: "kauara1",
-        storageBucket: "kauara1.firebasestorage.app",
-        messagingSenderId: "651139031771",
-        appId: "1:651139031771:web:8c73a3e1fff2d5cf2ae2fe",
-        measurementId: "G-KL18R1CJ6S"
-    };
-    
-    console.log("Donation recorded with ID: ", docRef.id);
+    const donationsRef = collection(db, 'donations');
+    const docRef = await addDoc(donationsRef, {
+      ...paymentInfo,
+      createdAt: serverTimestamp()
+    });
+    console.log('Donation recorded with ID:', docRef.id);
     return docRef.id;
   } catch (error) {
-    console.error("Error recording donation: ", error);
+    console.error('Error recording donation:', error);
     throw error;
   }
 }

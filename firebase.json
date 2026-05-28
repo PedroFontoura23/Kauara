@@ -9,17 +9,69 @@
     ],
     "rewrites": [
       {
+        "source": "/pages/inicio.html",
+        "destination": "/pages/inicio.html"
+      },
+      {
+        "source": "/pages/pagamentos.html",
+        "destination": "/pages/pagamentos.html"
+      },
+      {
+        "source": "/pages/login.html",
+        "destination": "/pages/login.html"
+      },
+      {
+        "source": "/pages/cadastro.html",
+        "destination": "/pages/cadastro.html"
+      },
+      {
+        "source": "/pages/perfil.html",
+        "destination": "/pages/perfil.html"
+      },
+      {
+        "source": "/pages/carrinho.html",
+        "destination": "/pages/carrinho.html"
+      },
+      {
+        "source": "/pages/success.html",
+        "destination": "/pages/success.html"
+      },
+      {
+        "source": "/pages/checkout.html",
+        "destination": "/pages/checkout.html"
+      },
+      {
         "source": "**",
         "destination": "/pages/inicio.html"
       }
     ],
     "headers": [
       {
-        "source": "**/*.@(html|htm)",
+        "source": "**",
         "headers": [
           {
             "key": "Content-Security-Policy",
-            "value": "default-src 'self' https://www.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.mercadopago.com https://secure.mlstatic.com https://sdk.mercadopago.com https://http2.mlstatic.com https://www.mercadopago.com.br https://mercadopago.com.br https://www.mercadolibre.com https://mercadolibre.com; script-src 'self' https://www.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.mercadopago.com https://secure.mlstatic.com https://sdk.mercadopago.com https://http2.mlstatic.com https://www.mercadopago.com.br https://mercadopago.com.br https://www.mercadolibre.com https://mercadolibre.com 'unsafe-inline'; style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline'; connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com ws://localhost:5001 wss://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://api.mercadopago.com https://www.mercadolibre.com https://api.mercadolibre.com https://events.mercadopago.com https://us-central1-kauara1.cloudfunctions.net https://viacep.com.br https://www.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: https://www.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.mercadolibre.com https://www.mercadolivre.com https://files.cdn.printful.com https://via.placeholder.com https://*.placeholder.com https://kauara1.appspot.com https://storage.googleapis.com https://kauara1.web.app https://us-central1-kauara1.cloudfunctions.net; frame-src 'self' https://www.mercadopago.com https://www.mercadopago.com.br https://mercadopago.com.br https://api.mercadopago.com https://secure.mlstatic.com https://www.mercadolibre.com https://mercadolibre.com; media-src *"
+            "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://sdk.mercadopago.com https://secure.mlstatic.com https://http2.mlstatic.com https://www.mercadopago.com https://www.mercadopago.com.br https://mercadopago.com.br https://www.mercadolibre.com https://mercadolibre.com https://apis.google.com https://firebase.googleapis.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.gstatic.com data:; connect-src 'self' https://us-central1-kauara1.cloudfunctions.net https://viacep.com.br https://www.gstatic.com https://cdn.jsdelivr.net https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebase.googleapis.com https://www.googleapis.com https://firestore.googleapis.com https://firebasestorage.googleapis.com wss://firestore.googleapis.com https://api.mercadopago.com https://api.mercadolibre.com https://events.mercadopago.com https://www.mercadolibre.com; img-src 'self' data: https://www.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.mercadolibre.com https://www.mercadolivre.com https://files.cdn.printful.com https://via.placeholder.com https://*.placeholder.com https://kauara1.appspot.com https://storage.googleapis.com https://kauara1.web.app https://us-central1-kauara1.cloudfunctions.net https://firebasestorage.googleapis.com blob:; frame-src 'self' https://www.mercadopago.com https://www.mercadopago.com.br https://mercadopago.com.br https://api.mercadopago.com https://secure.mlstatic.com https://www.mercadolibre.com https://mercadolibre.com; media-src *; worker-src 'self' blob:;"
+          },
+          {
+            "key": "Strict-Transport-Security",
+            "value": "max-age=31536000; includeSubDomains; preload"
+          },
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          },
+          {
+            "key": "X-Frame-Options",
+            "value": "DENY"
+          },
+          {
+            "key": "Referrer-Policy",
+            "value": "strict-origin-when-cross-origin"
+          },
+          {
+            "key": "Permissions-Policy",
+            "value": "geolocation=(), microphone=(), camera=(), interest-cohort=()"
           }
         ]
       },

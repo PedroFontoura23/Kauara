@@ -101,12 +101,7 @@
         </div>
     </div>
 
-    <script>
-        const FUNCTIONS_BASE_URL = 'https://us-central1-kauara1.cloudfunctions.net';
-        let checkInterval = null;
-        let attempts = 0;
-
-        // ─── THE KEY FIX ────────────────────────────────────────────────────────────
+    <script src="javascript/pending.js"></script>
         // Old code: only checked for 60 seconds (20 attempts × 3s), then gave up.
         // If the person paid and came back after 60s, the page was frozen on "pending"
         // even though Firestore already had status: 'approved'.
@@ -335,6 +330,16 @@
 
         // Start everything when page loads
         document.addEventListener('DOMContentLoaded', startChecking);
+    </script>
+    <script>
+    // DEBUG: Mostrar todos os parâmetros da URL
+    const urlParams = new URLSearchParams(window.location.search);
+    console.log('🔍 URL PARAMS (IGNORADOS):', Object.fromEntries(urlParams));
+    console.log('⚠️ collection_status =', urlParams.get('collection_status'));
+    console.log('⚠️ status =', urlParams.get('status'));
+    console.log('✅ external_reference =', urlParams.get('external_reference'));
+    console.log('📌 IMPORTANTE: Esses parâmetros de status NÃO são confiáveis!');
+    console.log('📌 O sistema vai consultar o FIRESTORE para saber o status real');
     </script>
 </body>
 </html>

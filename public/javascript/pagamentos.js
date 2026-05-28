@@ -1,5 +1,5 @@
 // pagamentos.js - Checkout Pro Payment System for Multiple Products
-console.log('💰 pagamentos.js - Production ready checkout system v2.5 (Multi-Product Simplified)');
+console.log('💰 pagamentos.js - v3.3');
 
 let cartProducts = [];
 let currentPayment = null;
@@ -9,17 +9,50 @@ let selectedShipping = {
 };
 const FUNCTIONS_BASE_URL = 'https://us-central1-kauara1.cloudfunctions.net';
 
+// Resolved once on page load — reused by processCheckoutPro without waiting again
+let _currentUser = null;
+let _firestoreUserId = null;
+
+// ─── Auth helpers (mirrors app.js pattern) ───────────────────────────────────
+
+// Resolves with the Firebase user as soon as auth is initialised (or null if not logged in).
+// Uses onAuthStateChanged so it works even when currentUser is not yet populated.
+function waitForAuthUser() {
+    return new Promise(resolve => {
+        const unsubscribe = firebase.auth().onAuthStateChanged(user => {
+            unsubscribe();
+            resolve(user);
+        });
+    });
+}
+
+// Exact same function as app.js – queries users collection by firebaseUID field.
+async function getUserIdFromUid(uid) {
+    const snapshot = await firebase.firestore()
+        .collection('users')
+        .where('firebaseUID', '==', uid)
+        .limit(1)
+        .get();
+
+    if (!snapshot.empty) {
+        return snapshot.docs[0].id;
+    }
+    throw new Error(`No Firestore user document found for UID: ${uid}`);
+}
+
 // 1. Load products and initialize page
 window.onload = async function() {
     console.log('🛒 Loading checkout page for multiple products...');
+    console.log('🔍 DEBUG: window.onload triggered');
     
     try {
-        // Try to get cart from session storage
         const cartString = sessionStorage.getItem('cartToPay');
+        console.log('🔍 DEBUG: cartString from sessionStorage:', cartString ? 'found' : 'not found');
         
         if (!cartString) {
-            // Fallback to single product for backward compatibility
             const productString = sessionStorage.getItem('selectedProduct');
+            console.log('🔍 DEBUG: productString from sessionStorage:', productString ? 'found' : 'not found');
+            
             if (!productString) {
                 throw new Error('No products found. Please return to the store and add products to cart.');
             }
@@ -50,16 +83,32 @@ window.onload = async function() {
         
         console.log('✅ Checkout Pro page loaded successfully for', cartProducts.length, 'products');
         
-        // 🚚 NEW: Calculate shipping immediately after page loads
         console.log('🚚 Auto-calculating shipping on page load...');
         try {
             await calculateCartShipping();
             console.log('✅ Shipping auto-calculated successfully');
         } catch (shippingError) {
             console.warn('⚠️ Could not auto-calculate shipping on load:', shippingError.message);
-            // Don't show error to user - just log it
         }
-        
+
+        // ─── Resolve auth eagerly so it's ready when the form is submitted ──────
+        try {
+            _currentUser = await waitForAuthUser();
+            if (_currentUser) {
+                _firestoreUserId = await getUserIdFromUid(_currentUser.uid);
+                console.group('👤 Logged-in user');
+                console.log('Email            :', _currentUser.email);
+                console.log('UID              :', _currentUser.uid);
+                console.log('Firestore user ID:', _firestoreUserId);
+                console.log('Email verified   :', _currentUser.emailVerified);
+                console.groupEnd();
+            } else {
+                console.warn('👤 No user logged in');
+            }
+        } catch (authError) {
+            console.error('❌ Auth/Firestore user lookup failed:', authError.message);
+        }
+
     } catch (error) {
         console.error('❌ Error:', error);
         showError(`Erro ao carregar checkout: ${error.message}`);
@@ -68,44 +117,24 @@ window.onload = async function() {
 
 // 2. Display multiple products information
 function displayProductsInfo() {
+    console.log('🔍 DEBUG: displayProductsInfo called');
     const productsContainer = document.getElementById('productsContainer');
     if (!productsContainer) { console.error('❌ productsContainer not found'); return; }
     productsContainer.innerHTML = '';
 
-    // Accumulate the three components separately so the breakdown is accurate
-    let baseCostTotal    = 0; // product_price (Printful cost)
-    let artistCutTotal   = 0; // artist markup
-    let platformFeeTotal = 0; // 5% platform fee
-    let itemsTotal       = 0; // what the customer pays per item = sum of above three
+    let itemsTotal = 0;
 
     cartProducts.forEach(function(product) {
-        var baseCost    = 0;
-        var artistCut   = 0;
-        var platformFee = 0;
-        var itemTotal   = 0;
-
-        if (product.pricing && product.pricing.total_price) {
-            // FIX: use exact stored values — never fall back to percentage guesses
-            baseCost    = parseFloat(product.pricing.product_price) || 0;
-            artistCut   = parseFloat(product.pricing.artist_cut)    || 0;  // 0 is valid!
-            platformFee = parseFloat(product.pricing.platform_fee)  || 0;
-            itemTotal   = parseFloat(product.pricing.total_price)   || 0;
-
-            // Sanity check — warn if stored total drifts from components
-            var recalc = Math.round((baseCost + artistCut + platformFee) * 100) / 100;
-            if (Math.abs(itemTotal - recalc) > 0.05) {
-                console.warn('⚠️ total_price drift for ' + product.productTitle + ':', itemTotal, '≠', recalc);
-                itemTotal = recalc;
-            }
-        } else if (product.selectedVariant && product.selectedVariant.price) {
-            itemTotal = parseFloat(product.selectedVariant.price) || 0;
-            baseCost  = itemTotal; // no breakdown available
+        if (!product.pricing || !product.pricing.total_price) {
+            throw new Error('Produto "' + (product.productTitle || 'desconhecido') + '" sem pricing.total_price. Adicione o produto ao carrinho novamente.');
+        }
+        var itemTotal = parseFloat(product.pricing.total_price);
+        if (isNaN(itemTotal) || itemTotal <= 0) {
+            throw new Error('Preco invalido no produto "' + (product.productTitle || 'desconhecido') + '": ' + product.pricing.total_price);
         }
 
-        baseCostTotal    += baseCost;
-        artistCutTotal   += artistCut;
-        platformFeeTotal += platformFee;
-        itemsTotal       += itemTotal;
+        console.log('🏷️ Produto:', (product.productTitle || 'desconhecido'), '| pricing.total_price =', product.pricing.total_price, '| parsed =', itemTotal);
+        itemsTotal += itemTotal;
 
         var img     = product.thumbnailUrl || product.thumbnail || product.imageUrl || product.image || '../public/images/default-product.png';
         var color   = (product.selectedVariant && product.selectedVariant.color) ? product.selectedVariant.color : null;
@@ -128,49 +157,29 @@ function displayProductsInfo() {
             '</div>';
     });
 
-    // Update cart count badge
     var badge = document.getElementById('cartCountBadge');
     if (badge) badge.textContent = cartProducts.length + ' item' + (cartProducts.length !== 1 ? 's' : '');
 
-    // Update the price breakdown panel
-    updatePricingDisplay(baseCostTotal, artistCutTotal, platformFeeTotal, itemsTotal);
+    updatePricingDisplay(itemsTotal);
 }
 
-// 3. Update the price breakdown panel (RIGHT values in the summary card)
-function updatePricingDisplay(baseCost, artistCut, platformFee, itemsTotal) {
+function updatePricingDisplay(itemsTotal) {
     var set  = function(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; };
-    var show = function(id, vis) { var el = document.getElementById(id); if (el) el.style.display = vis ? '' : 'none'; };
+    var hide = function(id)      { var el = document.getElementById(id); if (el) el.style.display = 'none'; };
 
-    // Base product cost (always shown)
-    set('productPrice', formatCurrency(baseCost));
+    ['artistCutRow', 'platformFeeRow', 'productPriceRow'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
 
-    // Artist cut — show only if > 0 (0 is a real valid value, not missing data)
-    if (artistCut > 0) {
-        set('artistMarkup', formatCurrency(artistCut));
-        show('artistCutRow', true);
-    } else {
-        show('artistCutRow', false);
-    }
-
-    // Platform fee — show only if > 0
-    if (platformFee > 0) {
-        set('platformFee', formatCurrency(platformFee));
-        show('platformFeeRow', true);
-    } else {
-        show('platformFeeRow', false);
-    }
-
-    // Subtotal = items total (no shipping yet)
     set('subtotalPrice', formatCurrency(itemsTotal));
+    set('totalPrice',    formatCurrency(itemsTotal));
 
-    // Grand total starts as items total; shipping will be added by updateShippingUI
-    set('totalPrice', formatCurrency(itemsTotal));
-
-    console.log('💰 Breakdown — base:', baseCost, '| artist_cut:', artistCut, '| platform_fee:', platformFee, '| items_total:', itemsTotal);
+    console.log('💰 Subtotal (soma dos produtos):', itemsTotal);
 }
 
-// 4. Setup checkout form for Checkout Pro
 function setupCheckoutForm() {
+    console.log('🔍 DEBUG: setupCheckoutForm called');
     const form = document.getElementById('checkoutForm');
     if (!form) {
         console.error('❌ Checkout form not found');
@@ -178,11 +187,11 @@ function setupCheckoutForm() {
     }
     
     form.addEventListener('submit', async function(e) {
+        console.log('🔍 DEBUG: Form submit event triggered!');
         e.preventDefault();
         await processCheckoutPro();
     });
     
-    // Setup back button with JavaScript instead of inline onclick
     const backButton = document.getElementById('backButton');
     if (backButton) {
         backButton.addEventListener('click', function() {
@@ -190,53 +199,47 @@ function setupCheckoutForm() {
         });
     }
     
-    // Setup real-time validation
     setupRealTimeValidation();
     
-    // Auto-format CPF
     const cpfInput = document.getElementById('cpf');
     if (cpfInput) {
         cpfInput.addEventListener('input', formatCPF);
     }
     
-    // Auto-format phone
     const phoneInput = document.getElementById('phone');
     if (phoneInput) {
         phoneInput.addEventListener('input', formatPhone);
     }
     
-    // Auto-format zip code
     const zipCodeInput = document.getElementById('zipCode');
     if (zipCodeInput) {
         zipCodeInput.addEventListener('input', formatZipCode);
     }
+    
+    console.log('🔍 DEBUG: Checkout form setup complete');
 }
 
-// 5. Process Checkout Pro payment for multiple products - UPDATED with correct return URLs
+// 5. Process Checkout Pro payment - FIXED authentication
 async function processCheckoutPro() {
+    console.log('🔍🔍🔍 DEBUG: processCheckoutPro STARTED! 🔍🔍🔍');
     console.log('💳 Processing Checkout Pro payment for', cartProducts.length, 'products...');
     
     try {
-        // 1. Get buyer info
         const buyerInfo = getBuyerInfo();
         
-        // 2. Validate form
         if (!validateForm()) {
             alert('Por favor, preencha todos os campos obrigatórios corretamente.');
             return;
         }
         
-        // 3. Validate terms
         const termsCheck = document.getElementById('termsCheck');
         if (!termsCheck || !termsCheck.checked) {
             alert('Você precisa aceitar os Termos de Serviço para continuar.');
             return;
         }
         
-        // 4. Show loading
         showLoading(true);
         
-        // 5. Calculate total price from all products
         let totalPrice = 0;
         let pricingBreakdowns = [];
         
@@ -244,27 +247,15 @@ async function processCheckoutPro() {
             let productPrice = 0;
             let productPricingData = null;
             
-            if (product.pricing && product.pricing.total_price) {
-                productPrice = parseFloat(product.pricing.total_price || 0);
-                productPricingData = product.pricing;
-            } else if (product.selectedVariant && product.selectedVariant.price) {
-                productPrice = parseFloat(product.selectedVariant.price);
-                productPricingData = {
-                    product_price: productPrice * 0.7,
-                    artist_cut: productPrice * 0.25,
-                    platform_fee: productPrice * 0.05,
-                    total_price: productPrice
-                };
-            } else {
-                // Fallback if no price found
-                productPrice = 0;
-                productPricingData = {
-                    product_price: 0,
-                    artist_cut: 0,
-                    platform_fee: 0,
-                    total_price: 0
-                };
+            if (!product.pricing || !product.pricing.total_price) {
+                throw new Error('Produto "' + (product.productTitle || 'desconhecido') + '" sem pricing.total_price. Recarregue o carrinho.');
             }
+            productPrice = parseFloat(product.pricing.total_price);
+            if (isNaN(productPrice) || productPrice <= 0) {
+                throw new Error('Preco invalido no produto "' + (product.productTitle || 'desconhecido') + '": ' + product.pricing.total_price);
+            }
+            productPricingData = product.pricing;
+            console.log('💳 Produto (checkout):', (product.productTitle || 'desconhecido'), '| pricing.total_price =', product.pricing.total_price, '| parsed =', productPrice);
             
             totalPrice += productPrice;
             pricingBreakdowns.push({
@@ -274,7 +265,6 @@ async function processCheckoutPro() {
             });
         });
         
-        // Add shipping cost to total price
         const shippingCost = selectedShipping.cost || 0;
         const totalWithShipping = totalPrice + shippingCost;
         
@@ -284,7 +274,6 @@ async function processCheckoutPro() {
             totalWithShipping: totalWithShipping
         });
         
-        // Ensure minimum price (Mercado Pago requires at least 0.5)
         if (totalWithShipping < 0.5) {
             showLoading(false);
             showError('Valor mínimo da compra é R$ 0,50');
@@ -293,92 +282,207 @@ async function processCheckoutPro() {
         
         console.log('💰 Total price to charge (with shipping):', totalWithShipping, 'from', cartProducts.length, 'products');
         
-        // Use first product for main image and description
         const firstProduct = cartProducts[0];
         
-        // CRITICAL: Mercado Pago requires a valid HTTPS image URL
         const productImageUrl = firstProduct.thumbnailUrl || 
                                firstProduct.thumbnail || 
                                firstProduct.imageUrl || 
                                firstProduct.image || 
                                'https://http2.mlstatic.com/frontend-assets/ui-nav/5.19.1/mercadolibre/180x180.png';
         
-        // Create a description that includes all products
         const productTitles = cartProducts.map(p => p.productTitle || 'Produto').join(', ');
         const description = cartProducts.length === 1 
             ? `${firstProduct.productTitle || 'Product'} by ${firstProduct.designerName || 'Designer'}`
             : `${cartProducts.length} produtos: ${productTitles.substring(0, 100)}${productTitles.length > 100 ? '...' : ''}`;
         
-        // Ensure we have required designer information
+        // ─── Use auth already resolved on page load ──────────────────────────────
+        const currentUser = _currentUser;
+        const firestoreUserId = _firestoreUserId;
+
+        if (!currentUser) {
+            showLoading(false);
+            sessionStorage.setItem('cartToPay', JSON.stringify(cartProducts));
+            window.location.href = 'login.html?redirect=pagamentos.html';
+            return;
+        }
+
+        if (!firestoreUserId) {
+            showLoading(false);
+            showError('Sua conta não foi encontrada. Por favor, complete seu cadastro antes de comprar.');
+            return;
+        }
+        
         const cart_products = cartProducts.map(product => {
-            // Validate each product has required fields
+            const isDimona = product.provider === 'dimona' || !!product.dimona_sku ||
+                             !!(product.selectedVariant?.dimona_sku);
+
+            const dimonaSku = product.dimona_sku ||
+                              product.selectedVariant?.dimona_sku ||
+                              product.selectedVariant?.sku ||
+                              null;
+
+            const designUrlFront = product.designUrls?.front || product.designUrl || null;
+            const designUrlBack  = product.designUrls?.back  || product.design_url_back || null;
+
+            const mockUrlFront = product.thumbnailUrls?.front || product.thumbnailUrl || null;
+            const mockUrlBack  = product.thumbnailUrls?.back  || null;
+
             const productData = {
-                product_id: product.firestoreProductId || product.id || product.productId || `product_${Date.now()}`,
-                title: product.productTitle || 'Product',
-                designer_id: product.designerUserId || 'unknown_designer',
-                designer_name: product.designerName || 'Designer',
-                designer_email: product.designerEmail || 'designer@example.com',
-                variant_id: product.selectedVariant?.variant_id || product.selectedVariant?.id || null,
+                product_id:          product.firestoreProductId || product.id || product.productId || `product_${Date.now()}`,
+                title:               product.productTitle || 'Product',
+                designer_id:         product.designerUserId || product.designer_id || 'unknown_designer',
+                designer_name:       product.designerName  || 'Designer',
+                designer_email:      product.designerEmail || 'designer@example.com',
+                designerUserId:      product.designerUserId || product.designer_id || null,
+                provider:            isDimona ? 'dimona' : (product.provider || 'printful'),
+                dimona_sku:          isDimona ? dimonaSku : null,
+                design_url:          isDimona ? designUrlFront : null,
+                design_url_back:     isDimona ? designUrlBack  : null,
+                mock_url:            isDimona ? mockUrlFront   : null,
+                mock_url_back:       isDimona ? mockUrlBack    : null,
+                designUrls:          isDimona ? (product.designUrls || {}) : null,
+                thumbnailUrls:       isDimona ? (product.thumbnailUrls || {}) : null,
+                variant_id:          !isDimona ? (product.selectedVariant?.variant_id || product.selectedVariant?.id || null) : null,
+                quantity:            product.quantity || 1,
                 firestoreCollection: product.firestoreCollection || 'products',
-                pricing: product.pricing || {
-                    product_price: parseFloat(product.selectedVariant?.price || 0) * 0.7,
-                    artist_cut: parseFloat(product.selectedVariant?.price || 0) * 0.25,
-                    platform_fee: parseFloat(product.selectedVariant?.price || 0) * 0.05,
-                    total_price: parseFloat(product.selectedVariant?.price || 0)
-                }
+                thumbnailUrl:        product.thumbnailUrls?.front || product.thumbnailUrl || null,
+                thumbnail:           product.thumbnailUrls?.front || product.thumbnailUrl || null,
+                selectedVariant:     product.selectedVariant || {},
+                pricing:             product.pricing
             };
-            
-            // Log any missing required fields
+
             if (!productData.designer_id || !productData.designer_email) {
                 console.warn('⚠️ Product missing designer info:', productData);
             }
-            
+            if (isDimona && !productData.dimona_sku) {
+                console.warn('⚠️ Dimona product missing dimona_sku:', productData);
+            }
+            if (isDimona && !productData.design_url) {
+                console.warn('⚠️ Dimona product missing design_url (frente):', productData);
+            }
+
             return productData;
         });
         
-        // Get base URL for return URLs
+        // ─────────────────────────────────────────────
+        // 🪵 CHECKOUT SNAPSHOT LOG
+        // ─────────────────────────────────────────────
+
+        // 👤 Current user
+        console.group('👤 Current User');
+        console.log('UID              :', currentUser.uid);
+        console.log('Email            :', currentUser.email);
+        console.log('Email verified   :', currentUser.emailVerified);
+        console.log('Display name     :', currentUser.displayName || '—');
+        console.log('Provider         :', currentUser.providerData?.[0]?.providerId || '—');
+        console.log('Firestore user ID:', firestoreUserId);
+        console.groupEnd();
+
+        // 🛒 Products (one group per item)
+        console.group(`🛒 Cart Products (${cart_products.length} item${cart_products.length !== 1 ? 's' : ''})`);
+        cart_products.forEach((p, i) => {
+            console.group(`  [${i + 1}] ${p.title}`);
+            console.log('product_id    :', p.product_id);
+            console.log('provider      :', p.provider);
+            console.log('dimona_sku    :', p.dimona_sku ?? '—');
+            console.log('variant_id    :', p.variant_id ?? '—');
+            console.log('quantity      :', p.quantity);
+            console.log('designer      :', `${p.designer_name} (${p.designer_id})`);
+            console.log('designer email:', p.designer_email);
+            console.log('pricing       :', p.pricing);
+            console.log('selectedVariant:', p.selectedVariant);
+            console.log('design_url    :', p.design_url ?? '—');
+            console.log('design_url_back:', p.design_url_back ?? '—');
+            console.log('mock_url      :', p.mock_url ?? '—');
+            console.log('thumbnailUrl  :', p.thumbnailUrl ?? '—');
+            console.groupEnd();
+        });
+        console.groupEnd();
+
+        // 💰 Pricing summary
+        console.group('💰 Pricing Summary');
+        console.log('Products subtotal:', formatCurrency(totalPrice));
+        console.log('Shipping cost    :', formatCurrency(shippingCost));
+        console.log('Total with shipping:', formatCurrency(totalWithShipping));
+        console.log('Pricing breakdowns:', pricingBreakdowns);
+        console.groupEnd();
+
+        // 🚚 Shipping
+        console.group('🚚 Shipping');
+        console.log('Method     :', selectedShipping.method ?? '—');
+        console.log('Cost       :', selectedShipping.formatted);
+        console.log('Method ID  :', selectedShipping.delivery_method_id ?? '—');
+        console.log('Business days:', selectedShipping.business_days ?? '—');
+        console.groupEnd();
+
+        // 🙍 Buyer info (from form)
+        console.group('🙍 Buyer Info (form)');
+        console.log('Name  :', buyerInfo.name);
+        console.log('Email :', buyerInfo.email);
+        console.log('Phone :', buyerInfo.phone);
+        console.log('CPF   :', buyerInfo.cpf);
+        console.log('Address:', {
+            street: buyerInfo.street,
+            number: buyerInfo.number,
+            complement: buyerInfo.complement,
+            neighborhood: buyerInfo.neighborhood,
+            city: buyerInfo.city,
+            state: buyerInfo.state,
+            zipCode: buyerInfo.zipCode,
+        });
+        console.groupEnd();
+
+        // ─────────────────────────────────────────────
+
         const baseUrl = window.location.origin;
         
-        // Build payment request
+        // Generate external_reference - MUST match server format
+        const externalReference = generateOrderId();
+        
         const paymentRequest = {
             title: cartProducts.length === 1 
                 ? (firstProduct.productTitle || 'Product Purchase')
                 : `${cartProducts.length} Produtos - Compra Múltipla`,
             description: description,
-            quantity: 1, // Mercado Pago quantity, not product quantity
-            unit_price: parseFloat(totalWithShipping.toFixed(2)), // INCLUDES SHIPPING
-            picture_url: productImageUrl, // Required by Mercado Pago
+            quantity: 1,
+            unit_price: parseFloat(totalWithShipping.toFixed(2)),
+            picture_url: productImageUrl,
             
-            // CRITICAL: Buyer info - Mercado Pago validates these
             email: buyerInfo.email,
             payer_name: buyerInfo.name,
             
-            // Phone must be properly formatted
             phone: buyerInfo.phone ? buyerInfo.phone.replace(/\D/g, '') : '11999999999',
             
-            // CPF if available
             cpf: buyerInfo.cpf?.replace(/\D/g, '') || '',
             
-            // Product info
+            // 🔥 CRITICAL FIX: Include user information
+            user_uid: currentUser ? currentUser.uid : null,
+            firestore_user_id: firestoreUserId,
+
             product_id: 'multi_product_cart_' + Date.now(),
-            external_reference: generateOrderId(),
+            external_reference: externalReference,
             
-            // Cart products array
             cart_products: cart_products,
             
-            // Total pricing with shipping breakdown
-            total_price: totalWithShipping, // INCLUDES SHIPPING
-            products_subtotal: totalPrice, // Products subtotal without shipping
-            shipping_cost: shippingCost, // Shipping cost
-            shipping_method: selectedShipping.method || 'PAC', // Shipping method
-            shipping_formatted: selectedShipping.formatted || 'R$ 0,00', // Formatted shipping
+            total_price: totalWithShipping,
+            products_subtotal: totalPrice,
+            shipping_cost: shippingCost,
+            shipping_method: selectedShipping.method || 'PAC',
+            shipping_formatted: selectedShipping.formatted || 'R$ 0,00',
+            shipping_delivery_method_id: selectedShipping.delivery_method_id || null,
+            shipping_speed: (function() {
+                const name = (selectedShipping.method || '').toLowerCase();
+                if (name.includes('sedex'))  return 'sedex';
+                if (name.includes('mini'))   return 'mini';
+                if (name.includes('jadlog')) return 'jadlog';
+                if (name.includes('pac'))    return 'pac';
+                return 'pac';
+            })(),
             pricing_breakdowns: pricingBreakdowns,
             
-            // FIXED: Return URLs - using absolute paths with base URL
-            return_url: `${baseUrl}/success.html`,
+            return_url: `${baseUrl}/success.html?external_reference=${encodeURIComponent(externalReference)}`,
             cancel_url: `${baseUrl}/checkout.html`,
             
-            // Add payer info for Mercado Pago validation
             payer_info: {
                 name: buyerInfo.name,
                 email: buyerInfo.email,
@@ -389,7 +493,6 @@ async function processCheckoutPro() {
             }
         };
         
-        // Add shipping address if available
         if (buyerInfo.street && buyerInfo.city && buyerInfo.state && buyerInfo.zipCode) {
             paymentRequest.shipping_address = {
                 zip_code: buyerInfo.zipCode.replace(/\D/g, ''),
@@ -402,7 +505,6 @@ async function processCheckoutPro() {
             };
         }
         
-        // Validate required fields before sending
         const requiredFields = ['email', 'payer_name', 'unit_price'];
         const missingFields = [];
         
@@ -418,7 +520,6 @@ async function processCheckoutPro() {
         
         console.log('📤 Sending to server:', JSON.stringify(paymentRequest, null, 2));
         
-        // 6. Create Checkout Pro payment
         const response = await fetch(
           `${FUNCTIONS_BASE_URL}/createCheckoutProPayment`,
           {
@@ -444,7 +545,6 @@ async function processCheckoutPro() {
         if (!response.ok) {
             console.error('❌ Server response error:', responseData);
             
-            // Better error messages
             if (responseData.details && Array.isArray(responseData.details)) {
                 throw new Error(`Erro de validação: ${responseData.details.join(', ')}`);
             } else if (responseData.error) {
@@ -460,17 +560,14 @@ async function processCheckoutPro() {
         
         console.log('✅ Checkout Pro payment created:', responseData);
         
-        // 7. Store payment info
         currentPayment = responseData;
         
-        // 8. Show payment options or redirect
         showPaymentOptions(responseData);
         
     } catch (error) {
         console.error('❌ Checkout Pro error:', error);
         showError(`Falha na configuração do pagamento: ${error.message}`);
         
-        // Debug info
         console.log('🛒 Cart products:', cartProducts);
         console.log('👤 Buyer info:', getBuyerInfo());
         console.log('🚚 Shipping info:', selectedShipping);
@@ -479,21 +576,16 @@ async function processCheckoutPro() {
     }
 }
 
-// 6. Show payment options
 function showPaymentOptions(paymentData) {
-    // Get the EXACT total from the displayed resumo do pedido
     const totalElement = document.getElementById('totalPrice');
     const displayedTotal = totalElement ? totalElement.textContent.replace('R$ ', '').replace(',', '.') : '0';
     const totalPrice = parseFloat(displayedTotal);
     
-    // Create simplified product list for modal
     const productListHtml = cartProducts.map(product => {
-        let productPrice = 0;
-        if (product.pricing && product.pricing.total_price) {
-            productPrice = parseFloat(product.pricing.total_price);
-        } else if (product.selectedVariant && product.selectedVariant.price) {
-            productPrice = parseFloat(product.selectedVariant.price);
+        if (!product.pricing || !product.pricing.total_price) {
+            throw new Error('Produto "' + (product.productTitle || 'desconhecido') + '" sem pricing.total_price no modal de confirmacao.');
         }
+        const productPrice = parseFloat(product.pricing.total_price);
         
         return `
             <div class="d-flex align-items-center justify-content-between mb-2">
@@ -534,7 +626,6 @@ function showPaymentOptions(paymentData) {
                             <div class="card-body">
                                 <h6 class="card-title">Resumo do Pedido</h6>
                                 
-                                <!-- Lista de Produtos -->
                                 <div class="products-summary-modal mb-3" style="max-height: 200px; overflow-y: auto; padding-right: 5px;">
                                     ${productListHtml}
                                 </div>
@@ -578,29 +669,24 @@ function showPaymentOptions(paymentData) {
         </div>
     `;
     
-    // Remove existing modal if any
     const existingModal = document.getElementById('paymentOptionsModal');
     if (existingModal) existingModal.remove();
     
     document.body.insertAdjacentHTML('beforeend', paymentOptionsHtml);
     const modal = new bootstrap.Modal(document.getElementById('paymentOptionsModal'));
     
-    // Add event listener to redirect button
     document.getElementById('redirectToCheckoutBtn').addEventListener('click', redirectToCheckout);
     
     modal.show();
 }
 
-// 7. Redirect to Mercado Pago Checkout
-// Modificar a função redirectToCheckout em pagamentos.js
 function redirectToCheckout() {
     if (!currentPayment) {
         showError('Informações de pagamento não disponíveis');
         return;
     }
     
-    // Use production URL if available, otherwise sandbox
-    const checkoutUrl = currentPayment.init_point || currentPayment.sandbox_init_point;
+    const checkoutUrl = currentPayment.checkout_url || currentPayment.init_point || currentPayment.sandbox_url || currentPayment.sandbox_init_point;
     
     if (!checkoutUrl) {
         showError('URL de checkout não disponível');
@@ -609,18 +695,6 @@ function redirectToCheckout() {
     
     console.log('🌐 Redirecting to Mercado Pago:', checkoutUrl);
     
-    // IMPORTANTE: Salvar produtos que estão sendo comprados
-    // para que possam ser movidos para "itens comprados" quando o pagamento for aprovado
-    sessionStorage.setItem('pendingPurchases', JSON.stringify(
-        cartProducts.map(product => ({
-            ...product,
-            order_id: currentPayment.external_reference,
-            payment_id: currentPayment.preference_id,
-            purchased_at: new Date().toISOString()
-        }))
-    ));
-    
-    // Store payment info in session for when user returns
     sessionStorage.setItem('lastPayment', JSON.stringify({
         external_reference: currentPayment.external_reference,
         amount: currentPayment.amount,
@@ -628,11 +702,11 @@ function redirectToCheckout() {
         timestamp: new Date().toISOString()
     }));
     
-    // Clear cart after starting payment
+    sessionStorage.setItem('lastPaymentRef', currentPayment.external_reference);
+    
     sessionStorage.removeItem('cartToPay');
     sessionStorage.removeItem('selectedProduct');
     
-    // Redirect to Mercado Pago Checkout
     window.location.href = checkoutUrl;
 }
 
@@ -641,7 +715,6 @@ function getBuyerInfo() {
     const name = document.getElementById('fullName')?.value || '';
     const email = document.getElementById('email')?.value || '';
     
-    // Ensure we have required fields
     if (!name || !email) {
         console.error('Missing required buyer info:', { name, email });
     }
@@ -650,7 +723,7 @@ function getBuyerInfo() {
         name: name,
         cpf: document.getElementById('cpf')?.value || '',
         email: email,
-        phone: document.getElementById('phone')?.value || '11999999999', // Default if empty
+        phone: document.getElementById('phone')?.value || '11999999999',
         zipCode: document.getElementById('zipCode')?.value || '',
         street: document.getElementById('street')?.value || '',
         number: document.getElementById('number')?.value || '',
@@ -764,7 +837,6 @@ function setupRealTimeValidation() {
         }
     });
     
-    // CEP auto-fill
     const zipCodeInput = document.getElementById('zipCode');
     if (zipCodeInput) {
         zipCodeInput.addEventListener('blur', async function(e) {
@@ -861,7 +933,6 @@ function validateForm() {
         }
     });
     
-    // Validate email format specifically
     const emailField = document.getElementById('email');
     if (emailField) {
         const email = emailField.value;
@@ -881,10 +952,11 @@ function validateForm() {
     return allValid;
 }
 
+// FIXED: Generate order ID that matches server expectation
 function generateOrderId() {
-    const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).substring(2, 8);
-    return `KAUARA-${timestamp}-${random}`.toUpperCase();
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(2, 15);
+    return `ORDER_${timestamp}_${random}`;
 }
 
 function showLoading(show) {
@@ -892,10 +964,8 @@ function showLoading(show) {
     if (loadingOverlay) {
         if (show) {
             loadingOverlay.classList.add('active');
-            // active class handles display
         } else {
             loadingOverlay.classList.remove('active');
-            // active removed above
         }
     }
 }
@@ -919,18 +989,14 @@ function showError(message) {
     }
 }
 
-// 9. Update UI for Checkout Pro (simplified)
 function updateUIForCheckoutPro() {
-    // Update page title
     document.title = `Finalizar Compra - ${cartProducts.length} Produto${cartProducts.length !== 1 ? 's' : ''} - Kauara`;
     
-    // Update form title
     const formTitle = document.querySelector('h1');
     if (formTitle) {
         formTitle.innerHTML = `<i class="fas fa-shopping-cart text-primary me-2"></i> Finalizar Compra (${cartProducts.length} produto${cartProducts.length !== 1 ? 's' : ''})`;
     }
     
-    // Update button text
     const submitButton = document.querySelector('button[type="submit"]');
     if (submitButton) {
         submitButton.innerHTML = '<i class="fas fa-lock me-2"></i> Finalizar Compra e Pagar';
@@ -939,138 +1005,141 @@ function updateUIForCheckoutPro() {
     console.log('✅ UI updated for Checkout Pro with', cartProducts.length, 'products');
 }
 
-// Função principal para calcular frete do carrinho - NO FALLBACKS
 async function calculateCartShipping() {
-    console.log('🚚 Calculating shipping for cart products...');
-    
-    // 1. Verificar se tem produtos
+    console.log('🚚 Calculando frete Dimona...');
+
     if (!cartProducts || cartProducts.length === 0) {
-        console.warn('⚠️ No products in cart');
+        console.warn('⚠️ Nenhum produto no carrinho');
         return null;
     }
-    
-    // 2. Build URL with indexed parameters (product1, product2, qty1, qty2, etc.)
-    const baseUrl = 'https://us-central1-kauara1.cloudfunctions.net/calculateCartShipping';
-    
-    // Create URLSearchParams object
-    const params = new URLSearchParams();
-    
-    // Add each product as product1, product2, etc. and each quantity as qty1, qty2, etc.
-    cartProducts.forEach((product, index) => {
-        const productId = product.productId || product.id;
-        const position = index + 1; // Start at 1, not 0
-        
-        params.append(`product${position}`, productId);
-        params.append(`qty${position}`, '1'); // Each product quantity 1
-    });
-    
-    // Construct full URL with parameters
-    const url = `${baseUrl}?${params.toString()}`;
-    
-    console.log('📤 Sending shipping request (GET):', url);
-    
+
+    const zipCode = document.getElementById('zipCode')?.value?.replace(/\D/g, '');
+    if (!zipCode || zipCode.length !== 8) {
+        console.warn('⚠️ CEP inválido ou não preenchido');
+        return null;
+    }
+
+    const quantity = cartProducts.length;
+
     try {
         showLoading(true);
-        
-        // 3. USE GET with proper parameter format
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
+
+        const response = await fetch(
+            `${FUNCTIONS_BASE_URL}/getDimonaShipping`,
+            {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ zipcode: zipCode, quantity }),
             }
-        });
-        
-        const responseText = await response.text();
-        let data;
-        
-        try {
-            data = JSON.parse(responseText);
-        } catch (e) {
-            console.error('❌ Failed to parse response:', responseText);
-            throw new Error('Resposta inválida do servidor');
+        );
+
+        const data = await response.json();
+
+        if (!data.success || !data.options?.length) {
+            throw new Error(data.error || 'Nenhuma opção de frete disponível');
         }
-        
-        if (!data.success) {
-            throw new Error(data.error || 'Falha ao calcular frete');
-        }
-        
-        console.log('✅ Shipping calculated:', data);
-        
-        // 4. Salvar resultado
-        selectedShipping = {
-            cost: data.shipping,
-            formatted: data.formatted,
-            breakdown: data.breakdown,
-            method: data.method
-        };
-        
-        // 5. Atualizar UI
-        updateShippingUI(data);
-        
-        return data.shipping;
-        
+
+        console.log('✅ Opções de frete recebidas:', data.options);
+
+        renderShippingOptions(data.options);
+        selectShippingOption(data.options[0]);
+
+        return data.options[0].value;
+
     } catch (error) {
-        console.error('❌ Shipping calculation error:', error);
-        // NO FALLBACK - throw error to be handled by caller
+        console.error('❌ Erro ao calcular frete:', error);
         throw new Error(`Falha ao calcular frete: ${error.message}`);
-        
     } finally {
         showLoading(false);
     }
 }
 
-// Atualizar UI com o frete calculado
+function renderShippingOptions(options) {
+    const container = document.getElementById('shippingOptionsContainer');
+    if (!container) return;
+
+    container._shippingOptions = options;
+
+    container.innerHTML = options.map((opt, i) => `
+        <div class="shipping-option ${i === 0 ? 'selected' : ''}"
+             data-shipping-index="${i}">
+            <input class="form-check-input shipping-radio" type="radio"
+                   name="shippingOption" id="shipping_${i}"
+                   value="${opt.delivery_method_id}" ${i === 0 ? 'checked' : ''}>
+            <div style="flex:1;min-width:0;">
+                <div class="so-name">${opt.name}</div>
+                <div class="so-days">${opt.business_days} dias úteis</div>
+            </div>
+            <div class="so-price">${opt.formatted}</div>
+        </div>`
+    ).join('');
+
+    container.addEventListener('click', function(e) {
+        const row = e.target.closest('[data-shipping-index]');
+        if (!row) return;
+        const idx = parseInt(row.getAttribute('data-shipping-index'), 10);
+        const opt = container._shippingOptions[idx];
+        if (opt) selectShippingOption(opt);
+    });
+
+    const section = document.getElementById('shippingSection');
+    if (section) section.style.display = 'block';
+}
+
+function selectShippingOption(option) {
+    selectedShipping = {
+        cost:               option.value,
+        formatted:          option.formatted,
+        method:             option.name,
+        delivery_method_id: option.delivery_method_id,
+        business_days:      option.business_days,
+    };
+
+    document.querySelectorAll('.shipping-option').forEach(el => {
+        const radio = el.querySelector('.shipping-radio');
+        const isSelected = parseInt(radio.value) === option.delivery_method_id;
+        radio.checked = isSelected;
+        el.classList.toggle('selected', isSelected);
+    });
+
+    const fakeData = {
+        shipping:  option.value,
+        formatted: option.formatted,
+    };
+    updateShippingUI(fakeData);
+
+    console.log('🚚 Frete selecionado:', selectedShipping);
+}
+
 function updateShippingUI(data) {
-    var shippingEl   = document.getElementById('shippingPrice');
-    var breakdownEl  = document.getElementById('shippingBreakdown');
-    var totalEl      = document.getElementById('totalPrice');
-    var subtotalEl   = document.getElementById('subtotalPrice');
-    var dotEl        = document.getElementById('shippingDot');
-    var stateTextEl  = document.getElementById('shippingStatusText');
+    var shippingEl  = document.getElementById('shippingPrice');
+    var totalEl     = document.getElementById('totalPrice');
+    var subtotalEl  = document.getElementById('subtotalPrice');
+    var dotEl       = document.getElementById('shippingDot');
+    var stateTextEl = document.getElementById('shippingStatusText');
 
-    // Show shipping value
     if (shippingEl) shippingEl.textContent = data.formatted || selectedShipping.formatted;
+    if (dotEl)       dotEl.classList.add('ready');
+    if (stateTextEl) stateTextEl.textContent = 'Frete calculado';
 
-    // Mark dot as ready
-    if (dotEl)       { dotEl.classList.add('ready'); }
-    if (stateTextEl) { stateTextEl.textContent = 'Frete calculado'; }
-
-    // Optional breakdown detail
-    if (data.breakdown && breakdownEl) {
-        breakdownEl.classList.add('visible');
-        breakdownEl.innerHTML =
-            '<details>' +
-                '<summary style="cursor:pointer;list-style:none;">▸ Ver detalhamento do frete</summary>' +
-                '<div style="margin-top:5px;line-height:1.7;">' +
-                    'Base (maior produto): R$ ' + data.breakdown.calculation.highestBase.toFixed(2).replace('.', ',') +
-                    ' (' + (data.breakdown.highestBaseItem ? data.breakdown.highestBaseItem.name : 'Produto') + ')' +
-                    '<br>Adicionais (' + cartProducts.length + ' itens): R$ ' +
-                    data.breakdown.calculation.totalAdditionals.toFixed(2).replace('.', ',') +
-                '</div>' +
-            '</details>';
-    }
-
-    // FIX: Calculate total from subtotalPrice element using locale-safe parsing
-    // Uses the stored itemsTotal via subtotalPrice, then adds shipping.
-    // This avoids the broken .replace('.','') that fails for values >= R$1.000
     if (totalEl && subtotalEl) {
         var raw = subtotalEl.textContent
-            .replace(/[^\d,]/g, '')   // keep only digits and comma
-            .replace(',', '.');        // comma → decimal point
+            .replace('R$', '')
+            .trim()
+            .replace(/\./g, '')
+            .replace(',', '.');
         var subtotal = parseFloat(raw) || 0;
         var total = Math.round((subtotal + (data.shipping || 0)) * 100) / 100;
         totalEl.textContent = formatCurrency(total);
     }
 
-    console.log('💰 UI updated with shipping:', data.formatted);
+    console.log('💰 Frete atualizado:', data.formatted);
 }
 
-// Disparar cálculo quando CEP for preenchido
 function setupShippingTrigger() {
     const zipCodeInput = document.getElementById('zipCode');
     
     if (zipCodeInput) {
-        // Calcular quando CEP for preenchido
         zipCodeInput.addEventListener('blur', async function(e) {
             const zipDigits = this.value.replace(/\D/g, '');
             if (zipDigits.length === 8) {
@@ -1082,7 +1151,6 @@ function setupShippingTrigger() {
             }
         });
         
-        // Também calcular quando endereço for auto-preenchido pelo ViaCEP
         zipCodeInput.addEventListener('change', async function(e) {
             const zipDigits = this.value.replace(/\D/g, '');
             if (zipDigits.length === 8) {
@@ -1096,7 +1164,6 @@ function setupShippingTrigger() {
     }
 }
 
-// Função de teste rápido
 async function testShippingWithCart() {
     console.log('🧪 TESTING SHIPPING CALCULATION WITH CURRENT CART');
     console.log('Cart products:', cartProducts);
@@ -1115,6 +1182,5 @@ async function testShippingWithCart() {
     }
 }
 
-// Export para console
 window.testShippingWithCart = testShippingWithCart;
 console.log('✅ Production checkout system for multiple products loaded');

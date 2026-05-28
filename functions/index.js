@@ -33,9 +33,6 @@ const db = admin.firestore();
 // CONFIGURATION & ENVIRONMENT
 // =============================================
 
-const PRINTFUL_API_KEY = functions.config().printful?.apikey || '';
-const PRINTFUL_API_BASE = 'https://api.printful.com';
-
 const ENVIRONMENT_CONFIG = {
   IS_PRODUCTION: process.env.NODE_ENV === 'production' ||
     functions.config().environment?.mode === 'production',
@@ -49,38 +46,34 @@ if (ENVIRONMENT_CONFIG.IS_PRODUCTION) {
 }
 
 // =============================================
-// IMPORT PRINTFUNCTIONS
+// IMPORT DIMONA FUNCTIONS (FULFILLMENT ONLY)
 // =============================================
-const printfunctions = require('./printfunctions.js');
-exports.getAllProducts = printfunctions.getAllProducts;
-exports.getProductPricing = printfunctions.getProductPricing;
-exports.getProducts = printfunctions.getProducts;
-exports.proxyImage = printfunctions.proxyImage;
-exports.saveProduct = printfunctions.saveProduct;
-exports.saveArt = printfunctions.saveArt;
-exports.getPrintfulStoreProducts = printfunctions.getPrintfulStoreProducts;
-exports.calculateCartShipping = printfunctions.calculateCartShipping;
-exports.createPrintfulOrderManually = printfunctions.createPrintfulOrderManually;
-exports.getPrintfulOrderStatus = printfunctions.getPrintfulOrderStatus;
-exports.retryFailedPrintfulOrders = printfunctions.retryFailedPrintfulOrders;
-exports.printfulWebhook = printfunctions.printfulWebhook;
-exports.testPrintfulAuth = printfunctions.testPrintfulAuth;
+const dimonafunctions = require('./dimona-functions.js');
+exports.getDimonaProducts         = dimonafunctions.getDimonaProducts;
+exports.createDimonaOrderManually = dimonafunctions.createDimonaOrderManually;
+exports.saveProductDimona         = dimonafunctions.saveProductDimona;
+exports.getDimonaShipping         = dimonafunctions.getDimonaShipping;
+exports.getDimonaOrderStatus      = dimonafunctions.getDimonaOrderStatus;
+exports.dimonaWebhook             = dimonafunctions.dimonaWebhook;
 
 // =============================================
-// IMPORT SHOP FUNCTIONS
+// IMPORT SHOP FUNCTIONS (PAYMENT & ORDERS)
 // =============================================
-const shopFunctions = require('./shopFunctions.js');
-Object.assign(exports, shopFunctions);
+const shopfunctions = require('./shopFunctions.js');
+exports.createCheckoutProPayment  = shopfunctions.createCheckoutProPayment;
+exports.paymentWebhook            = shopfunctions.paymentWebhook;
+exports.getPaymentStatus          = shopfunctions.getPaymentStatus;
+exports.getOrderDetails           = shopfunctions.getOrderDetails;
+exports.getUserOrders             = shopfunctions.getUserOrders;
+exports.getUserOrdersByUserId     = shopfunctions.getUserOrdersByUserId;
+exports.getUserOrdersV2           = shopfunctions.getUserOrdersV2;
+exports.saveUserCart              = shopfunctions.saveUserCart;
+exports.getUserCart               = shopfunctions.getUserCart;
+exports.moveOrderToPurchased      = shopfunctions.moveOrderToPurchased;
 
 // =============================================
-// VALIDATION HELPERS
+// HELPER FUNCTIONS
 // =============================================
-
-function validateEmail(email) {
-  if (!email || typeof email !== 'string') return false;
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
-}
 
 function validatePrice(price) {
   if (price === null || price === undefined) return false;
@@ -103,9 +96,6 @@ function validateUrl(url) {
 
 // =============================================
 // AUTH MIDDLEWARE
-// Verifies the Firebase ID token sent in the
-// Authorization: Bearer <token> header.
-// Returns the decoded token or null on failure.
 // =============================================
 async function verifyAuthToken(req, res) {
   const authHeader = req.headers.authorization || '';
@@ -124,42 +114,6 @@ async function verifyAuthToken(req, res) {
     return null;
   }
 }
-
-// =============================================
-// HEALTH CHECK
-// Sensitive system info removed from response.
-// =============================================
-exports.healthCheck = functions.https.onRequest((req, res) => {
-  cors(req, res, async () => {
-    try {
-      const healthStatus = {
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        environment: {
-          type: ENVIRONMENT_CONFIG.IS_PRODUCTION ? 'production' : 'development'
-        },
-        services: {
-          firestore: 'connected',
-          printful: {
-            configured: !!PRINTFUL_API_KEY,
-            enabled: true
-          },
-          payments: 'disabled',
-          marketplace: 'disabled'
-        }
-        // node version, memory, uptime and endpoint list removed —
-        // these give attackers unnecessary recon information.
-      };
-
-      res.json(healthStatus);
-    } catch (error) {
-      res.status(500).json({
-        status: 'unhealthy',
-        timestamp: new Date().toISOString()
-      });
-    }
-  });
-});
 
 // =============================================
 // PRODUCT CATALOG
@@ -264,6 +218,11 @@ exports.saveInquiry = functions.https.onRequest((req, res) => {
   });
 });
 
+function validateEmail(email) {
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return re.test(email);
+}
+
 // =============================================
 // NEWSLETTER
 // =============================================
@@ -307,12 +266,6 @@ exports.subscribeNewsletter = functions.https.onRequest((req, res) => {
 // USER PROFILE
 // =============================================
 
-/**
- * GET public profile — email is intentionally excluded.
- * Anyone can look up a profile by userId, but sensitive
- * contact info lives only in the 'contact' collection
- * which should be restricted by Firestore rules.
- */
 exports.getUserProfile = functions.https.onRequest((req, res) => {
   cors(req, res, async () => {
     try {
@@ -330,8 +283,6 @@ exports.getUserProfile = functions.https.onRequest((req, res) => {
 
       const userData = userDoc.data();
 
-      // Email is excluded — it is private contact data.
-      // Expose only safe public fields.
       const safeUserData = {
         id: userDoc.id,
         displayName: userData.displayName || userData.user_Name || '',
@@ -350,21 +301,14 @@ exports.getUserProfile = functions.https.onRequest((req, res) => {
   });
 });
 
-/**
- * UPDATE profile — requires a valid Firebase ID token.
- * The token's uid is used to look up the user, so a user
- * can only ever update their own profile.
- */
 exports.updateUserProfile = functions.https.onRequest((req, res) => {
   cors(req, res, async () => {
-    // Verify identity first
     const decoded = await verifyAuthToken(req, res);
-    if (!decoded) return; // verifyAuthToken already sent the 401
+    if (!decoded) return;
 
     try {
       const { displayName, bio, website, socialLinks } = req.body;
 
-      // Resolve the Firestore userId from the verified Firebase UID
       const userQuery = await db.collection('users')
         .where('firebaseUID', '==', decoded.uid)
         .limit(1)
@@ -394,7 +338,6 @@ exports.updateUserProfile = functions.https.onRequest((req, res) => {
       }
 
       if (socialLinks !== undefined) {
-        // Accept only a plain object with string values; reject anything else
         if (typeof socialLinks !== 'object' || Array.isArray(socialLinks)) {
           return res.status(400).json({ success: false, error: 'socialLinks must be an object' });
         }
@@ -449,18 +392,11 @@ exports.trackPageView = functions.https.onRequest((req, res) => {
       res.json({ success: true, message: 'Page view tracked' });
     } catch (error) {
       console.error('Error tracking page view:', error);
-      // Analytics errors should never break the user experience
       res.json({ success: true, message: 'Page view tracking skipped due to error' });
     }
   });
 });
 
-/**
- * SITE STATS — admin only.
- * Uses a verified Firebase ID token and checks a custom
- * 'admin' claim instead of a secret in the query string.
- * To grant admin: admin.auth().setCustomUserClaims(uid, { admin: true })
- */
 exports.getSiteStats = functions.https.onRequest((req, res) => {
   cors(req, res, async () => {
     const decoded = await verifyAuthToken(req, res);
@@ -505,7 +441,4 @@ exports.getSiteStats = functions.https.onRequest((req, res) => {
 // =============================================
 console.log('🚀 KAUARA SYSTEM INITIALIZED');
 console.log(`🔧 Environment: ${ENVIRONMENT_CONFIG.IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-console.log('💰 Payment System: DISABLED');
-console.log('🎨 Marketplace: DISABLED');
-console.log('📊 Analytics: ENABLED');
 console.log('📋 Total functions:', Object.keys(exports).length);

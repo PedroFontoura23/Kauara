@@ -10,7 +10,8 @@ const toggle = (el, show) => {
     }
 };
 
-const CLOUD_FUNCTION_URL = 'https://us-central1-kauara1.cloudfunctions.net/getProducts';
+// 🔁 Dimona Cloud Function — same as select-product-dimona.js
+const CLOUD_FUNCTION_URL = 'https://us-central1-kauara1.cloudfunctions.net/getDimonaProducts';
 
 const loadingEl = $('loading'), errorEl = $('error'), productsEl = $('products'), productCountEl = $('product-count');
 const refreshBtn = $('refresh-btn'), modalEl = $('variant-modal'), closeBtn = modalEl.querySelector('.close-modal');
@@ -24,24 +25,25 @@ const artNameEl = $('art-name');
 const artPriceEl = $('art-price');
 const artDescriptionEl = $('art-description');
 
-let products = [], selectedProduct, selectedColors = [], baseImage = new Image(), loading = false;
+let products = [], selectedProduct, selectedColor = null, selectedSize = null, baseImage = new Image(), loading = false;
 let hoverTimeout = null;
 
-// Product type classification - same as original
-const TWO_SIDED_PRODUCTS = [71, 146, 509]; // tshirts, hoodies, men's fitted
+// Dimona products are always one-sided
+const TWO_SIDED_PRODUCTS = new Set([]);
 
 // Get selected art from URL parameters or session storage
 let selectedArt = null;
 
 const escapeHtml = t => { const d = document.createElement('div'); d.textContent = t || ''; return d.innerHTML; };
 
-// Initialize selected art on page load - FIXED: More robust initialization
+// ─── Art initialization ────────────────────────────────────────────────────
+
 function initializeSelectedArt() {
     console.log("Initializing selected art...");
-    
+
     const urlParams = new URLSearchParams(window.location.search);
     const artId = urlParams.get('artId');
-    
+
     if (artId) {
         console.log("Art ID from URL:", artId);
         fetchArtData(artId);
@@ -68,13 +70,12 @@ function redirectToSharedArts() {
     window.location.href = 'inicio.html';
 }
 
-// Fetch art data from Firestore using artId - FIXED: Better error handling
 async function fetchArtData(artId) {
     try {
         console.log("Attempting to fetch art data for ID:", artId);
-        
+
         const firebaseReady = await waitForFirebase();
-        
+
         if (!firebaseReady) {
             console.warn("Firebase not available, trying alternative methods");
             const fallbackData = await tryGetArtFromAlternateSources(artId);
@@ -86,30 +87,30 @@ async function fetchArtData(artId) {
             }
             throw new Error('Firebase not available and no fallback data found');
         }
-        
+
         console.log("Firebase initialized, fetching art document...");
-        
+
         const db = firebase.firestore();
         const artDoc = await db.collection('arts').doc(artId).get();
-        
+
         if (!artDoc.exists) {
             throw new Error('Art not found in database');
         }
-        
+
         const artData = artDoc.data();
         selectedArt = { id: artDoc.id, ...artData };
         console.log("Successfully fetched art data:", selectedArt);
-        
+
         if (!selectedArt.downloadURL || !selectedArt.name) {
             throw new Error('Art data is incomplete');
         }
-        
+
         sessionStorage.setItem('selectedArt', JSON.stringify(selectedArt));
         displaySelectedArt();
-        
+
     } catch (error) {
         console.error('Error fetching art data:', error);
-        
+
         const fallbackData = await tryGetArtFromAlternateSources(artId);
         if (fallbackData) {
             selectedArt = fallbackData;
@@ -117,7 +118,7 @@ async function fetchArtData(artId) {
             displaySelectedArt();
             return;
         }
-        
+
         alert(`Failed to load art information: ${error.message}. Please try selecting the art again.`);
         redirectToSharedArts();
     }
@@ -154,15 +155,13 @@ function waitForFirebase() {
     });
 }
 
-// Try to get art data from alternate sources
 async function tryGetArtFromAlternateSources(artId) {
     console.log("Trying alternate sources for art data...");
-    
+
     try {
         const hash = window.location.hash;
         if (hash && hash.startsWith('#art=')) {
-            const artDataString = decodeURIComponent(hash.substring(5));
-            const artData = JSON.parse(artDataString);
+            const artData = JSON.parse(decodeURIComponent(hash.substring(5)));
             if (artData.id === artId) {
                 console.log("Found art data in URL hash");
                 return artData;
@@ -171,7 +170,7 @@ async function tryGetArtFromAlternateSources(artId) {
     } catch (e) {
         console.log("No valid art data in URL hash");
     }
-    
+
     try {
         const recentArts = localStorage.getItem('recentArts');
         if (recentArts) {
@@ -185,7 +184,7 @@ async function tryGetArtFromAlternateSources(artId) {
     } catch (e) {
         console.log("No valid art data in recent arts cache");
     }
-    
+
     try {
         if (window.artManager && window.artManager.artsCache) {
             const cachedArt = window.artManager.artsCache[artId];
@@ -197,341 +196,396 @@ async function tryGetArtFromAlternateSources(artId) {
     } catch (e) {
         console.log("No art data in shared arts cache");
     }
-    
+
     return null;
 }
 
-// Display selected art information - FIXED: More reliable display logic
 function displaySelectedArt() {
     if (!selectedArt) {
         console.log("No art to display");
         toggle(artInfoContainer, false);
         return;
     }
-    
+
     console.log("Displaying selected art:", selectedArt);
-    
-    // Show the art container
     toggle(artInfoContainer, true);
-    
-    // Update art information
+
     if (artImageEl) {
         artImageEl.src = selectedArt.downloadURL;
         artImageEl.alt = selectedArt.name || 'Selected Art';
         artImageEl.onerror = function() {
             console.error("Failed to load art image:", selectedArt.downloadURL);
-            this.src = 'images/default-art.png'; // Fallback image
+            this.src = 'images/default-art.png';
         };
     }
-    
+
     if (artNameEl) {
         artNameEl.textContent = selectedArt.name || 'Untitled Art';
     }
-    
+
     if (artPriceEl) {
         const price = selectedArt.totalPrice || selectedArt.price || 0;
         artPriceEl.textContent = `Price: R$ ${price.toFixed(2)}`;
     }
-    
+
     if (artDescriptionEl) {
         artDescriptionEl.textContent = selectedArt.description || '';
-        // Hide description element if no description
         toggle(artDescriptionEl, !!selectedArt.description);
     }
-    
+
     console.log("Art display completed, container should be visible");
 }
 
-// Load products from backend
+// ─── Product loading ───────────────────────────────────────────────────────
+
 async function loadProducts() {
-  if (loading) return; loading = true;
-  toggle(loadingEl, true); toggle(errorEl, false); productsEl.innerHTML = '';
-  try {
-    const res = await fetch(CLOUD_FUNCTION_URL);
-    if (!res.ok) throw new Error(res.status);
-    const data = await res.json();
-    if (!data.success) throw new Error(data.message);
-    products = data.products || [];
-    productCountEl.textContent = products.length + (data.cached ? ' (cached)' : '');
-    renderProducts();
-  } catch (e) {
-    errorEl.textContent = `Failed to load products: ${e.message}`;
-    toggle(errorEl, true);
-  } finally {
-    toggle(loadingEl, false);
-    loading = false;
-  }
+    if (loading) return; loading = true;
+    toggle(loadingEl, true); toggle(errorEl, false); productsEl.innerHTML = '';
+    try {
+        const res = await fetch(CLOUD_FUNCTION_URL);
+        if (!res.ok) throw new Error(res.status);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message);
+        products = data.products || [];
+        productCountEl.textContent = products.length + (data.cached ? ' (cached)' : '');
+        renderProducts();
+    } catch (e) {
+        errorEl.textContent = `Failed to load products: ${e.message}`;
+        toggle(errorEl, true);
+    } finally {
+        toggle(loadingEl, false);
+        loading = false;
+    }
 }
 
-// Render product cards with one-side/two-side differentiation
 function renderProducts() {
-  productsEl.innerHTML = products.map(p => {
-    const productType = TWO_SIDED_PRODUCTS.includes(p.id) ? 'two-sided' : 'one-sided';
-    const typeBadge = productType === 'two-sided' ? 
-        '<span class="product-type-badge">Front & Back</span>' : 
-        '<span class="product-type-badge">Single Side</span>';
-    
-    return `
-    <div class="product-card" data-id="${p.id}" data-type="${productType}">
-      <img src="${p.image}" alt="${escapeHtml(p.title)}" class="product-image">
-      <div class="product-title">${escapeHtml(p.title)}</div>
-      <div class="product-info">
-        ${escapeHtml(p.type_name)} • ${p.variant_count} variants
-        ${typeBadge}
-      </div>
-    </div>`;
-  }).join('');
+    productsEl.innerHTML = products.map(p => `
+    <div class="product-card" data-id="${escapeHtml(p.id)}">
+      <img src="images/flatlays/${escapeHtml(p.title.replace(/^Dimona\s+/i, ''))}-base-front.png"
+           alt="${escapeHtml(p.title)}" class="product-image"
+           data-fallback="${escapeHtml(p.image)}">
+      ...
+    </div>`
+    ).join('');
+
+    // Attach onerror handlers via JS to comply with CSP (no inline event handlers)
+    productsEl.querySelectorAll('img.product-image[data-fallback]').forEach(img => {
+        img.addEventListener('error', function () {
+            this.src = this.dataset.fallback;
+            this.removeAttribute('data-fallback'); // prevent infinite loop if fallback also 404s
+        });
+    });
 }
 
-// Load overlay image - updated to handle both sides
-function loadBaseOverlay(productId, side = 'front') {
-  return new Promise((resolve, reject) => {
-    baseImage.onload = () => {
-      canvas.width = baseImage.width;
-      canvas.height = baseImage.height;
-      resolve();
-    };
-    baseImage.onerror = reject;
-    // Use appropriate base image based on product type
-    const imageSuffix = TWO_SIDED_PRODUCTS.includes(productId) ? `-base-${side}.png` : '-base.png';
-    baseImage.src = `images/flatlays/${productId}${imageSuffix}`;
-  });
+// ─── Flatlay / canvas ──────────────────────────────────────────────────────
+
+function loadBaseOverlay(productTitle) {
+    return new Promise((resolve) => {
+        baseImage.onload = () => {
+            canvas.width = baseImage.width;
+            canvas.height = baseImage.height;
+            resolve();
+        };
+        baseImage.onerror = () => {
+            canvas.width = 400;
+            canvas.height = 400;
+            resolve();
+        };
+        baseImage.src = `images/flatlays/${productTitle.replace(/^Dimona\s+/i, '')}-base-front.png`;
+    });
 }
 
-// Draw shirt with selected color
 function renderShirtColor(hex) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = hex;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(baseImage, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = hex;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (baseImage.complete && baseImage.naturalWidth > 0) {
+        ctx.drawImage(baseImage, 0, 0);
+    }
 }
 
-// Show modal with variants - updated to show product type info
+// ─── Variant modal with color + size selection ─────────────────────────────────────────
+
 function showVariantModal(product) {
-  selectedProduct = product;
-  selectedColors = [];
-  confirmBtn.disabled = true;
-  
-  // Determine product type and update modal
-  const productType = TWO_SIDED_PRODUCTS.includes(product.id) ? 'two-sided' : 'one-sided';
-  const typeInfo = productType === 'two-sided' ? '(Front & Back Printing)' : '(Single Side Printing)';
-  
-  modalEl.querySelector('h3').textContent = `Choose a color for ${escapeHtml(product.title)} ${typeInfo}`;
-  
-  // Load appropriate base image
-  loadBaseOverlay(product.id).then(() => renderShirtColor('#ffffff'));
+    selectedProduct = product;
+    selectedColor = null;
+    selectedSize = null;
+    confirmBtn.disabled = true;
 
-  const colors = new Set(product.variants.map(v => v.color || 'N/A'));
-  colors.add('White');
-  const colorArray = [...colors];
+    modalEl.querySelector('h3').textContent = `Choose a color and size for ${escapeHtml(product.title)}`;
 
-  variantSelectionEl.innerHTML = `
+    loadBaseOverlay(product.title).then(() => renderShirtColor('#ffffff'));
+
+    // Build unique color map from Dimona variants
+    const colorMap = {};
+    product.variants.forEach(v => {
+        if (!colorMap[v.color]) {
+            colorMap[v.color] = v.color_code || '#cccccc';
+        }
+    });
+
+    // Store all variants by color for later size lookup
+    window._variantsByColor = {};
+    product.variants.forEach(v => {
+        if (!window._variantsByColor[v.color]) {
+            window._variantsByColor[v.color] = [];
+        }
+        window._variantsByColor[v.color].push(v);
+    });
+
+    variantSelectionEl.innerHTML = `
     <div class="variant-section">
       <div class="section-title">Available Colors (select one)</div>
       <div class="variant-selection-grid" data-type="color">
-        ${colorArray.map(c => {
-          const v = product.variants.find(vv => (vv.color||'N/A') === c);
-          const hex = v?.color_code || (c.toLowerCase() === 'white' ? '#ffffff' : '#cccccc');
-          return `<div class="variant-option" 
-                    data-color="${escapeHtml(c)}" 
-                    data-hex="${hex}"
-                    onmouseenter="handleColorHover('${hex}')"
-                    onmouseleave="handleColorHoverEnd()">
-                    <div class="color-dot" style="background:${hex}"></div>
-                    <div>${escapeHtml(c)}</div>
-                  </div>`;
-        }).join('')}
+        ${Object.entries(colorMap).map(([colorName, hex]) => `
+          <div class="variant-option color-option"
+               data-color="${escapeHtml(colorName)}"
+               data-hex="${escapeHtml(hex)}"
+               data-action="hoverColor"
+               data-color="${escapeHtml(hex)}">
+            <div class="color-dot" style="background:${hex};border:1px solid ${
+                ['#FFFFFF','#FAF9F6','#FFFFF0','#F5F0E8'].includes(hex) ? '#ccc' : hex
+            }"></div>
+            <div>${escapeHtml(colorName)}</div>
+          </div>`
+        ).join('')}
+      </div>
+    </div>
+    <div id="size-selection-container" style="display:none;">
+      <div class="variant-section">
+        <div class="section-title">Available Sizes (select one)</div>
+        <div class="variant-selection-grid" data-type="size" id="size-grid"></div>
       </div>
     </div>`;
 
-  updateSelectedColors();
-  modalEl.style.display = 'block';
-  document.body.style.overflow = 'hidden';
+    updateSelectedDisplay();
+    modalEl.style.display = 'block';
+    document.body.style.overflow = 'hidden';
 }
 
-// Handle color hover with delay
-function handleColorHover(hex) {
-  clearTimeout(hoverTimeout);
-  hoverTimeout = setTimeout(() => {
-    renderShirtColor(hex);
-  }, 200);
-}
-
-function handleColorHoverEnd() {
-  clearTimeout(hoverTimeout);
-  if (selectedColors.length > 0) {
-    renderShirtColor(selectedColors[selectedColors.length - 1].hex);
-  } else {
-    renderShirtColor('#ffffff');
-  }
-}
-
-// Update selected color display (single selection)
-function updateSelectedColors() {
-  selectedColorsEl.innerHTML = selectedColors.length > 0 ? `
-    <div class="selected-color">
-      <div class="selected-color-dot" style="background:${selectedColors[0].hex}"></div>
-      <span>${escapeHtml(selectedColors[0].name)}</span>
-    </div>
-  ` : '<div style="color:#999;font-size:0.9rem">No color selected yet</div>';
-
-  confirmBtn.disabled = selectedColors.length === 0;
-}
-
-// Add color to selection (max 1)
-function addSelectedColor(colorName, hex) {
-  if (!selectedColors.some(c => c.name === colorName)) {
-    selectedColors = [{ name: colorName, hex }];
-    updateSelectedColors();
-    renderShirtColor(hex);
-  }
-}
-
-// Remove color from selection
-function removeSelectedColor(index) {
-  selectedColors.splice(index, 1);
-  updateSelectedColors();
-  if (selectedColors.length > 0) {
-    renderShirtColor(selectedColors[selectedColors.length - 1].hex);
-  } else {
-    renderShirtColor('#ffffff');
-  }
-}
-
-function closeModal() {
-  modalEl.style.display = 'none';
-  document.body.style.overflow = '';
-  selectedProduct = null;
-  selectedColors = [];
-}
-
-// Event listeners
-productsEl.addEventListener('click', e => {
-  const card = e.target.closest('.product-card');
-  if (card) showVariantModal(products.find(p => p.id == card.dataset.id));
-});
-
-variantSelectionEl.addEventListener('click', e => {
-  const opt = e.target.closest('.variant-option');
-  if (!opt) return;
-  
-  const colorName = opt.dataset.color;
-  const hex = opt.dataset.hex;
-  
-  if (opt.classList.contains('selected')) {
-    // Deselect current
-    opt.classList.remove('selected');
-    selectedColors = [];
-    updateSelectedColors();
-    renderShirtColor('#ffffff');
-  } else {
-    // Deselect any previously selected color first
-    document.querySelectorAll('#variant-selection .variant-option.selected')
-      .forEach(el => el.classList.remove('selected'));
-    opt.classList.add('selected');
-    addSelectedColor(colorName, hex);
-  }
-});
-// Enhanced confirm button with proper art handling
-confirmBtn.addEventListener('click', () => {
-    if (!selectedProduct || selectedColors.length === 0) {
-        alert('Please select a color variant.');
+function renderSizeOptions(colorName) {
+    const sizeContainer = document.getElementById('size-selection-container');
+    const sizeGrid = document.getElementById('size-grid');
+    
+    if (!sizeContainer || !sizeGrid) return;
+    
+    const variants = window._variantsByColor?.[colorName] || [];
+    const uniqueSizes = [...new Map(variants.map(v => [v.size, v])).values()];
+    
+    if (uniqueSizes.length === 0) {
+        sizeContainer.style.display = 'none';
         return;
     }
     
+    sizeGrid.innerHTML = uniqueSizes.map(v => `
+        <div class="variant-option size-option ${selectedSize === v.size ? 'selected' : ''}"
+             data-size="${escapeHtml(v.size)}"
+             data-sku="${escapeHtml(v.sku || v.id)}"
+             data-price="${escapeHtml(v.price)}">
+            <div class="size-label">${escapeHtml(v.size)}</div>
+            <div class="size-price">${formatCurrency(parseFloat(v.price))}</div>
+        </div>
+    `).join('');
+    
+    sizeContainer.style.display = 'block';
+}
+
+function formatCurrency(value) {
+    const num = parseFloat(value) || 0;
+    return `R$ ${num.toFixed(2).replace('.', ',')}`;
+}
+
+function updateSelectedDisplay() {
+    const container = document.getElementById('selected-colors');
+    if (!container) return;
+    
+    if (!selectedColor && !selectedSize) {
+        container.innerHTML = '<div style="color:#999;font-size:0.9rem">No color or size selected yet</div>';
+        confirmBtn.disabled = true;
+        return;
+    }
+    
+    let html = '';
+    if (selectedColor) {
+        const colorHex = selectedProduct?.variants.find(v => v.color === selectedColor)?.color_code || '#ccc';
+        html += `<div class="selected-color">
+            <div class="selected-color-dot" style="background:${colorHex}"></div>
+            <span>Color: ${escapeHtml(selectedColor)}</span>
+        </div>`;
+    }
+    if (selectedSize) {
+        html += `<div class="selected-size" style="margin-top:8px;">
+            <i class="fas fa-ruler"></i> Size: ${escapeHtml(selectedSize)}
+        </div>`;
+    }
+    
+    container.innerHTML = html;
+    confirmBtn.disabled = !selectedColor || !selectedSize;
+    
+    if (selectedColor && selectedSize) {
+        const variant = selectedProduct.variants.find(v => v.color === selectedColor && v.size === selectedSize);
+        if (variant) {
+            renderShirtColor(variant.color_code || '#ffffff');
+        }
+    }
+}
+
+// ─── Color hover ───────────────────────────────────────────────────────────
+
+function handleColorHover(hex) {
+    clearTimeout(hoverTimeout);
+    hoverTimeout = setTimeout(() => renderShirtColor(hex), 200);
+}
+
+function handleColorHoverEnd() {
+    clearTimeout(hoverTimeout);
+    if (selectedColor && selectedSize) {
+        const variant = selectedProduct.variants.find(v => v.color === selectedColor && v.size === selectedSize);
+        if (variant) {
+            renderShirtColor(variant.color_code || '#ffffff');
+        }
+    } else {
+        renderShirtColor('#ffffff');
+    }
+}
+
+function closeModal() {
+    modalEl.style.display = 'none';
+    document.body.style.overflow = '';
+    selectedProduct = null;
+    selectedColor = null;
+    selectedSize = null;
+    window._variantsByColor = null;
+}
+
+// ─── Confirm — store Dimona data then go to canvas ─────────────────────────
+
+confirmBtn.addEventListener('click', () => {
+    if (!selectedProduct || !selectedColor || !selectedSize) {
+        alert('Please select both a color and a size.');
+        return;
+    }
+
     if (!selectedArt) {
         alert('No art selected. Please go back and select an art first.');
         window.location.href = 'inicio.html';
         return;
     }
-    
-    // Find variants for all selected colors
-    const variants = [];
-    selectedColors.forEach(color => {
-        const colorVariants = selectedProduct.variants.filter(v => (v.color||'N/A') === color.name);
-        variants.push(...colorVariants);
-    });
-    const validVariants = variants.filter(v => v.id);
 
-    if (validVariants.length === 0) {
-        alert('No valid variants found for selected colors.');
+    // Find the exact variant for the selected color + size
+    const selectedVariant = selectedProduct.variants.find(v => 
+        v.color === selectedColor && v.size === selectedSize
+    );
+
+    if (!selectedVariant) {
+        alert('No valid variant found for the selected color and size.');
         return;
     }
 
-    // Get Firestore user ID from session storage
-    const firestoreUserId = sessionStorage.getItem('designerFirestoreUserId') || 
+    const firestoreUserId = sessionStorage.getItem('designerFirestoreUserId') ||
                            sessionStorage.getItem('currentFirestoreUserId');
-    
+
     if (!firestoreUserId) {
         alert('User information not found. Please log in again.');
         window.location.href = 'profile.html';
         return;
     }
-    
-    // Store product type for canvas-client.js to use
-    const productType = TWO_SIDED_PRODUCTS.includes(selectedProduct.id) ? 'two-sided' : 'one-sided';
-    sessionStorage.setItem('productType', productType);
-    console.log("Product type stored:", productType, "for product ID:", selectedProduct.id);
-    
-    // Ensure selected art is properly stored
+
+    // Persist art
     sessionStorage.setItem('selectedArt', JSON.stringify(selectedArt));
-    
-    // Store product and variant data
+
+    // Persist SINGLE variant (not all sizes!)
     sessionStorage.setItem('selectedProduct', JSON.stringify(selectedProduct));
-    sessionStorage.setItem('selectedVariants', JSON.stringify(validVariants));
-    
-    // Store the Firestore user ID in both locations for compatibility
+    sessionStorage.setItem('selectedVariants', JSON.stringify([selectedVariant]));  // ← Only ONE variant!
+    sessionStorage.setItem('productType', 'one-sided');
+    sessionStorage.setItem('provider', 'dimona');
+
     sessionStorage.setItem('designerFirestoreUserId', firestoreUserId);
     sessionStorage.setItem('currentFirestoreUserId', firestoreUserId);
-    
+
     console.log("Navigation data prepared:");
     console.log("- Selected Art:", selectedArt);
     console.log("- Selected Product:", selectedProduct);
-    console.log("- Selected Variants:", validVariants);
+    console.log("- Selected Variant (ONE size):", selectedVariant);
     console.log("- User ID:", firestoreUserId);
-    console.log("- Product Type:", productType);
-    
+
     closeModal();
     window.location.href = 'canvas-client.html';
 });
 
-// Initialize on page load - FIXED: Better initialization flow
+// ─── Event listeners ───────────────────────────────────────────────────────
+
+productsEl.addEventListener('click', e => {
+    const card = e.target.closest('.product-card');
+    if (card) showVariantModal(products.find(p => p.id === card.dataset.id));
+});
+
+variantSelectionEl.addEventListener('click', e => {
+    // Handle color selection
+    const colorOpt = e.target.closest('.color-option');
+    if (colorOpt) {
+        const colorName = colorOpt.dataset.color;
+        
+        // Remove selected class from other color options
+        document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
+        colorOpt.classList.add('selected');
+        
+        selectedColor = colorName;
+        selectedSize = null;  // Reset size when color changes
+        
+        // Clear size selections
+        document.querySelectorAll('.size-option').forEach(el => el.classList.remove('selected'));
+        
+        renderSizeOptions(colorName);
+        updateSelectedDisplay();
+        return;
+    }
+    
+    // Handle size selection
+    const sizeOpt = e.target.closest('.size-option');
+    if (sizeOpt) {
+        // Remove selected class from other size options
+        document.querySelectorAll('.size-option').forEach(el => el.classList.remove('selected'));
+        sizeOpt.classList.add('selected');
+        
+        selectedSize = sizeOpt.dataset.size;
+        updateSelectedDisplay();
+    }
+});
+
+closeBtn.addEventListener('click', closeModal);
+window.addEventListener('click', e => e.target === modalEl && closeModal());
+document.addEventListener('keydown', e => e.key === 'Escape' && modalEl.style.display === 'block' && closeModal());
+refreshBtn.addEventListener('click', () => loadProducts());
+
+// ─── Init ──────────────────────────────────────────────────────────────────
+
 document.addEventListener('DOMContentLoaded', async () => {
     console.log("DOM Content Loaded - Starting initialization");
-    
-    // Check authentication first
-    const firestoreUserId = sessionStorage.getItem('designerFirestoreUserId') || 
+
+    const firestoreUserId = sessionStorage.getItem('designerFirestoreUserId') ||
                            sessionStorage.getItem('currentFirestoreUserId');
-    
+
     console.log("Checking authentication - Firestore User ID:", firestoreUserId);
-    
+
     if (!firestoreUserId) {
         alert('Please log in to continue.');
         window.location.href = 'inicio.html';
         return;
     }
-    
+
     console.log("User authenticated with Firestore ID:", firestoreUserId);
-    
-    // Initialize selected art first, then load products
+
     try {
         await initializeSelectedArt();
         console.log("Art initialization completed");
     } catch (error) {
         console.error("Error initializing art:", error);
     }
-    
-    // Load products
+
     loadProducts();
 });
 
-// Event listener setup
-closeBtn.addEventListener('click', closeModal);
-window.addEventListener('click', e => e.target === modalEl && closeModal());
-document.addEventListener('keydown', e => e.key === 'Escape' && modalEl.style.display === 'block' && closeModal());
-refreshBtn.addEventListener('click', () => loadProducts());
-
-// Expose functions to global scope for HTML event handlers
+// Expose globals for inline HTML event handlers
 window.handleColorHover = handleColorHover;
 window.handleColorHoverEnd = handleColorHoverEnd;
-window.removeSelectedColor = removeSelectedColor;

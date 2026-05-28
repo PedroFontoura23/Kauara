@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' data: https://www.googleapis.com https://firestore.googleapis.com ws://localhost:5001 wss://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://api.mercadopago.com https://www.mercadolibre.com https://api.mercadolibre.com https://events.mercadopago.com https://us-central1-kauara1.cloudfunctions.net">
+  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' data: https://www.gstatic.com https://www.googleapis.com https://firestore.googleapis.com ws://localhost:5001 wss://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://api.mercadopago.com https://www.mercadolibre.com https://api.mercadolibre.com https://events.mercadopago.com https://us-central1-kauara1.cloudfunctions.net">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Product Canvas</title>
   <style>
@@ -313,7 +313,7 @@
         <div class="price-row fee-row">
           <div class="price-label">
             <span>Platform Fee</span>
-            <small>(5% of total)</small>
+            <small>(R$ 5,00 fixed fee)</small>
           </div>
           <div class="price-amount" id="platform-fee">R$ 0.00</div>
         </div>
@@ -340,6 +340,11 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 
-  <script type="module" src="javascript/canvas-client.js"></script>
+  <!-- Firebase initialization — must come before canvas-client.js -->
+  <script src="javascript/shared-firebase-init.js"></script>
+
+  <!-- Áreas de impressão compartilhadas — deve vir ANTES do canvas script -->
+  <script src="javascript/canvas-client.js"></script>
+  <script src="javascript/shared-firebase-init.js"></script>
 </body>
 </html>

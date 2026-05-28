@@ -1,5 +1,53 @@
 console.log("shared-posts.js loaded!");
 
+// ─── Responsive grid/strip CSS (injected once) ───────────────────────────────
+(function _injectLayoutStyles() {
+    if (document.getElementById("shared-layout-styles")) return;
+    const s = document.createElement("style");
+    s.id = "shared-layout-styles";
+    s.textContent = `
+        /* 4-col grid: products & posts */
+        .products-grid, .posts-grid,
+        [id="productsContainer"], [id="allPostsContainer"] {
+            container-type: inline-size;
+        }
+        @media (max-width: 1100px) {
+            [id="productsContainer"],
+            [id="allPostsContainer"] {
+                grid-template-columns: repeat(3, 1fr) !important;
+            }
+        }
+        @media (max-width: 768px) {
+            [id="productsContainer"],
+            [id="allPostsContainer"] {
+                grid-template-columns: repeat(2, 1fr) !important;
+            }
+        }
+        @media (max-width: 480px) {
+            [id="productsContainer"],
+            [id="allPostsContainer"] {
+                grid-template-columns: repeat(1, 1fr) !important;
+            }
+        }
+        /* Horizontal strip scrollbar styling */
+        [id="artContainer"]::-webkit-scrollbar,
+        [id="candidatoArtsContainer"]::-webkit-scrollbar {
+            height: 4px;
+        }
+        [id="artContainer"]::-webkit-scrollbar-track,
+        [id="candidatoArtsContainer"]::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        [id="artContainer"]::-webkit-scrollbar-thumb,
+        [id="candidatoArtsContainer"]::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 4px;
+        }
+    `;
+    document.head.appendChild(s);
+})();
+
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 const POST_CONFIG = {
     collection:             "posts",
@@ -9,7 +57,7 @@ const POST_CONFIG = {
     commentLikesCollection: "comment_likes",
     contentIdField:         "foreignPostId",
     contentCollection:      "posts",
-    notificationType:       "comment",
+    notificationType:       "post_comment",
 };
 
 window.initializePostManager = function(containerId) {
@@ -92,7 +140,7 @@ class PostManager {
 
     // ─── Display posts ────────────────────────────────────────────────────────
 
-    async displayPosts(filterUserId = null, currentUserId = null, loadMore = false) {
+    async displayPosts(filterUserId = null, currentUserId = null) {
         if (!this.container) { console.error("Posts container not found"); return; }
         if (this.isLoading) return;
         this.isLoading = true;
@@ -102,34 +150,36 @@ class PostManager {
             if (user) currentUserId = user.firestoreUserId;
         }
 
-        if (!loadMore || this.currentFilterUserId !== filterUserId) {
-            this.container.innerHTML     = "<p>Loading posts...</p>";
-            this.lastVisiblePost         = null;
-            this.currentFilterUserId     = filterUserId;
-        }
+        this.currentFilterUserId = filterUserId;
+        this.container.innerHTML = "<p>Loading posts...</p>";
 
         try {
             let query = this.db.collection("posts").orderBy("timestamp", "desc");
             if (this.currentFilterUserId) query = query.where("foreignUserId", "==", this.currentFilterUserId);
-            query = query.limit(this.batchSize);
-            if (loadMore && this.lastVisiblePost) query = query.startAfter(this.lastVisiblePost);
 
             const snapshot = await query.get();
             if (snapshot.empty) {
-                if (!loadMore) this.container.innerHTML = "<p>No posts available.</p>";
+                this.container.innerHTML = "<p>No posts available.</p>";
                 return;
             }
 
             const userIds = snapshot.docs.map(doc => doc.data().foreignUserId);
             await this.cacheUsers([...new Set(userIds)]);
 
-            if (!loadMore) this.container.innerHTML = "";
-
-            // Pre-warm likes cache for this batch
+            // Pre-warm likes cache for all items at once
             const postIds = snapshot.docs.map(d => d.id);
             await this.likesManager.prewarmLikesCache(
                 postIds, POST_CONFIG.likesCollection, "foreignPostId", "foreignUserId", currentUserId
             );
+
+            // Build 4-column grid
+            this.container.innerHTML = "";
+            this.container.style.cssText = `
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 16px;
+                padding: 8px 0;
+            `;
 
             snapshot.docs.forEach(doc => {
                 const postData = doc.data();
@@ -137,33 +187,12 @@ class PostManager {
                 const postEl   = this.createPostElement(doc.id, postData, userData, currentUserId);
                 this.container.appendChild(postEl);
             });
-
-            this.lastVisiblePost = snapshot.docs[snapshot.docs.length - 1];
-
-            if (snapshot.docs.length === this.batchSize) {
-                this._observeLastElement(this.container.lastElementChild, this.currentFilterUserId);
-            }
         } catch (error) {
             console.error("[PostManager] displayPosts error:", error);
-            if (!loadMore) this.container.innerHTML = "<p>Error loading posts.</p>";
+            this.container.innerHTML = "<p>Error loading posts.</p>";
         } finally {
             this.isLoading = false;
         }
-    }
-
-    _observeLastElement(el, filterUserId) {
-        let debounced = false;
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting && !this.isLoading && !debounced) {
-                    debounced = true;
-                    observer.disconnect();
-                    setTimeout(() => { debounced = false; }, 1000);
-                    this.displayPosts(filterUserId, null, true);
-                }
-            });
-        }, { threshold: 1.0 });
-        observer.observe(el);
     }
 
     // ─── Create post element ──────────────────────────────────────────────────
@@ -171,7 +200,15 @@ class PostManager {
     createPostElement(postId, postData, userData, currentUserId) {
         const isOwner   = postData.foreignUserId === currentUserId;
         const postEl    = document.createElement("div");
-        postEl.className = "card mb-4";
+        postEl.className = "card post-card";
+        postEl.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            min-width: 0;
+        `;
 
         const timestamp     = postData.timestamp?.toDate() || new Date();
         const formattedDate = timestamp.toLocaleDateString('en-US', {
@@ -180,45 +217,40 @@ class PostManager {
         });
 
         postEl.innerHTML = `
-            <div class="card-header d-flex align-items-center">
-                <img src="${userData.profilePicture ? `data:image/jpeg;base64,${userData.profilePicture}` : '../images/default-profile.png'}"
-                     class="rounded-circle me-2 user-profile-link"
-                     alt="Profile Picture"
-                     style="width:40px;height:40px;object-fit:cover;cursor:pointer;"
-                     data-user-id="${postData.foreignUserId}">
-                <div>
-                    <h6 class="mb-0 user-profile-link" style="cursor:pointer;" data-user-id="${postData.foreignUserId}">
-                        ${userData.user_Name || "Unknown User"}
-                    </h6>
-                    <small class="text-muted">${formattedDate}</small>
-                </div>
-            </div>
-            <div class="card-body">
-                <p class="card-text">${postData.postText}</p>
-                ${postData.postImage ? `
+            ${postData.postImage ? `
+                <div style="width:100%;aspect-ratio:1;overflow:hidden;background:#f0f0f0;">
                     <img src="data:image/jpeg;base64,${postData.postImage}"
-                         class="img-fluid rounded lazy-load"
+                         class="lazy-load"
                          alt="Post Image"
-                         style="max-height:500px;width:auto;"
+                         style="width:100%;height:100%;object-fit:cover;"
                          loading="lazy">
-                ` : ''}
-            </div>
-            <div class="card-footer">
-                <button class="btn btn-outline-primary like-button" data-post-id="${postId}">
-                    <span class="like-count">${postData.likes_count || 0}</span> Likes
-                </button>
-                <button class="btn btn-outline-secondary comments-toggle-button" data-post-id="${postId}">
-                    Show Comments
-                </button>
-                <div class="comments-container mt-3" id="comments-${postId}" style="display:none;"></div>
-                <div class="comment-input-container mt-2" id="commentInputContainer-${postId}" style="display:none;">
-                    <div class="input-group">
-                        <input type="text" class="form-control comment-input"
-                               placeholder="Write a comment..." id="commentInput-${postId}">
-                        <button class="btn btn-outline-primary comment-submit" data-post-id="${postId}">Post</button>
-                    </div>
                 </div>
-                ${isOwner ? `<button class="btn btn-danger mt-2 delete-post-button" data-post-id="${postId}">Delete Post</button>` : ''}
+            ` : ''}
+            <div class="p-2" style="flex:1;min-width:0;">
+                <div class="d-flex align-items-center gap-1 mb-1">
+                    <img src="${userData.profilePicture ? `data:image/jpeg;base64,${userData.profilePicture}` : '../images/default-profile.png'}"
+                         class="rounded-circle user-profile-link flex-shrink-0"
+                         style="width:20px;height:20px;object-fit:cover;cursor:pointer;"
+                         data-user-id="${postData.foreignUserId}">
+                    <small class="text-muted text-truncate user-profile-link" style="font-size:0.72rem;cursor:pointer;" data-user-id="${postData.foreignUserId}">
+                        ${userData.user_Name || "Unknown User"}
+                    </small>
+                </div>
+                <p class="mb-0" style="font-size:0.8rem;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">${postData.postText}</p>
+                <small class="text-muted" style="font-size:0.68rem;">${formattedDate}</small>
+            </div>
+            <div class="px-2 pb-2 d-flex gap-1">
+                <button class="btn btn-outline-primary btn-sm like-button px-2 py-1" data-post-id="${postId}" style="font-size:0.72rem;">
+                    ♥ <span class="like-count">${postData.likes_count || 0}</span>
+                </button>
+                <button class="btn btn-outline-secondary btn-sm comments-toggle-button px-2 py-1" data-post-id="${postId}" style="font-size:0.72rem;">
+                    💬
+                </button>
+                ${isOwner ? `<button class="btn btn-outline-danger btn-sm delete-post-button px-2 py-1 ms-auto" data-post-id="${postId}" style="font-size:0.72rem;">✕</button>` : ''}
+            </div>
+            <div class="px-2 pb-2">
+                <div class="comments-container" id="comments-${postId}" style="display:none;"></div>
+                <div class="comment-input-container" id="commentInputContainer-${postId}" style="display:none;"></div>
             </div>
         `;
 
@@ -258,6 +290,9 @@ class PostManager {
             if (!visible) {
                 if (!commentsLoaded) {
                     this.commentsManager.loadComments(postId, commentsContainer, currentUserId, POST_CONFIG);
+                    this.commentsManager.renderCommentInput(
+                        commentInputContainer, postId, commentsContainer, POST_CONFIG, () => this.getCurrentUser()
+                    );
                     commentsLoaded = true;
                 }
                 commentsContainer.style.display     = "block";
@@ -269,15 +304,6 @@ class PostManager {
                 toggleBtn.textContent = "Show Comments";
             }
         });
-
-        // Comment submit — delegate to SharedCommentsManager
-        const commentInput = postEl.querySelector('.comment-input');
-        const submitBtn    = postEl.querySelector('.comment-submit');
-        const doSubmit     = () => this.commentsManager.submitComment(
-            postId, commentInput, commentsContainer, POST_CONFIG, () => this.getCurrentUser()
-        );
-        submitBtn.addEventListener('click', doSubmit);
-        commentInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSubmit(); } });
 
         // Delete post (owner only)
         if (isOwner) {
@@ -297,7 +323,7 @@ class PostManager {
         return {
             toUserId:    postData.foreignUserId,
             fromUsername,
-            type:        "like",
+            type:        "post_like",
             message:     `${fromUsername} liked your post`,
             profilePic:  this.usersCache[fromUserId]?.profilePicture || null
         };
@@ -355,6 +381,8 @@ class PostManager {
         this.commentsManager.cleanupAllListeners();
     }
 }
+
+window.PostManager = PostManager;
 
 // ─── Page-level initialization helper ────────────────────────────────────────
 async function displayPosts(userIdFromUrl) {

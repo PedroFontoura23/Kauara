@@ -1,5 +1,53 @@
 console.log("shared-arts.js loaded!");
 
+// ─── Responsive grid/strip CSS (injected once) ───────────────────────────────
+(function _injectLayoutStyles() {
+    if (document.getElementById("shared-layout-styles")) return;
+    const s = document.createElement("style");
+    s.id = "shared-layout-styles";
+    s.textContent = `
+        /* 4-col grid: products & posts */
+        .products-grid, .posts-grid,
+        [id="productsContainer"], [id="allPostsContainer"] {
+            container-type: inline-size;
+        }
+        @media (max-width: 1100px) {
+            [id="productsContainer"],
+            [id="allPostsContainer"] {
+                grid-template-columns: repeat(3, 1fr) !important;
+            }
+        }
+        @media (max-width: 768px) {
+            [id="productsContainer"],
+            [id="allPostsContainer"] {
+                grid-template-columns: repeat(2, 1fr) !important;
+            }
+        }
+        @media (max-width: 480px) {
+            [id="productsContainer"],
+            [id="allPostsContainer"] {
+                grid-template-columns: repeat(1, 1fr) !important;
+            }
+        }
+        /* Horizontal strip scrollbar styling */
+        [id="artContainer"]::-webkit-scrollbar,
+        [id="candidatoArtsContainer"]::-webkit-scrollbar {
+            height: 4px;
+        }
+        [id="artContainer"]::-webkit-scrollbar-track,
+        [id="candidatoArtsContainer"]::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        [id="artContainer"]::-webkit-scrollbar-thumb,
+        [id="candidatoArtsContainer"]::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 4px;
+        }
+    `;
+    document.head.appendChild(s);
+})();
+
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 const ART_CONFIG = {
     collection:             "arts",
@@ -95,7 +143,7 @@ class ArtManager {
 
     // ─── Display arts ─────────────────────────────────────────────────────────
 
-    async displayArts(filterUserId = null, currentUserId = null, loadMore = false) {
+    async displayArts(filterUserId = null, currentUserId = null) {
         if (!this.container) { console.error("Arts container not found"); return; }
         if (this.isLoading) return;
         this.isLoading = true;
@@ -105,34 +153,31 @@ class ArtManager {
             if (user) currentUserId = user.firestoreUserId;
         }
 
-        if (!loadMore || this.currentFilterUserId !== filterUserId) {
-            this.container.innerHTML = "<p>Loading arts...</p>";
-            this.lastVisibleArt      = null;
-            this.currentFilterUserId = filterUserId;
-        }
+        this.currentFilterUserId = filterUserId;
+        this.container.innerHTML = "<p>Loading arts...</p>";
 
         try {
             let query = this.db.collection("arts").orderBy("createdAt", "desc");
             if (this.currentFilterUserId) query = query.where("userId", "==", this.currentFilterUserId);
-            query = query.limit(this.batchSize);
-            if (loadMore && this.lastVisibleArt) query = query.startAfter(this.lastVisibleArt);
 
             const snapshot = await query.get();
             if (snapshot.empty) {
-                if (!loadMore) this.container.innerHTML = "<p>No arts available.</p>";
+                this.container.innerHTML = "<p>No arts available.</p>";
                 return;
             }
 
             const userIds = snapshot.docs.map(doc => doc.data().userId);
             await this.cacheUsers([...new Set(userIds)]);
 
-            if (!loadMore) this.container.innerHTML = "";
-
-            // Pre-warm likes cache for this batch
+            // Pre-warm likes cache for all items at once
             const artIds = snapshot.docs.map(d => d.id);
             await this.likesManager.prewarmLikesCache(
                 artIds, ART_CONFIG.likesCollection, "artId", "userId", currentUserId
             );
+
+            // Build horizontal scroll strip
+            this.container.innerHTML = "";
+            this._applyHorizontalStripStyles(this.container);
 
             snapshot.docs.forEach(doc => {
                 const artData  = doc.data();
@@ -140,33 +185,26 @@ class ArtManager {
                 const artEl    = this.createArtElement(doc.id, artData, userData, currentUserId);
                 this.container.appendChild(artEl);
             });
-
-            this.lastVisibleArt = snapshot.docs[snapshot.docs.length - 1];
-
-            if (snapshot.docs.length === this.batchSize) {
-                this._observeLastElement(this.container.lastElementChild, this.currentFilterUserId);
-            }
         } catch (error) {
             console.error("[ArtManager] displayArts error:", error);
-            if (!loadMore) this.container.innerHTML = "<p>Error loading arts.</p>";
+            this.container.innerHTML = "<p>Error loading arts.</p>";
         } finally {
             this.isLoading = false;
         }
     }
 
-    _observeLastElement(el, filterUserId) {
-        let debounced = false;
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting && !this.isLoading && !debounced) {
-                    debounced = true;
-                    observer.disconnect();
-                    setTimeout(() => { debounced = false; }, 1000);
-                    this.displayArts(filterUserId, null, true);
-                }
-            });
-        }, { threshold: 1.0 });
-        observer.observe(el);
+    _applyHorizontalStripStyles(container) {
+        container.style.cssText = `
+            display: flex;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            overflow-y: visible;
+            gap: 16px;
+            padding: 8px 4px 16px;
+            scrollbar-width: thin;
+            -webkit-overflow-scrolling: touch;
+        `;
     }
 
     // ─── Create art element ───────────────────────────────────────────────────
@@ -174,66 +212,53 @@ class ArtManager {
     createArtElement(artId, artData, userData, currentUserId) {
         const isOwner  = artData.userId === currentUserId;
         const artEl    = document.createElement("div");
-        artEl.className = "card mb-4 art-card";
-
-        const timestamp     = artData.createdAt?.toDate() || new Date();
-        const formattedDate = timestamp.toLocaleDateString('en-US', {
-            year: 'numeric', month: 'long', day: 'numeric',
-            hour: '2-digit', minute: '2-digit'
-        });
+        artEl.className = "card art-card";
+        artEl.style.cssText = `
+            flex: 0 0 220px;
+            width: 220px;
+            min-width: 220px;
+            display: flex;
+            flex-direction: column;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        `;
 
         artEl.innerHTML = `
-            <div class="card-header d-flex align-items-center">
-                <img src="${userData.profilePicture ? `data:image/jpeg;base64,${userData.profilePicture}` : '../images/default-profile.png'}"
-                     class="rounded-circle me-2 user-profile-link"
-                     alt="Profile Picture"
-                     style="width:40px;height:40px;object-fit:cover;cursor:pointer;"
-                     data-user-id="${artData.userId}">
-                <div>
-                    <h6 class="mb-0 user-profile-link" style="cursor:pointer;" data-user-id="${artData.userId}">
-                        ${userData.user_Name || "Unknown Artist"}
-                    </h6>
-                    <small class="text-muted">${formattedDate}</small>
-                </div>
+            <div style="position:relative;width:100%;height:220px;background:${artData.bgColor || '#f8f9fa'};overflow:hidden;cursor:pointer;">
+                <img src="${artData.downloadURL}"
+                     class="art-image lazy-load"
+                     alt="${artData.name}"
+                     style="width:100%;height:100%;object-fit:contain;"
+                     loading="lazy"
+                     data-art-id="${artId}">
             </div>
-            <div class="card-body">
-                <h5 class="card-title">${artData.name}</h5>
-                <div class="art-price-section mb-3">
-                    <strong class="text-primary">R$ ${artData.totalPrice?.toFixed(2) || '0.00'}</strong>
-                    <small class="text-muted">
-                        (Art: R$ ${artData.price?.toFixed(2) || '0.00'} + Platform: R$ ${artData.platformFee?.toFixed(2) || '0.00'})
+            <div class="card-body p-2" style="flex:1;">
+                <p class="mb-0 fw-semibold text-truncate" style="font-size:0.85rem;" title="${artData.name}">${artData.name}</p>
+                <p class="mb-0 text-primary fw-bold" style="font-size:0.8rem;">R$ ${artData.totalPrice?.toFixed(2) || '0.00'}</p>
+                <div class="d-flex align-items-center gap-1 mt-1">
+                    <img src="${userData.profilePicture ? `data:image/jpeg;base64,${userData.profilePicture}` : '../images/default-profile.png'}"
+                         class="rounded-circle user-profile-link"
+                         style="width:20px;height:20px;object-fit:cover;cursor:pointer;flex-shrink:0;"
+                         data-user-id="${artData.userId}">
+                    <small class="text-muted text-truncate user-profile-link" style="font-size:0.72rem;cursor:pointer;" data-user-id="${artData.userId}">
+                        ${userData.user_Name || "Unknown Artist"}
                     </small>
                 </div>
-                <div class="art-image-container"
-                     style="width:100%;height:400px;overflow:hidden;display:flex;justify-content:center;align-items:center;background-color:${artData.bgColor || '#f8f9fa'};">
-                    <img src="${artData.downloadURL}"
-                         class="img-fluid rounded art-image lazy-load"
-                         alt="${artData.name}"
-                         style="width:100%;height:100%;object-fit:contain;cursor:pointer;"
-                         loading="lazy"
-                         data-art-id="${artId}">
-                </div>
-                ${artData.description ? `<p class="card-text mt-3">${artData.description}</p>` : ''}
             </div>
-            <div class="card-footer">
-                <button class="btn btn-outline-primary like-button" data-art-id="${artId}">
-                    <span class="like-count">${artData.likes_count || 0}</span> Likes
+            <div class="card-footer p-2 d-flex gap-1 flex-wrap">
+                <button class="btn btn-outline-primary btn-sm like-button px-2 py-1" data-art-id="${artId}" style="font-size:0.75rem;">
+                    ♥ <span class="like-count">${artData.likes_count || 0}</span>
                 </button>
-                <button class="btn btn-success buy-button" data-art-id="${artId}" data-price="${artData.totalPrice}">
-                    Buy Art - R$ ${artData.totalPrice?.toFixed(2) || '0.00'}
+                <button class="btn btn-success btn-sm buy-button px-2 py-1" data-art-id="${artId}" data-price="${artData.totalPrice}" style="font-size:0.75rem;">
+                    Buy
                 </button>
-                <button class="btn btn-outline-secondary comments-toggle-button" data-art-id="${artId}">
-                    Show Comments
+                <button class="btn btn-outline-secondary btn-sm comments-toggle-button px-2 py-1" data-art-id="${artId}" style="font-size:0.75rem;">
+                    💬
                 </button>
-                <div class="comments-container mt-3" id="comments-${artId}" style="display:none;"></div>
-                <div class="comment-input-container mt-2" id="commentInputContainer-${artId}" style="display:none;">
-                    <div class="input-group">
-                        <input type="text" class="form-control comment-input"
-                               placeholder="Write a comment..." id="commentInput-${artId}">
-                        <button class="btn btn-outline-primary comment-submit" data-art-id="${artId}">Post</button>
-                    </div>
-                </div>
-                ${isOwner ? `<button class="btn btn-danger mt-2 delete-art-button" data-art-id="${artId}">Delete Art</button>` : ''}
+                <div class="comments-container mt-2 w-100" id="comments-${artId}" style="display:none;"></div>
+                <div class="comment-input-container mt-1 w-100" id="commentInputContainer-${artId}" style="display:none;"></div>
+                ${isOwner ? `<button class="btn btn-danger btn-sm mt-1 delete-art-button px-2 py-1" data-art-id="${artId}" style="font-size:0.75rem;">Delete</button>` : ''}
             </div>
         `;
 
@@ -278,11 +303,15 @@ class ArtManager {
         const toggleBtn          = artEl.querySelector('.comments-toggle-button');
         let   commentsLoaded     = false;
 
+        // Comment input — delegate to SharedCommentsManager (includes image support)
         toggleBtn.addEventListener('click', () => {
             const visible = commentsContainer.style.display === "block";
             if (!visible) {
                 if (!commentsLoaded) {
                     this.commentsManager.loadComments(artId, commentsContainer, currentUserId, ART_CONFIG);
+                    this.commentsManager.renderCommentInput(
+                        commentInputContainer, artId, commentsContainer, ART_CONFIG, () => this.getCurrentUser()
+                    );
                     commentsLoaded = true;
                 }
                 commentsContainer.style.display    = "block";
@@ -294,15 +323,6 @@ class ArtManager {
                 toggleBtn.textContent = "Show Comments";
             }
         });
-
-        // Comment submit — delegate to SharedCommentsManager
-        const commentInput = artEl.querySelector('.comment-input');
-        const submitBtn    = artEl.querySelector('.comment-submit');
-        const doSubmit     = () => this.commentsManager.submitComment(
-            artId, commentInput, commentsContainer, ART_CONFIG, () => this.getCurrentUser()
-        );
-        submitBtn.addEventListener('click', doSubmit);
-        commentInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSubmit(); } });
 
         // Delete art (owner only)
         if (isOwner) {
@@ -420,3 +440,5 @@ class ArtManager {
         this.commentsManager.cleanupAllListeners();
     }
 }
+
+window.ArtManager = ArtManager;

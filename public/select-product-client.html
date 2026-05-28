@@ -177,26 +177,7 @@
   <!-- Firebase Auth -->
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 
-  <script>
-    // Your Firebase configuration - make sure this matches your project
-    const firebaseConfig = {
-        apiKey: "AIzaSyBcBmuXY9ulETrbn2PmzjsDZ7JKRcehqGo",
-        authDomain: "kauara1.firebaseapp.com",
-        projectId: "kauara1",
-        storageBucket: "kauara1.firebasestorage.app",
-        messagingSenderId: "651139031771",
-        appId: "1:651139031771:web:8c73a3e1fff2d5cf2ae2fe",
-        measurementId: "G-KL18R1CJ6S"
-    };
-
-    // Initialize Firebase
-    if (typeof firebase !== 'undefined') {
-        firebase.initializeApp(firebaseConfig);
-        console.log("Firebase initialized successfully");
-    } else {
-        console.error("Firebase SDK not loaded");
-    }
-  </script>
+  <script src="javascript/shared-firebase-init.js"></script>
 
   <script src="javascript/select-product-client.js"></script>
 </body>

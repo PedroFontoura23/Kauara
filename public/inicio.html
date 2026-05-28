@@ -1,279 +1,411 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta property="og:site_name" content="Kauava">
-    <meta name="description" content="Kauava - Connect with artists and discover community posts, arts, and products.">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; 
+    script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://www.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; 
+    style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; 
+    font-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com data:; 
+    connect-src 'self' https://kauara1.firebaseio.com https://kauara1.firebasestorage.app https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://www.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://us-central1-kauara1.cloudfunctions.net; 
+    frame-src 'self' https://kauara1.firebaseapp.com; 
+    img-src 'self' data: https://www.googleapis.com https://www.gstatic.com https://storage.googleapis.com https://firebasestorage.googleapis.com;">
     <title>Kauava.com</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- Google Fonts removed - using system fonts instead -->
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <style>
-        /* Ensure the search results are positioned below the search bar */
-        #searchForm {
-            position: relative; /* Make sure the dropdown appears below the input */
-        }
-        /* Hide the modal backdrop */
-        .modal-backdrop {
-            display: none !important;
-        }
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-storage.js"></script>
 
-        /* Positioning for the search results dropdown */
-        #searchResults {
-            position: absolute; /* Keep it positioned relative to the search bar */
-            top: 100%; /* Make sure it appears below the search bar */
-            left: 0;
-            right: 0;
-            z-index: 1000; /* Ensure it appears above other elements */
-            max-height: 200px; /* Optional: Add a max height to prevent overflow */
-            overflow-y: auto; /* Optional: Add scroll if results overflow */
-            display: none; /* Hidden initially */
-            background-color: white; /* Add background color for visibility */
-            border: 1px solid #ccc; /* Add border for better visibility */
-        }
-
-        /* Fixed header styles */
-        .fixed-header {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            z-index: 1000; /* Ensure it stays above other content */
-            background-color: #f8f9fa; /* Match the background color of your header */
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* Optional: Add a shadow for better visibility */
-        }
-
-        /* Adjust the padding of the main content to prevent overlap */
-        body {
-            padding-top: 70px; /* Adjust this value based on the height of your header */
-        }
-
-        /* Dropdown menu styles */
-        .dropdown-menu {
-            position: fixed;
-            top: 60px; /* Adjust based on header height */
-            left: 0;
-            width: 250px; /* Adjust width as needed */
-            height: 100vh; /* Full height */
-            overflow-y: auto; /* Scroll if content overflows */
-            background-color: #f8f9fa; /* Match header background */
-            border-right: 1px solid #ccc; /* Add border for separation */
-            box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1); /* Optional: Add shadow */
-        }
-
-        .dropdown-menu .list-unstyled {
-            padding-left: 20px; /* Indent list items */
-        }
-
-        .dropdown-menu h5 {
-            margin-top: 20px; /* Add spacing between sections */
-        }
-
-        /* Content section styling */
-        .content-section {
-            margin-bottom: 30px;
-        }
-        .section-title {
-            border-bottom: 2px solid #007bff;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
-            color: #333;
-        }
-    </style>
+        <link rel="stylesheet" href="/css/inicio.css">
 </head>
 <body>
-    <header class="bg-light py-3 fixed-header">
-        <div class="container d-flex justify-content-between align-items-center">
-            <!-- Dropdown Button for Footer Menu -->
-            <div>
-                <button class="btn btn-secondary" id="footerMenuButton">
-                    <i class="fas fa-bars"></i> Menu
-                </button>
-            </div>
 
-            <!-- Search Bar -->
-            <form class="d-flex w-50" id="searchForm">
-                <input id="searchInput" class="form-control me-2" type="search" placeholder="Search by username or email..." aria-label="Search" autocomplete="off">
-                <button class="btn btn-outline-primary" type="submit">Search</button>
-                <!-- Dropdown for search results -->
-                <ul id="searchResults" class="list-group"></ul>
-            </form>
+<!-- ── Notif bar (fixed) ── -->
+<div class="notif-bar">
+    <strong>✦ Frete grátis</strong> em compras acima de R$199 · Use o cupom <strong>KAUAVA10</strong> e ganhe 10% off na primeira compra!
+</div>
 
-            <div class="position-relative">
-                <button class="btn btn-warning position-relative" id="notificationButton">
-                    <i class="fas fa-bell"></i>
-                </button>
-                
-                <div id="notificationDropdown" class="dropdown-menu position-absolute end-0" 
-                    style="display: none; width: 300px; background-color: white; border: 1px solid #ccc; box-shadow: 2px 2px 10px rgba(0,0,0,0.2);">
-                    <div class="dropdown-header">Notifications</div>
-                    <div id="notificationList" class="list-group"></div>
-                </div>
-            </div>
+<!-- ── Header (fixed) ── -->
+<header class="header-main">
+    <a href="/inicio.html" class="logo">
+        <img src="/images/kauava_horizontal.png" alt="Kauava">
+    </a>
 
-            <!-- Profile Button -->
-            <div>
-                <button class="btn btn-primary" id="profileButton">profile</button>
+    <form id="searchForm" class="search-bar">
+        <img src="/images/search_icon.png" alt="Buscar" id="ks-search-icon-img">
+        <input id="kauava-search-input" type="search" name="q"
+               autocomplete="off"
+               placeholder="Busque por artistas ou produtos"
+               aria-label="Buscar">
+        <button id="kauava-search-clear" class="search-clear d-none" aria-label="Limpar busca"></button>
+    </form>
+
+    <div class="header-right">
+        <div class="cep-area" id="shippingHeaderBtn">
+            <img src="/images/cep_icon.png" alt="Localização">
+            <span id="cepAreaLabel">Insira seu CEP</span>
+        </div>
+
+        <div class="notif-wrapper">
+            <button class="icon-btn" id="notificationButton" aria-label="Notificações">
+                <img src="/images/notificacoes_icon.png" alt="Notificações">
+            </button>
+            <div id="notificationDropdown" class="notification-dropdown" style="display:none">
+                <div class="p-2 fw-bold border-bottom">Notificações</div>
+                <div id="notificationList" class="list-group"></div>
             </div>
         </div>
 
-        <!-- Dropdown Menu for Footer Content -->
-        <div class="dropdown-menu" id="footerDropdownMenu" style="display: none;">
-            <div class="container">
-                <div class="row">
-                    <!-- Conheça-nos Column -->
-                    <div class="col-md-12 mb-3">
-                        <h5 class="mb-3">Conheça-nos</h5>
-                        <ul class="list-unstyled">
-                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Sobre nós</a></li>
-                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Projetos</a></li>
-                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Seja um Artista</a></li>
-                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Política de privacidade</a></li>
-                        </ul>
-                    </div>
+        <button class="icon-btn" id="cartButton" aria-label="Carrinho">
+            <img src="/images/carrinho_icon.png" alt="Carrinho">
+        </button>
 
-                    <!-- Ajuda Column -->
-                    <div class="col-md-12 mb-3">
-                        <h5 class="mb-3">Ajuda</h5>
-                        <ul class="list-unstyled">
-                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Central de ajuda</a></li>
-                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">FAQ</a></li>
-                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Tutorial</a></li>
-                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Contato</a></li>
-                        </ul>
-                    </div>
+        <button class="icon-btn" id="profileButton" aria-label="Perfil">
+            <img src="/images/profile_icon.png" alt="Perfil">
+        </button>
+    </div>
+</header>
 
-                    <!-- Redes Sociais Column -->
-                    <div class="col-md-12 mb-3">
-                        <h5 class="mb-3">Redes Sociais</h5>
-                        <ul class="list-unstyled">
-                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Instagram</a></li>
-                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">LinkedIn</a></li>
-                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">Twitter</a></li>
-                            <li class="mb-2"><a href="#" class="text-decoration-none text-dark">TikTok</a></li>
-                        </ul>
-                    </div>
-                </div>
-
-                <!-- Copyright -->
-                <div class="row mt-3">
-                    <div class="col-12 text-center">
-                        <small class="text-muted">© 2025 Kauava. Todos os direitos reservados.</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Modal for Login/Register -->
-        <div class="modal" tabindex="-1" id="authModal">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="modalTitle">Login or Register</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div id="errorMessage" style="color: red; display: none; margin-bottom: 10px;"></div>
-                        <div id="resendContainer" style="margin-bottom: 10px;"></div>
-                        <!-- Form for Login -->
-                        <div id="loginForm">
-                            <h5>Login</h5>
-                            <input type="email" id="loginEmail" class="form-control" placeholder="Email" required>
-                            <div class="input-group mt-2">
-                                <input type="password" id="loginPassword" class="form-control" placeholder="Password" required>
-                                <div class="input-group-append">
-                                    <span class="input-group-text" id="toggleLoginPassword">
-                                        <i class="fas fa-eye"></i> <!-- FontAwesome eye icon -->
-                                    </span>
-                                </div>
-                            </div>
-                            <button class="btn btn-primary mt-2" id="loginSubmitButton">Log In</button>
-                            <p>Don't have an account? <span id="showRegister" class="text-primary" style="cursor: pointer;">Register here</span></p>
-                        </div>
-
-                        <!-- Form for Register -->
-                        <div id="registerForm" style="display: none;">
-                            <h5>Register</h5>
-                            <input type="email" id="registerEmail" class="form-control" placeholder="Email" required>
-                            <div class="input-group mt-2">
-                                <input type="password" id="registerPassword" class="form-control" placeholder="Password" required>
-                                <div class="input-group-append">
-                                    <span class="input-group-text" id="toggleRegisterPassword">
-                                        <i class="fas fa-eye"></i> <!-- FontAwesome eye icon -->
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="input-group mt-2">
-                                <input type="password" id="registerConfirmPassword" class="form-control" placeholder="Confirm Password" required>
-                                <div class="input-group-append">
-                                    <span class="input-group-text" id="toggleRegisterConfirmPassword">
-                                        <i class="fas fa-eye"></i> <!-- FontAwesome eye icon -->
-                                    </span>
-                                </div>
-                            </div>
-                            <input type="text" id="registerName" class="form-control mt-2" placeholder="Full Name" required>
-                            <button class="btn btn-primary mt-2" id="registerSubmitButton">Register</button>
-                            <p>Already have an account? <span id="showLogin" class="text-primary" style="cursor: pointer;">Log in here</span></p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div id="searchResultsContainer"></div>
-    </header>
-
-    <!-- Main Content -->
-    <div class="container mt-4">
-        
-        <!-- Products Section -->
-        <div class="content-section">
-            <h2 class="section-title">Community Products</h2>
-            <div id="productsContainer" class="products-feed">
-                <!-- Products from ALL users will be dynamically loaded here -->
-            </div>
-        </div>
-        <!-- Posts Section -->
-        <div class="content-section">
-            <h2 class="section-title">Community Posts</h2>
-            <div id="allPostsContainer">
-                <!-- Posts from ALL users will be dynamically loaded here -->
-            </div>
-        </div>
-
-        <!-- Arts Section -->
-        <div class="content-section">
-            <h2 class="section-title">Community Arts</h2>
-            <div id="artsContainer" class="arts-feed">
-                <!-- Arts from ALL users will be dynamically loaded here -->
-            </div>
-        </div>
-
+<!-- ── Nav bar (fixed) ── -->
+<nav class="nav-bar" id="mainNav">
+    <div class="nav-item">
+        <a id="lancamentosLink" href="#lancamentosSection">Lançamentos</a>
     </div>
 
-    <script>
-        // JavaScript to toggle the dropdown menu
-        document.getElementById('footerMenuButton').addEventListener('click', function() {
-            const dropdownMenu = document.getElementById('footerDropdownMenu');
-            if (dropdownMenu.style.display === 'none' || dropdownMenu.style.display === '') {
-                dropdownMenu.style.display = 'block';
-            } else {
-                dropdownMenu.style.display = 'none';
-            }
-        });
-    </script>
+    <div class="nav-item">
+        <a id="artsLink" href="#artsSection">Artes</a>
+    </div>
 
-    <!-- Scripts -->
-    <script src="/javascript/shared-likes.js"></script>
-    <script src="/javascript/shared-comments.js"></script>
-    <script src="/javascript/shared-posts.js"></script>
-    <script src="/javascript/shared-art.js"></script>
-    <script src="/javascript/shared-products.js"></script>
-    <script src="/javascript/app.js"></script>
-    <script src="/javascript/rating.js"></script>
+    <div class="nav-item" id="navProdutos">
+        <a id="linkProdutos" class="cursor-pointer">Todos os produtos</a>
+        <div class="mega-dropdown" id="dropProdutos">
+            <div class="mega-col">
+                <h4>Camisetas</h4>
+                <ul>
+                    <li><a href="/produtos.html?cat=classic">Classic</a></li>
+                    <li><a href="/produtos.html?cat=quality">Quality</a></li>
+                    <li><a href="/produtos.html?cat=prime">Prime</a></li>
+                    <li><a href="/produtos.html?cat=pima">Pima</a></li>
+                    <li><a href="/produtos.html?cat=estonada">Estonada</a></li>
+                    <li><a href="/produtos.html?cat=plus-size">Plus Size</a></li>
+                </ul>
+            </div>
+            <div class="mega-col">
+                <h4>Vestuário</h4>
+                <ul>
+                    <li><a href="/produtos.html?cat=polo">Polo</a></li>
+                    <li><a href="/produtos.html?cat=regata">Regata</a></li>
+                    <li><a href="/produtos.html?cat=cropped">Cropped</a></li>
+                    <li><a href="/produtos.html?cat=oversized">Oversized</a></li>
+                </ul>
+            </div>
+            <div class="mega-col">
+                <h4>Bonés</h4>
+                <ul>
+                    <li><a href="/produtos.html?cat=bone-brim">Brim</a></li>
+                    <li><a href="/produtos.html?cat=bone-comfort">Comfort</a></li>
+                    <li><a href="/produtos.html?cat=bone-americano">Americano</a></li>
+                </ul>
+            </div>
+            <div class="mega-col">
+                <h4>Acessórios</h4>
+                <ul>
+                    <li><a href="/produtos.html?cat=caneca">Caneca</a></li>
+                    <li><a href="/produtos.html?cat=caneca-magica">Caneca Mágica</a></li>
+                    <li><a href="/produtos.html?cat=ecobag">Ecobag</a></li>
+                    <li><a href="/produtos.html?cat=garrafa-termica">Garrafa Térmica</a></li>
+                    <li><a href="/produtos.html?cat=copo-termico">Copo Térmico</a></li>
+                    <li><a href="/produtos.html?cat=posteres">Pôsteres</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <div class="nav-item" id="navArtistas">
+        <a href="/artistas.html" id="linkArtistas">Artistas</a>
+        <div class="mega-dropdown" id="dropArtistas">
+            <div class="mega-col">
+                <h4><i class="fas fa-palette me-1"></i> Nossos Artistas</h4>
+                <div id="artistasDropdownGrid" class="artistas-dropdown-grid">
+                    <div class="artist-dropdown-loading">
+                        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                        <span class="ms-2 artist-dropdown-loading-text">Carregando artistas...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="nav-item">
+        <a href="/sobre.html">Sobre Nós</a>
+    </div>
+
+    <div class="nav-item">
+        <a href="/ajuda.html">Ajuda</a>
+    </div>
+
+    <div class="nav-item">
+        <a href="/artistRegistration.html" class="bold">Seja um artista</a>
+    </div>
+</nav>
+
+<!-- ── Auth Modal ── -->
+<div class="modal" tabindex="-1" id="authModal">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalTitle">Login or Register</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="errorMessage" class="error-message d-none"></div>
+                <div id="resendContainer" class="resend-container"></div>
+                <div id="loginForm">
+                    <h5>Login</h5>
+                    <input type="email" id="loginEmail" class="form-control" placeholder="Email" required>
+                    <div class="input-group mt-2">
+                        <input type="password" id="loginPassword" class="form-control" placeholder="Password" required>
+                        <span class="input-group-text" id="toggleLoginPassword"><i class="fas fa-eye"></i></span>
+                    </div>
+                    <button class="btn btn-primary mt-2" id="loginSubmitButton">Log In</button>
+                    <p>Don't have an account? <span id="showRegister" class="text-primary clickable-text">Register here</span></p>
+                </div>
+                <div id="registerForm" class="d-none">
+                    <h5>Register</h5>
+                    <input type="email" id="registerEmail" class="form-control" placeholder="Email" required>
+                    <div class="input-group mt-2">
+                        <input type="password" id="registerPassword" class="form-control" placeholder="Password" required>
+                        <span class="input-group-text" id="toggleRegisterPassword"><i class="fas fa-eye"></i></span>
+                    </div>
+                    <div class="input-group mt-2">
+                        <input type="password" id="registerConfirmPassword" class="form-control" placeholder="Confirm Password" required>
+                        <span class="input-group-text" id="toggleRegisterConfirmPassword"><i class="fas fa-eye"></i></span>
+                    </div>
+                    <input type="text" id="registerName" class="form-control mt-2" placeholder="Full Name" required>
+                    <button class="btn btn-primary mt-2" id="registerSubmitButton">Register</button>
+                    <p>Already have an account? <span id="showLogin" class="text-primary clickable-text">Log in here</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     PAGE BODY
+══════════════════════════════════════════════════ -->
+
+<div class="promo-carousel">
+    <div class="carousel-container">
+        <div class="carousel-track" id="enhancedCarouselTrack">
+            <!-- SLIDE 1: banner1.jpg -->
+            <div class="carousel-slide">
+                <img src="/images/promo1.jpg" alt="Promoção 1" loading="lazy" onerror="this.src='https://placehold.co/1920x480/2a1f6b/white?text=Kauava+Banner+1'">
+            </div>
+            <!-- SLIDE 2: banner2.jpg -->
+            <div class="carousel-slide">
+                <img src="/images/promo2.jpg" alt="Promoção 2" loading="lazy" onerror="this.src='https://placehold.co/1920x480/1a1040/white?text=Kauava+Banner+2'">
+            </div>
+        </div>
+        <button class="carousel-btn prev" id="carouselPrevBtn" aria-label="Slide anterior"><i class="fas fa-chevron-left"></i></button>
+        <button class="carousel-btn next" id="carouselNextBtn" aria-label="Próximo slide"><i class="fas fa-chevron-right"></i></button>
+        <div class="carousel-dots" id="carouselDots"></div>
+    </div>
+</div>
+
+<!-- 3 · Novos Lançamentos -->
+<section class="page-section bg-white" id="lancamentosSection">
+    <div class="section-header">
+        <div>
+            <p class="section-label">Chegou agora</p>
+            <h2 class="section-title-lg">Novos Lançamentos</h2>
+        </div>
+        <a href="/produtos.html" class="btn-see-all">Ver todos <i class="fas fa-arrow-right btn-see-all-icon"></i></a>
+    </div>
+    <div id="novosProdutosContainer" class="products-feed"></div>
+</section>
+
+<div class="section-divider"></div>
+
+<!-- 4 · Artistas em Destaque -->
+<section class="page-section">
+    <div class="section-header">
+        <div>
+            <p class="section-label">Conheça</p>
+            <h2 class="section-title-lg">Artistas em Destaque</h2>
+        </div>
+        <a href="/artistas.html" class="btn-see-all">Ver todos os artistas <i class="fas fa-arrow-right btn-see-all-icon"></i></a>
+    </div>
+    <div id="artistasDestaqueGrid" class="artists-grid">
+        <div class="artist-card">
+            <div class="artist-avatar-wrap gradient-bg"></div>
+            <div class="artist-card-name">Artista</div>
+            <div class="artist-card-role">Ilustração</div>
+        </div>
+        <div class="artist-card">
+            <div class="artist-avatar-wrap gradient-bg"></div>
+            <div class="artist-card-name">Artista</div>
+            <div class="artist-card-role">Tipografia</div>
+        </div>
+        <div class="artist-card">
+            <div class="artist-avatar-wrap gradient-bg"></div>
+            <div class="artist-card-name">Artista</div>
+            <div class="artist-card-role">Arte Digital</div>
+        </div>
+        <div class="artist-card">
+            <div class="artist-avatar-wrap gradient-bg"></div>
+            <div class="artist-card-name">Artista</div>
+            <div class="artist-card-role">Street Art</div>
+        </div>
+        <div class="artist-card">
+            <div class="artist-avatar-wrap gradient-bg"></div>
+            <div class="artist-card-name">Artista</div>
+            <div class="artist-card-role">Fotografia</div>
+        </div>
+        <div class="artist-card">
+            <div class="artist-avatar-wrap gradient-bg"></div>
+            <div class="artist-card-name">Artista</div>
+            <div class="artist-card-role">Bordado</div>
+        </div>
+    </div>
+</section>
+
+<div class="section-divider"></div>
+
+<!-- 5 · Artes da Comunidade -->
+<section class="page-section bg-white" id="artsSection">
+    <div class="section-header">
+        <div>
+            <p class="section-label">Galeria</p>
+            <h2 class="section-title-lg">Artes da Comunidade</h2>
+        </div>
+        <a href="/artes.html" class="btn-see-all">Ver galeria completa <i class="fas fa-arrow-right btn-see-all-icon"></i></a>
+    </div>
+    <div id="artsContainer" class="arts-feed"></div>
+</section>
+
+<div class="section-divider"></div>
+
+<!-- 6 · Produtos da Comunidade -->
+<section class="page-section">
+    <div class="section-header">
+        <div>
+            <p class="section-label">Feito pela comunidade</p>
+            <h2 class="section-title-lg">Produtos da Comunidade</h2>
+        </div>
+        <a href="/produtos.html" class="btn-see-all">Ver todos <i class="fas fa-arrow-right btn-see-all-icon"></i></a>
+    </div>
+    <div id="productsContainer" class="products-feed"></div>
+</section>
+
+<!-- 7 · Full-width promo — Talentos em ascensão -->
+<section class="full-promo">
+    <div class="full-promo-text">
+        <p class="eyebrow">Comunidade Kauava</p>
+        <h2>Talentos em ascensão.<br>Vote e apoie.</h2>
+        <p>Conheça os candidatos a artista Kauava e ajude a eleger os próximos grandes nomes do design independente brasileiro.</p>
+    </div>
+    <div class="full-promo-cta">
+        <a href="#candidatosSection" id="candidatosButton" class="btn-promo">
+            Ver candidatos <i class="fas fa-arrow-right"></i>
+        </a>
+    </div>
+</section>
+
+<!-- 8 · Candidatos a artista -->
+<section class="page-section bg-white" id="candidatosSection">
+    <div class="section-header">
+        <div>
+            <p class="section-label">Vote agora</p>
+            <h2 class="section-title-lg">Candidatos a Artista</h2>
+        </div>
+    </div>
+    <div id="candidatoArtsContainer"></div>
+</section>
+
+<div class="section-divider"></div>
+
+<!-- 9 · Posts da Comunidade -->
+<section class="page-section">
+    <div class="section-header">
+        <div>
+            <p class="section-label">Feed</p>
+            <h2 class="section-title-lg">Posts da Comunidade</h2>
+        </div>
+    </div>
+    <div id="allPostsContainer"></div>
+</section>
+
+<!-- 10 · Newsletter -->
+<div class="newsletter-band">
+    <div>
+        <h3>Fique por dentro das novidades</h3>
+        <p>Receba lançamentos, promoções e conteúdo dos artistas direto no seu e-mail.</p>
+    </div>
+    <div class="newsletter-form">
+        <input type="email" class="newsletter-input" placeholder="Seu melhor e-mail">
+        <button class="btn-newsletter">Inscrever</button>
+    </div>
+</div>
+
+<!-- 11 · Footer -->
+<footer>
+    <div class="footer-grid">
+        <div class="footer-brand">
+            <img src="/images/kauava_horizontal.png" alt="Kauava">
+            <p>A plataforma que conecta artistas independentes brasileiros a pessoas que valorizam arte de verdade.</p>
+            <div class="footer-socials">
+                <a href="#" class="footer-social"><i class="fab fa-instagram"></i></a>
+                <a href="#" class="footer-social"><i class="fab fa-tiktok"></i></a>
+                <a href="#" class="footer-social"><i class="fab fa-twitter"></i></a>
+                <a href="#" class="footer-social"><i class="fab fa-linkedin-in"></i></a>
+            </div>
+        </div>
+        <div class="footer-col">
+            <h5>Kauava</h5>
+            <ul>
+                <li><a href="#">Quem Somos</a></li>
+                <li><a href="#">Seja um Artista</a></li>
+                <li><a href="#">Projetos</a></li>
+                <li><a href="#">Blog</a></li>
+                <li><a href="#">Imprensa</a></li>
+            </ul>
+        </div>
+        <div class="footer-col">
+            <h5>Ajuda</h5>
+            <ul>
+                <li><a href="#">Trocas e Devoluções</a></li>
+                <li><a href="#">Rastrear Pedido</a></li>
+                <li><a href="#">Perguntas Frequentes</a></li>
+                <li><a href="#">Política de Privacidade</a></li>
+                <li><a href="#">Termos de Uso</a></li>
+            </ul>
+        </div>
+    </div>
+    <div class="footer-bottom">
+        <span>© 2025 Kauava. Todos os direitos reservados.</span>
+        <div>
+            <a href="#">Privacidade</a>
+            <a href="#">Termos</a>
+            <a href="#">Cookies</a>
+        </div>
+    </div>
+</footer>
+
+<!-- ── Scripts ── -->
+<script src="/javascript/shared-notifications.js"></script>
+<script src="/javascript/shared-likes.js"></script>
+<script src="/javascript/shared-comments.js"></script>
+<script src="/javascript/shared-posts.js"></script>
+<script src="/javascript/shared-art.js"></script>
+<script src="/javascript/shared-shipping.js"></script>
+<script src="/javascript/shared-products-dimona.js"></script>
+<script src="/javascript/shared-candidatos.js"></script>
+<script src="/javascript/app.js"></script>
+<script src="/javascript/rating.js"></script>
+<script src="/javascript/shared-search.js"></script>
+<script src="/javascript/inicio-inline.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
 </body>
 </html>

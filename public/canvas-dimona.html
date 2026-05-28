@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' data: https://www.gstatic.com https://www.googleapis.com https://firestore.googleapis.com ws://localhost:5001 wss://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://api.mercadopago.com https://www.mercadolibre.com https://api.mercadolibre.com https://events.mercadopago.com https://us-central1-kauara1.cloudfunctions.net">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <title>Canvas — Dimona</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #fafafa;
+      color: #222;
+    }
+    h2 { margin-bottom: 15px; }
+    .variant-selection { margin-bottom: 20px; }
+    .variant-option {
+      display: inline-block;
+      padding: 8px 12px;
+      margin: 4px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      cursor: pointer;
+      background: #fff;
+      transition: background 0.2s;
+    }
+    .variant-option:hover { background: #f5f5f5; }
+    .variant-option.selected {
+      border-color: #3b82f6;
+      background: #eff6ff;
+    }
+    #view-buttons {
+      margin: 15px 0;
+    }
+    .view-btn {
+      padding: 8px 14px;
+      margin-right: 8px;
+      border: 1px solid #3b82f6;
+      background: #e0e7ff;
+      color: #3b82f6;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .view-btn.active {
+      background: #3b82f6;
+      color: white;
+    }
+    .view-btn:hover { background: #c7d2fe; }
+    .canvas-container {
+      width: 800px;
+      height: 600px;
+      border: 1px solid #ccc;
+      overflow: hidden;
+    }
+    #product-canvas {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+    .controls {
+      margin: 20px 0;
+      padding: 15px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+    }
+    .control-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; font-weight: bold; }
+    input[type="text"] { margin-bottom: 10px; }
+    button {
+      padding: 10px 15px;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+    button:hover { background: #2563eb; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    .scale-control { margin: 15px 0; }
+    .scale-control label { display: inline-block; margin-right: 10px; }
+    .scale-control input { vertical-align: middle; }
+    #scale-value { display: inline-block; min-width: 40px; margin-left: 10px; }
+    #pricing-section {
+      border: 1px solid #ddd;
+      padding: 15px;
+      border-radius: 6px;
+      background: #f9f9f9;
+      margin: 15px 0;
+    }
+    #pricing-section label { display: block; margin-bottom: 5px; font-weight: bold; }
+    #pricing-section input {
+      margin-bottom: 15px;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      width: 100%;
+      max-width: 200px;
+    }
+    .color-indicator {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      margin-right: 8px;
+      vertical-align: middle;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Canvas — Dimona</h1>
+
+  <div id="variant-selection" class="variant-selection"></div>
+
+  <div id="view-buttons">
+    <button id="front-btn" class="view-btn active">Frente</button>
+    <button id="back-btn" class="view-btn">Costas</button>
+  </div>
+
+  <div class="canvas-container">
+    <canvas id="product-canvas"></canvas>
+  </div>
+
+  <div class="controls">
+
+    <div class="control-group">
+      <label for="item-name">Nome do Produto:</label>
+      <input type="text" id="item-name" placeholder="Ex: Camiseta Verão 2025">
+    </div>
+
+    <div class="control-group">
+      <input type="file" id="upload-input" accept="image/*" style="display:none">
+      <button id="upload-btn">Upload da Arte</button>
+      <button id="rotate-btn" style="background:#6b7280;">↻ Girar</button>
+    </div>
+
+    <div class="control-group scale-control">
+      <label for="scale-slider">Escala:</label>
+      <input type="range" id="scale-slider" min="10" max="500" value="100" step="5">
+      <span id="scale-value">100%</span>
+    </div>
+
+    <div id="pricing-section">
+      <h3>Precificação</h3>
+      <div class="control-group">
+        <label>Custo Base:</label>
+        <span id="base-price">—</span>
+      </div>
+      <div class="control-group">
+        <label for="artist-cut">Seu Lucro (R$):</label>
+        <input type="number" id="artist-cut" min="0" step="0.01" placeholder="0.00"
+               style="width:120px;padding:8px;border:1px solid #ccc;border-radius:4px;">
+      </div>
+      <div class="control-group">
+        <label>Preço Final (inclui R$ 10,00 de taxa):</label>
+        <span id="total-price">—</span>
+      </div>
+    </div>
+
+    <button id="save-btn">Salvar Produto</button>
+
+  </div>
+
+  <div style="margin-top:10px;">
+    <button id="back-to-profile" style="background:#6b7280;padding:8px 16px;">
+      ← Voltar ao Perfil
+    </button>
+  </div>
+
+  <!-- Áreas de impressão compartilhadas — deve vir ANTES do canvas script -->
+  <script src="javascript/canvas-dimona.js"></script>
+
+</body>
+</html>

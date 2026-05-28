@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Select Product</title>
+<title>Selecionar Produto</title>
 <style>
   body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#fafafa;color:#222}
   .top-bar{background:#fff;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;position:sticky;top:0;z-index:20}
@@ -48,44 +48,39 @@
 </head>
 <body>
   <header class="top-bar">
-    <h2>Select Product</h2>
+    <h2>Selecionar Produto</h2>
     <div class="stats">
-      <span id="product-count">0</span> products
-      <button id="refresh-btn" title="Reload products">⟳</button>
+      <span id="product-count">0</span> produtos
+      <button id="refresh-btn" title="Recarregar produtos">⟳</button>
     </div>
   </header>
 
   <main>
-    <div id="loading" class="loading">Loading products...</div>
+    <div id="loading" class="loading">Carregando produtos...</div>
     <div id="error" class="error" style="display:none"></div>
     <div id="products" class="product-grid"></div>
   </main>
+
   <button id="create-art-btn" style="background:#764ba2;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;margin-right:10px;">
-    Create Art
+    Criar Arte
   </button>
+
   <div id="variant-modal" class="modal" aria-hidden="true">
     <div class="modal-content" role="dialog" aria-modal="true">
-      <span class="close-modal" title="Close">&times;</span>
-      <h3>Choose colors for ${selectedProduct?.title || 'product'}</h3>
+      <span class="close-modal" title="Fechar">&times;</span>
+      <h3>Escolha as cores</h3>
       <div class="flatlay-container">
         <canvas id="flatlay-canvas" class="flatlay-img"></canvas>
       </div>
       <div id="variant-selection"></div>
       <div class="selected-colors-container">
-        <div class="section-title">Selected colors</div>
+        <div class="section-title">Cores selecionadas</div>
         <div id="selected-colors" class="selected-colors"></div>
       </div>
-      <button id="confirm-variant" class="confirm-button" disabled>Continue to Canvas</button>
+      <button id="confirm-variant" class="confirm-button" disabled>Continuar para o Canvas</button>
     </div>
   </div>
-  <script>
-    // Check if user is authenticated
-    if (!sessionStorage.getItem('currentUserId')) {
-        alert("Please log in to access this page");
-        window.location.href = 'profile.html';
-    }
-  </script>
 
-  <script src="javascript/select-product.js"></script>
+  <script src="/javascript/select-product-dimona.js"></script>
 </body>
 </html>

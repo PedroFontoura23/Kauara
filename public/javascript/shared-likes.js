@@ -103,10 +103,11 @@ window.SharedLikesManager = class SharedLikesManager {
         this._updateCache(this._likesCache, contentId, userId, !hasLiked);
 
         try {
-            const batch      = this.db.batch();
-            const likeDocId  = `${contentId}_${userId}`;
-            const likeRef    = this.db.collection(config.likesCollection).doc(likeDocId);
-            const contentRef = this.db.collection(config.collection).doc(contentId);
+            const batch         = this.db.batch();
+            const contentIdField = config.contentIdField || this._getContentIdField(config);
+            const likeDocId     = `${contentId}_${userId}`;
+            const likeRef       = this.db.collection(config.likesCollection).doc(likeDocId);
+            const contentRef    = this.db.collection(config.collection).doc(contentId);
 
             if (hasLiked) {
                 batch.delete(likeRef);
@@ -116,7 +117,7 @@ window.SharedLikesManager = class SharedLikesManager {
             } else {
                 const likeData = {
                     [config.userIdField || "userId"]: userId,
-                    [`${config.userIdField === "foreignUserId" ? "foreignPostId" : (config.collection === "arts" ? "artId" : "productId")}`]: contentId,
+                    [contentIdField]: contentId,
                     timestamp: firebase.firestore.FieldValue.serverTimestamp()
                 };
                 batch.set(likeRef, likeData);
@@ -136,7 +137,7 @@ window.SharedLikesManager = class SharedLikesManager {
                             fromUserProfilePic:  profilePic || null,
                             type:                type || "like",
                             message:             message || `${fromUsername} liked your content`,
-                            [`${config.collection === "posts" ? "postId" : (config.collection === "arts" ? "artId" : "productId")}`]: contentId,
+                            [contentIdField]:   contentId,
                             timestamp:           firebase.firestore.FieldValue.serverTimestamp(),
                             read:                false
                         });
@@ -145,6 +146,12 @@ window.SharedLikesManager = class SharedLikesManager {
             }
 
             await batch.commit();
+
+            // Sync the real count from Firestore so the DOM stays accurate
+            if (countEl) {
+                const doc = await this.db.collection(config.collection).doc(contentId).get();
+                if (doc.exists) countEl.textContent = doc.data().likes_count ?? (hasLiked ? currentCount - 1 : currentCount + 1);
+            }
         } catch (error) {
             console.error("[SharedLikesManager] toggleLike error:", error);
             // Rollback optimistic updates
@@ -259,19 +266,48 @@ window.SharedLikesManager = class SharedLikesManager {
         try {
             // Fetch only likes belonging to the current user for these items.
             const chunks = this._chunk(contentIds, 10);
+            const fieldName = contentIdField || this._getContentIdField({ collection: likesCollection, userIdField });
             for (const chunk of chunks) {
                 const snap = await this.db.collection(likesCollection)
-                    .where(contentIdField, "in", chunk)
+                    .where(fieldName, "in", chunk)
                     .where(userIdField, "==", currentUserId)
                     .get();
                 snap.forEach(doc => {
-                    const cid = doc.data()[contentIdField];
+                    const cid = doc.data()[fieldName];
                     if (!this._likesCache.has(cid)) this._likesCache.set(cid, new Set());
                     this._likesCache.get(cid).add(currentUserId);
                 });
             }
         } catch (e) {
             console.warn("[SharedLikesManager] prewarmLikesCache error:", e);
+        }
+    }
+
+    async loadLikeState(contentId, config, getCurrentUser = null) {
+        const userId = await this._getOrResolveUserId(getCurrentUser);
+        if (!userId) return false;
+
+        const contentIdField = config.contentIdField || this._getContentIdField(config);
+        const likeDocId = `${contentId}_${userId}`;
+        const likeRef = this.db.collection(config.likesCollection).doc(likeDocId);
+        const likeDoc = await likeRef.get();
+        const liked = likeDoc.exists;
+
+        if (!this._likesCache.has(contentId)) this._likesCache.set(contentId, new Set());
+        this._updateCache(this._likesCache, contentId, userId, liked);
+        return liked;
+    }
+
+    _getContentIdField(config) {
+        if (config && config.contentIdField) return config.contentIdField;
+        if (!config || !config.collection) return 'itemId';
+
+        switch (config.collection) {
+            case 'arts': return 'artId';
+            case 'posts': return 'postId';
+            case 'products': return 'productId';
+            case 'users': return 'profileUserId';
+            default: return `${config.collection.replace(/s$/, '')}Id`;
         }
     }
 
